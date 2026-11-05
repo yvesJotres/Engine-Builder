@@ -165,7 +165,7 @@ func _build_cylinders(spec: EngineSpec) -> void:
 	if key == _cyl_key:
 		return
 	_cyl_key = key
-	var fire := FiringOrders.fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane)
+	var fire := FiringOrders.fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
 	cylinders.clear()
 	for i in spec.cylinders:
 		var c := Cylinder.new()

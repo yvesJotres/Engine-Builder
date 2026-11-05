@@ -124,7 +124,7 @@ func _convolve(x: float) -> float:
 func setup(spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	stop()
 	_cycle = 0.0
-	_fire = FiringOrders.fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane)
+	_fire = FiringOrders.fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
 	if layout == null:
 		layout = ExhaustLayout.build(spec)
 	_build_pipes(layout)

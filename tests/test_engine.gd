@@ -43,6 +43,7 @@ func _init() -> void:
 	check(FiringOrders.fire_angles(2, 270.0) == [0.0, 270.0], "270 twin fires at its pin angle")
 	check(FiringOrders.fire_angles(2, 180.0) == [0.0, 180.0], "180 twin fires at its pin angle")
 	check(FiringOrders.fire_angles(4, 360.0, true) == [0.0, 450.0, 270.0, 540.0], "crossplane four fires 270/180/90/180 apart")
+	check(FiringOrders.fire_angles(4, 360.0, false, true) == [0.0, 630.0, 480.0, 390.0], "Panigale V4 split-pin fires at 0/630/480/390 (engine-sim ignition wiring)")
 	check(FiringOrders.fired_between(-1.0, 1.0, 0.0), "cylinder at 0 fires when crank passes 0")
 	check(not FiringOrders.fired_between(100.0, 200.0, 0.0), "no fire mid-cycle")
 	check(FiringOrders.fired_between(700.0, 730.0, 0.0), "fires again on 720 wrap")

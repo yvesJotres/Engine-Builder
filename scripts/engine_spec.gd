@@ -19,6 +19,7 @@ extends Resource
 @export var final_drive := 3.0 # countershaft to wheel, K45R 45/15 sprockets
 @export var gear_ratios: Array = [3.0833, 1.9412, 1.5, 1.2273, 1.0417, 0.9231] # K45R tooth counts, 1st to 6th
 @export var twin_pin_deg := 360.0 # 2-cylinder only: crank-pin angle between the two cylinders, 360, 270 or 180
+@export var split_pin_v4 := false # 4-cylinder V with a 70 degree split crank pin (Ducati Panigale V4)
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var flywheel_radius_mm := 75.0 # estimate, not a published figure: a light single needs this much inertia to hold idle and rev cleanly
 @export var compression_ratio := 11.3 # Honda CBR150R (K45N), dealer page

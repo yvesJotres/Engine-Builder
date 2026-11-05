@@ -36,6 +36,17 @@ const PRESETS := {
 		"primary_ratio": 2.9, "final_drive": 3.429,
 		"gear_ratios": [2.929, 2.056, 1.619, 1.333, 1.154, 1.037],
 	},
+	# Ducati Panigale V4 (1,103 cc): bore, stroke, redline, rod length, flywheel and the 90 degree V with a 70 degree split crank pin
+	# from engine-sim's panigale_v4.mr (MIT, Copyright 2022 Ange Yaghi). Firing is the reference's ignition wiring. Compression is
+	# worked out from its 20 cc chamber and 30.5 mm compression height. The intake, exhaust and cam timing are the simulator's own.
+	"Ducati Panigale V4 (1,103 cc)": {
+		"cylinders": 4, "displacement_cc": 1102.7, "bore_mm": 81.0, "stroke_mm": 53.5,
+		"rod_ratio": 2.06, "compression_ratio": 14.8, "layout": "V", "bank_angle": 90.0, "split_pin_v4": true,
+		"header": "stock", "fuel": "petrol",
+		"redline_rpm": 14250.0,
+		"flywheel_kg": 2.5, "flywheel_radius_mm": 60.0,
+		"vehicle_kg": 200.0,
+	},
 	# Yamaha YZF-R1M (2015): bore and stroke from motodealers.co.uk and Ultimate Motorcycling, compression 13.0 from the same sources.
 	# Gear ratios, redline (limiter 14,600), flywheel, rod ratio and 200 kg mass from engine-sim's yzf_r1.mr (MIT, Copyright 2022 Ange Yaghi).
 	# That file gives the total ratio with a 4.7 final drive and no separate primary, so primary is 1.0 here. Not verified against a service manual.

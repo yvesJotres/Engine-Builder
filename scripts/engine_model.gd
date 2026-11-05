@@ -90,7 +90,7 @@ func _build_engine(spec: EngineSpec) -> void:
 	_crank_y = r - L
 	var pitch := bore * PITCH_FACTOR
 	_span = (n - 1) * pitch
-	var fire := FiringOrders.fire_angles(n, spec.twin_pin_deg, spec.crossplane)
+	var fire := FiringOrders.fire_angles(n, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
 
 	var steel := _mat(Color(0.45, 0.45, 0.48), 0.4)
 	var iron := _mat(Color(0.2, 0.2, 0.22), 0.5)
