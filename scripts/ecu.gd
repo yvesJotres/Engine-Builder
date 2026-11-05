@@ -1,0 +1,45 @@
+class_name ECU
+extends RefCounted
+
+# Engine control unit. It holds the idle speed the way a real bike's ECU does: a PI loop trims the spark advance while
+# the throttle is closed. Below the target it advances the spark (more torque), above it retards. Off the idle it lets go.
+
+const KP := 0.02 # degrees of advance per rpm below the target
+const KI := 0.02 # degrees of advance per rpm of error per second, so a steady error slowly adds advance
+const TRIM_MIN := -8.0 # degrees, the most the ECU retards the spark at idle
+const TRIM_MAX := 15.0 # degrees, the most the ECU advances the spark at idle
+const IDLE_THROTTLE := 0.02 # throttle fraction below which the ECU is in idle control
+const ACTIVE_RPM := 900.0 # rpm above which the ECU takes over the idle, so starting is left alone
+const RELEASE_RATE := 20.0 # degrees per second the trim fades when the ECU lets go
+
+var target_rpm := 1200.0
+var trim := 0.0 # degrees of spark advance added by the ECU right now
+var _integral := 0.0
+var _air_log := 0.0 # log of the idle-air multiplier: 0 = the engine's own idle air, positive = more air
+var _air_integral := 0.0
+
+const KP_AIR := 0.0005 # log units of air per rpm below the target
+const KI_AIR := 0.0005 # log units of air per rpm of error per second
+const AIR_LIMIT := 5.0 # log units either way: the idle valve can open or close a long way
+
+
+# Called once per physics step. Returns the spark advance trim in degrees.
+func update(dt: float, rpm: float, throttle: float, running: bool) -> float:
+	# the ECU stays out of the way while the engine is starting and climbing, and only holds the idle once it is running
+	if not running or throttle > IDLE_THROTTLE or rpm < ACTIVE_RPM:
+		_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
+		_air_integral = move_toward(_air_integral, 0.0, RELEASE_RATE * dt)
+		trim = _integral
+		return trim
+	var error := target_rpm - rpm
+	# the idle-air valve: below the target it opens, above it closes
+	_air_integral = clampf(_air_integral + KI_AIR * error * dt, -AIR_LIMIT, AIR_LIMIT)
+	_air_log = clampf(KP_AIR * error + _air_integral, -AIR_LIMIT, AIR_LIMIT)
+	_integral = clampf(_integral + KI * error * dt, TRIM_MIN, TRIM_MAX) # clamped so it cannot wind up
+	trim = clampf(KP * error + _integral, TRIM_MIN, TRIM_MAX)
+	return trim
+
+
+# The idle-air multiplier the valve is set to right now.
+func air_factor() -> float:
+	return exp(_air_log)
