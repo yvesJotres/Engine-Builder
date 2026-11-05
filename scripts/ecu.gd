@@ -17,6 +17,7 @@ var trim := 0.0 # degrees of spark advance added by the ECU right now
 var _integral := 0.0
 var _air_log := 0.0 # log of the idle-air multiplier: 0 = the engine's own idle air, positive = more air
 var _air_integral := 0.0
+var manual_air := -1.0 # diagnostics only: when above 0, the idle air is held at this factor
 
 const KP_AIR := 0.0005 # log units of air per rpm below the target
 const KI_AIR := 0.0005 # log units of air per rpm of error per second
@@ -49,4 +50,4 @@ func update(dt: float, rpm: float, throttle: float, running: bool) -> float:
 
 # The idle-air multiplier the valve is set to right now.
 func air_factor() -> float:
-	return exp(_air_log)
+	return manual_air if manual_air > 0.0 else exp(_air_log)
