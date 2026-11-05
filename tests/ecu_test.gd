@@ -1,7 +1,7 @@
 extends SceneTree
 
-# Asserting checks for the ECU and the spark timing map: the idle valve returns to neutral after a stall, the trims stay
-# inside their limits, and the timing map has the right end points and never falls as rpm rises.
+# Asserting checks for the ECU and the idle valve returns to neutral after a stall, the trims stay
+# inside their limits, and the spark advance keeps the burn centre at its target and never falls as rpm rises.
 # Run: godot --headless -s tests/ecu_test.gd (exit code 1 on any failure)
 
 var _fails := 0
@@ -42,19 +42,21 @@ func _init() -> void:
 		starting.update(dt, 600.0, 0.0, true)
 	check(starting.trim == 0.0 and starting.air_factor() == 1.0, "no ECU action below the active rpm")
 
-	# 4. The timing map: the end points, and it never falls as rpm rises.
-	check(absf(EngineAir.spark_advance_deg(0.0)) < 0.001, "timing map starts at 0 degrees at 0 rpm")
-	check(absf(EngineAir.spark_advance_deg(1000.0) - 14.0) < 0.001, "timing map gives 14 degrees at 1,000 rpm")
-	check(absf(EngineAir.spark_advance_deg(15000.0) - 75.0) < 0.001, "timing map gives 75 degrees at 15,000 rpm")
-	check(absf(EngineAir.spark_advance_deg(99999.0) - 75.0) < 0.001, "timing map holds its last value above 15,000 rpm")
+	# 4. The spark advance keeps the burn centre (50% burnt) at the target after TDC at every speed, and never falls as rpm rises.
 	var last := -1.0
 	var monotonic := true
+	var centred := true
 	for rpm in range(0, 15001, 250):
 		var advance := EngineAir.spark_advance_deg(float(rpm))
 		if advance < last:
 			monotonic = false
 		last = advance
-	check(monotonic, "timing map never falls as rpm rises")
+		var ca50 := Cylinder.burn_duration_deg(float(rpm)) * Cylinder.WIEBE_CA50 - advance
+		if absf(ca50 - Cylinder.CA50_TARGET) > 0.01:
+			centred = false
+	check(centred, "the burn centre sits at the target after TDC at every speed")
+	check(monotonic, "the spark advance never falls as rpm rises")
+	check(EngineAir.spark_advance_deg(1200.0) > 5.0 and EngineAir.spark_advance_deg(1200.0) < 25.0, "idle advance is in a sane range, got %.1f" % EngineAir.spark_advance_deg(1200.0))
 
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

@@ -20,19 +20,12 @@ var bypass_area := BYPASS_AREA # idle bypass for this engine, m²; the simulator
 var limiter_cut := false # true while the rev limiter has the spark cut, set by EngineSim
 
 
-# Spark advance before top dead centre, degrees: the speed-only timing map from engine-sim's small engines (kawasaki/zx_25r.mr
-# 502-519, honda/cbr150.mr 451-453). Linear between the points. The ECU adds its idle trim on top.
-const TIMING_RPM := [0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0, 9000.0, 10000.0, 11000.0, 12000.0, 13000.0, 14000.0, 15000.0]
-const TIMING_DEG := [0.0, 14.0, 22.0, 26.0, 33.0, 34.0, 35.0, 36.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0]
-
-
+# Spark advance before top dead centre, degrees: the advance that puts the burn centre (50% burnt) at CA50_TARGET degrees
+# after TDC, which is where torque is best. It follows our own burn duration, so the burn centre stays put at every speed.
+# (engine-sim's speed-only timing map was tried and dropped: it was tuned for that simulator's much slower burn at high
+# speed, and in our burn model it pulls the burn centre to 40 degrees before TDC at 15,000 rpm.) The ECU adds its idle trim.
 static func spark_advance_deg(rpm: float) -> float:
-	var r := clampf(rpm, 0.0, TIMING_RPM[TIMING_RPM.size() - 1])
-	for i in TIMING_RPM.size() - 1:
-		if r <= TIMING_RPM[i + 1]:
-			var f: float = (r - float(TIMING_RPM[i])) / (float(TIMING_RPM[i + 1]) - float(TIMING_RPM[i]))
-			return lerpf(float(TIMING_DEG[i]), float(TIMING_DEG[i + 1]), f)
-	return TIMING_DEG[TIMING_DEG.size() - 1]
+	return Cylinder.burn_duration_deg(rpm) * Cylinder.WIEBE_CA50 - Cylinder.CA50_TARGET
 
 
 # Moves the manifold for dt seconds: throttle and bypass inflow, drawn_kg_s out to the cylinders.
