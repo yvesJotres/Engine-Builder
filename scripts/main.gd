@@ -39,6 +39,7 @@ var _touch_brake := false
 var _touch_starter := false
 var _sound_gate := 0.0 # 0 = exhaust silent, 1 = exhaust full, fades between
 const SOUND_FADE_TIME := 0.05 # s, fade in and out of the exhaust note
+var _backfires_heard := 0 # the sim's backfire count the sound has already played
 
 
 func _ready() -> void:
@@ -167,7 +168,8 @@ func _process(delta: float) -> void:
 			_hud.flash("PULL CLUTCH OR SHIFT TO NEUTRAL TO START")
 		if wants_start and not _ignition:
 			_hud.flash("TURN IGNITION ON TO START")
-		_sim.step(delta, spec, _throttle, _ignition, wants_start and in_neutral_or_pulled, _clutch_held, _brake_held, _panel.lambda())
+		# only the Shift key pulls the clutch fully apart; the lever's own pull sets the friction zone through clutch_pull
+		_sim.step(delta, spec, _throttle, _ignition, wants_start and in_neutral_or_pulled, Input.is_physical_key_pressed(KEY_SHIFT), _brake_held, _panel.lambda())
 		if _frame <= 3: _trace("sim stepped")
 		_crank = fmod(_crank + _sim.rpm * 6.0 * delta, 720.0)
 		_drivetrain.update(_crank, _sim.speed / EngineSim.tire_radius_m() * 60.0 / TAU, delta)
@@ -175,7 +177,7 @@ func _process(delta: float) -> void:
 	_model.set_throttle(_throttle)
 	_model.update_crank(_crank)
 	if _frame <= 3: _trace("engine model updated")
-	_clutch.update(_crank / spec.primary_ratio, _sim.clutch_engage) # basket turns at primary-reduced speed
+	_clutch.update(-_crank / spec.primary_ratio, _sim.clutch_engage) # basket turns at primary-reduced speed, with the crank
 	_tank.update(_sim.fuel.fraction(), Color(0.2, 0.55, 0.3) if _sim.fuel.kind == "e85" else Color(0.2, 0.4, 0.9))
 	if _frame <= 3: _trace("clutch and tank updated")
 	# the exhaust only pops once the engine is firing on its own
@@ -192,14 +194,20 @@ func _process(delta: float) -> void:
 	# sound pressure grows with the square root of acoustic power, and power follows the fuel burned
 	_sound.energy = sqrt(clampf(_sim.fuel_flow / max_fuel_g_s, 0.0, 1.0))
 	_sound.volume_db = (0.0 if _sound_on else -80.0) + linear_to_db(maxf(_sound_gate, 0.0001))
+	# each backfire pops the exhaust once, and flashes on the dashboard
+	if _sim.backfire_count != _backfires_heard:
+		_backfires_heard = _sim.backfire_count
+		_sound.backfire(_sim.last_backfire_j)
+		_hud.flash("BACKFIRE")
 
+	var clutch_state := "open" if _sim.clutch_engage < 0.01 else ("engaged" if _sim.clutch_engage > 0.99 else "slipping")
 	var state := "RUNNING" if _sim.running else ("CRANKING" if _sim.rpm > 0.0 else "STOPPED")
 	var power_hp := Units.w_to_hp(Units.power_w(_sim.torque, _sim.rpm))
-	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)" % [
+	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)   Clutch: %s (%d%% grip)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)\nExhaust %.0f °C   O2 sensor λ %.2f" % [
 		state, roundi(_sim.rpm), _sim.torque, power_hp,
 		Units.pa_to_psi(_sim.intake.pressure), Units.k_to_c(EngineAir.T0),
-		roundi(_throttle * 100), _sim.fuel.mass_kg, roundi(_sim.fuel.fraction() * 100), _sim.fuel_flow, _panel.lambda(),
-		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output")])
+		roundi(_throttle * 100), clutch_state, roundi(_sim.clutch_engage * 100.0), _sim.fuel.mass_kg, roundi(_sim.fuel.fraction() * 100), _sim.fuel_flow, _panel.lambda(),
+		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output"), _sim.exhaust_temp_c(), _sim.o2_lambda()])
 	if _frame <= 3: _trace("sound settings done")
 	_hud.update(_sim, spec, _clutch_held)
 	if _frame <= 3: _trace("hud updated")
@@ -258,7 +266,7 @@ func _on_panel_changed() -> void:
 	var layout := ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _drivetrain.rear_axle)
 	_exhaust.build(layout)
 	# the pipes set the sound, so a layout change of more than a couple of centimetres rebuilds it
-	var audio_key := "%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, roundi(layout.total_length_m() * 50.0)]
+	var audio_key := "%s|%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, str(spec.fire_deg), roundi(layout.total_length_m() * 50.0)]
 	if audio_key != _audio_key:
 		_audio_key = audio_key
 		_sound.setup(spec, layout) # stops the player, so start it again below

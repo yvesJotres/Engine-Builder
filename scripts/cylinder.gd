@@ -45,6 +45,8 @@ const RUNNER_LENGTH := 0.25 # m, throttle body to valve, estimate
 const PORT_VOLUME := 0.5e-4 # m³, effective port and runner gas volume, estimate, sets the tuned rpm
 const RUNNER_LOSS := 1.5 # dynamic-pressure loss coefficient of the runner, estimate
 const MAX_FLOW_DT := 2.5e-4 # s, longest port step, the port volume is stiff against the valve flow
+const AUTO_IGNITE_K := 900.0 # K, exhaust gas temperature above which unlit fuel leaving the cylinder can catch, estimate
+const BACKFIRE_BURN := 0.5 # share of the unlit charge that burns in the hot exhaust when it catches, estimate
 
 var swept := 0.0 # m³
 var clearance := 0.0 # m³
@@ -61,6 +63,11 @@ var burn_energy_left := 0.0 # J still to release in this cycle
 var burn_energy := 0.0 # J released by the charge in this cycle, total
 var port_p := P0 # Pa, gas pressure at the intake valve
 var runner_q := 0.0 # kg/s, flow along the runner toward the cylinder
+var exhaust_temp := 300.0 # K, the gas temperature when the exhaust valve last opened: the exhaust temperature sensor
+var last_lambda := 1.0 # the mixture the O2 sensor reads, relative to stoichiometric: 1.0 is exact, above is lean
+var _fired := false # true when this cycle's charge was lit, so its exhaust is hot
+var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: it leaves unburnt
+var backfire_j := 0.0 # J released by backfires since the engine last read it
 var _residual_kg := 0.0 # kg of burnt gas left in the cylinder when the exhaust valve closed
 var _burnt := 0.0 # share of this cycle's fuel energy released so far, 0 = fresh air, 1 = all burnt
 var wall_loss_j := 0.0 # J of heat lost to the walls since the cylinder was made
@@ -128,7 +135,7 @@ static func _subsonic(area: float, p_up: float, t_up: float, p_down: float) -> f
 # ign_phi: spark phase. firing: the engine is running. tank: fuel is drawn when the intake valve closes.
 # Returns Vector2(average gas torque over dphi in N·m, mass drawn from the manifold in kg).
 func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firing: bool,
-		tank: FuelTank, lambda: float) -> Vector2:
+		tank: FuelTank, lambda: float, spark: bool = true) -> Vector2:
 	var steps := maxi(1, maxi(ceili(absf(dphi) / STEP_DEG), ceili(dt / MAX_FLOW_DT)))
 	var sd := dphi / steps
 	var sdt := dt / steps
@@ -153,16 +160,25 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		var m_out := mass_flow(minf(2.0 * PI * EXHAUST_VALVE_D * lift(p0, EXHAUST_OPEN, EXHAUST_CLOSE, EXHAUST_LIFT), EXHAUST_PORT_AREA), pressure, temp, P0, T0) * sdt
 
 		# exhaust valve closes: what is left in the cylinder is burnt gas from the last cycle, not fresh air
+		if _crossed(p0, p1, EXHAUST_OPEN):
+			# unlit fuel leaving into hot exhaust catches and pops; the exhaust sensor holds the heat of the last fired cycle
+			if fuel_unburnt_kg > 0.0 and exhaust_temp > AUTO_IGNITE_K:
+				backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
+			fuel_unburnt_kg = 0.0
+		if _fired and _crossed(p0, p1, EXHAUST_OPEN):
+			exhaust_temp = temp # the exhaust temperature sensor reads burnt gas as the exhaust valve opens, held through a limiter cut
 		if _crossed(p0, p1, EXHAUST_CLOSE):
 			_residual_kg = mass
 
 		# intake valve closes: the fresh air that came in sets how much fuel is injected and burned
-		if firing and _crossed(p0, p1, INTAKE_CLOSE):
-			_fuel_charge(tank, lambda)
+		if _crossed(p0, p1, INTAKE_CLOSE):
+			_fired = false
+			if firing:
+				_fuel_charge(tank, lambda, spark)
 
 		# combustion heat, released over the burn duration starting at the spark
 		var dq := 0.0
-		if firing and burn_energy_left > 0.0 and _in_window(p0, ign_phi, burn_deg):
+		if spark and burn_energy_left > 0.0 and _in_window(p0, ign_phi, burn_deg):
 			var rel := fmod(p0 - ign_phi + 720.0, 720.0)
 			dq = minf(burn_energy_left, burn_energy * (_wiebe(rel + sd, burn_deg) - _wiebe(rel, burn_deg)))
 			burn_energy_left -= dq
@@ -202,9 +218,10 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 	return Vector2(work / theta if theta > 0.0 else 0.0, drawn)
 
 
-func _fuel_charge(tank: FuelTank, lambda: float) -> void:
+func _fuel_charge(tank: FuelTank, lambda: float, spark: bool) -> void:
 	burn_energy = 0.0
 	burn_energy_left = 0.0
+	last_lambda = 99.0 # the O2 sensor reads very lean when nothing is burned
 	if lambda >= MISFIRE_LAMBDA:
 		return # too lean to light
 	var fresh := maxf(mass - _residual_kg, 0.0) # the burnt gas left from the last cycle takes no fuel
@@ -213,8 +230,15 @@ func _fuel_charge(tank: FuelTank, lambda: float) -> void:
 	tank.mass_kg -= supplied
 	mass += supplied # the fuel joins the charge, so the gas carries the mass it releases energy from
 	_u += supplied * CV * temp # at the gas temperature, so the mix stays at the same temperature
+	if not spark:
+		fuel_unburnt_kg = supplied # injected but not lit: it stays unburnt and leaves with the exhaust
+		return
+	fuel_unburnt_kg = 0.0
+	if supplied > 0.0:
+		last_lambda = fresh / (tank.afr * supplied) # the air-fuel ratio actually burned, relative to stoichiometric: what the O2 sensor sees
 	burn_energy = supplied * tank.lhv * COMBUSTION_EFFICIENCY
 	burn_energy_left = burn_energy
+	_fired = supplied > 0.0
 
 
 # Crank degrees from spark to the end of the burn at this speed. Shared with the spark timing in EngineAir.

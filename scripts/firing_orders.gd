@@ -24,6 +24,17 @@ static func fired_between(prev: float, cur: float, at: float) -> bool:
 	return floor((cur - at) / 720.0) > floor((prev - at) / 720.0)
 
 
+# The firing angles for this spec: the engine's own ignition wiring when its preset gives one for this cylinder count,
+# otherwise the generic order below.
+static func for_spec(spec: EngineSpec) -> Array[float]:
+	if spec.cylinders > 0 and spec.fire_deg.size() == spec.cylinders:
+		var out: Array[float] = []
+		for a in spec.fire_deg:
+			out.append(float(a))
+		return out
+	return fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
+
+
 # Crank angle (deg, 0..720) at which each cylinder fires. Index = cylinder number - 1.
 # A twin fires its second cylinder at its crank-pin angle: 360 is even firing, 270 and 180 are uneven.
 static func fire_angles(cylinders: int, twin_pin_deg: float = 360.0, crossplane: bool = false, split_v4: bool = false) -> Array[float]:

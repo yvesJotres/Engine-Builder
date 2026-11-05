@@ -5,7 +5,7 @@ extends Node3D
 # flywheel, balancer, and per cylinder a barrel, head, plug, four valves with their two camshafts, piston, rod, exhaust port, intake runner, throttle body and injector.
 # Sizes come from EngineSpec, Cylinder, EngineAir and FuelTank, so a bigger bore, a longer stroke or a different compression
 # ratio changes what is drawn. Everything else (cases, fins, covers) is left out because nothing in the simulation depends on it.
-# Single-cylinder engines are just one unit. V layouts are not yet built; they draw as inline.
+# Single-cylinder engines are just one unit. V layouts are drawn from their bank and fire angles, as engine-sim's panigale_v4.mr places them.
 
 const MM := Units.MM_TO_SCENE
 const PITCH_FACTOR := 1.3 # cylinder centre spacing, in bores
@@ -90,7 +90,32 @@ func _build_engine(spec: EngineSpec) -> void:
 	_crank_y = r - L
 	var pitch := bore * PITCH_FACTOR
 	_span = (n - 1) * pitch
-	var fire := FiringOrders.fire_angles(n, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
+	var fire := FiringOrders.for_spec(spec)
+	# Each cylinder's bank angle and its crank-pin angle. As engine-sim's panigale_v4.mr places them, wires 1 and 3 (cylinders 1 and 3)
+	# are on the -45 degree bank and wires 2 and 4 on the +45 degree bank. A pin angle is bank angle + fire angle, so the
+	# cylinders on one pin share it: a V takes two pins, 120 degrees apart, as the wiring implies.
+	var alpha: Array[float] = []
+	var pin_deg: Array[float] = []
+	var is_v := spec.layout == "V"
+	for i in n:
+		var a := (spec.bank_angle * 0.5 if i % 2 == 1 else -spec.bank_angle * 0.5) if is_v else 0.0
+		alpha.append(a)
+		pin_deg.append(fposmod(a + fire[i], 360.0))
+	# pins: one per unique pin angle (V), so cylinders that share a pin share its x position; one per cylinder inline
+	var pins: Array[float] = []
+	var pin_of: Array[int] = []
+	for i in n:
+		var k := -1
+		if is_v:
+			for j in pins.size():
+				if absf(pins[j] - pin_deg[i]) < 0.01:
+					k = j
+		if k < 0:
+			pins.append(pin_deg[i])
+			k = pins.size() - 1
+		pin_of.append(k)
+	_span = (pins.size() - 1) * pitch
+	_shaft_len = _span + EngineSpec.SHAFT_LENGTH * Units.M_TO_SCENE
 
 	var steel := _mat(Color(0.45, 0.45, 0.48), 0.4)
 	var iron := _mat(Color(0.2, 0.2, 0.22), 0.5)
@@ -121,13 +146,14 @@ func _build_engine(spec: EngineSpec) -> void:
 	_add_box(_flywheel, Vector3(fw_t * 1.05, 0.1, 0.1), Vector3(0.0, fw_r * m, 0.0), _mat(Color(0.9, 0.9, 0.9), 0.5)) # timing mark
 
 	for i in n:
-		var x := -(n - 1) * pitch * 0.5 + i * pitch
-		_pin_x.append(x)
-		_pin_phase.append(fire[i])
-		# this cylinder's pin and webs turn with its crank-pin angle
+		_pin_x.append(-(pins.size() - 1) * pitch * 0.5 + pin_of[i] * pitch)
+		_pin_phase.append(-fire[i]) # crank - fire, as the simulator's cylinder phase
+	for k in pins.size():
+		# one crank pin with its webs per unique pin angle; the pin turns with that angle
+		var x := -(pins.size() - 1) * pitch * 0.5 + k * pitch
 		var throw := Node3D.new()
 		throw.position = Vector3(x, 0, 0)
-		throw.rotation.x = deg_to_rad(fire[i])
+		throw.rotation.x = deg_to_rad(pins[k])
 		_crank_node.add_child(throw)
 		var pin := _add_cyl(throw, pin_r, pin_len + 2.0 * web_t + 0.06, Vector3(0, r, 0), steel) # ends show past the webs
 		pin.rotation.z = PI / 2.0
@@ -146,12 +172,19 @@ func _build_engine(spec: EngineSpec) -> void:
 	var bal_weight := _add_cyl(_balancer, bal_r, bal_len, Vector3(0.0, -EngineSpec.BALANCER_RADIUS * m, 0.0), iron)
 	bal_weight.rotation.z = PI / 2.0
 
+	# each cylinder sits in its own bank, turned by its bank angle about the crank centre; inline banks are not turned
+	var centre := Vector3(0.0, _crank_y, 0.0)
 	for i in n:
-		_build_cylinder(spec, _pin_x[i], bore, s, alu, steel, i)
+		var rot := Basis(Vector3.RIGHT, deg_to_rad(alpha[i]))
+		var xf := Transform3D(rot, centre - rot * centre)
+		var bank := Node3D.new()
+		bank.transform = xf
+		add_child(bank)
+		_build_cylinder(spec, _pin_x[i], bore, s, alu, steel, i, bank, xf)
 
 
 # One cylinder: barrel, head with its plug, piston, rod, exhaust port, and the intake runner to a throttle body with its injector.
-func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Material, steel: Material, index: int) -> void:
+func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Material, steel: Material, index: int, bank: Node3D, xf: Transform3D) -> void:
 	var barrel_mat := _mat(Color(0.6, 0.6, 0.63), 0.35, 0.35)
 	var black := _mat(Color(0.05, 0.05, 0.05), 0.6)
 	var bottom := -(PISTON_SKIRT + 0.03) * bore # barrel bottom, below the skirt at the bottom of the stroke
@@ -159,13 +192,13 @@ func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Mat
 	var deck := s + PISTON_CROWN * bore + s / (spec.compression_ratio - 1.0)
 	var head_h := HEAD_HEIGHT * bore
 
-	_add_cyl(self, bore * 0.5 + BARREL_WALL, deck - bottom, Vector3(x, (deck + bottom) * 0.5, 0), barrel_mat)
-	_add_cyl(self, bore * HEAD_RADIUS, head_h, Vector3(x, deck + head_h * 0.5, 0), barrel_mat) # see-through, so the valves show
-	_build_valves(x, bore, deck, head_h, bore * PITCH_FACTOR, index, steel)
+	_add_cyl(bank, bore * 0.5 + BARREL_WALL, deck - bottom, Vector3(x, (deck + bottom) * 0.5, 0), barrel_mat)
+	_add_cyl(bank, bore * HEAD_RADIUS, head_h, Vector3(x, deck + head_h * 0.5, 0), barrel_mat) # see-through, so the valves show
+	_build_valves(x, bore, deck, head_h, bore * PITCH_FACTOR, index, steel, bank)
 	var plug_top := deck + head_h + 0.5
-	_add_cyl(self, 0.07, 0.5, Vector3(x, deck + head_h + 0.25, 0), black)
-	_high_points.append(Vector3(x, plug_top, 0.0))
-	_ports.append(Vector3(x, deck + head_h * 0.5, bore * HEAD_RADIUS)) # exhaust port on the front of the head
+	_add_cyl(bank, 0.07, 0.5, Vector3(x, deck + head_h + 0.25, 0), black)
+	_high_points.append(xf * Vector3(x, plug_top, 0.0))
+	_ports.append(xf * Vector3(x, deck + head_h * 0.5, bore * HEAD_RADIUS)) # exhaust port on the front of the head
 
 	# intake: a runner from the rear of the head to the throttle body, as long as the airflow model's runner
 	var runner_r := sqrt(Cylinder.RUNNER_AREA / PI) * Units.M_TO_SCENE
@@ -173,23 +206,23 @@ func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Mat
 	var port := Vector3(x, deck + head_h * 0.5, -bore * HEAD_RADIUS)
 	var dir := RUNNER_DIR.normalized()
 	var at := port + dir * (Cylinder.RUNNER_LENGTH * Units.M_TO_SCENE - 0.3) # the valve sits about 3 cm inside the head
-	_tube(port, at - dir * BODY_LENGTH * 0.5, runner_r, alu)
+	_tube(bank, port, at - dir * BODY_LENGTH * 0.5, runner_r, alu)
 	var body := Node3D.new() # the Y axis runs along the flow
 	body.position = at
 	body.quaternion = Quaternion(Vector3.UP, dir)
-	add_child(body)
+	bank.add_child(body)
 	_add_cyl(body, throttle_r + 0.04, BODY_LENGTH, Vector3.ZERO, _mat(Color(0.45, 0.45, 0.48), 0.4, 0.35))
 	var shaft := _add_cyl(body, 0.012, throttle_r * 2.6, Vector3.ZERO, steel)
 	shaft.rotation.x = PI / 2.0 # shaft across the bore
 	_plates.append(_add_cyl(body, throttle_r * 0.95, 0.02, Vector3.ZERO, black))
-	_high_points.append(at + Vector3(0.0, throttle_r + 0.1, 0.0))
+	_high_points.append(xf * (at + Vector3(0.0, throttle_r + 0.1, 0.0)))
 	if index == 0:
-		_throttle_local = at
-		_injector_local = at + Vector3(0.0, 0.0, throttle_r + 0.04) # nozzle on the front of the first body
+		_throttle_local = xf * at
+		_injector_local = xf * (at + Vector3(0.0, 0.0, throttle_r + 0.04)) # nozzle on the front of the first body
 
 	# piston: a cylinder of the bore with its pin across it; the pin sits at the node origin, which the rod drives
 	var piston := Node3D.new()
-	add_child(piston)
+	bank.add_child(piston)
 	var height := (PISTON_CROWN + PISTON_SKIRT) * bore
 	_add_cyl(piston, bore * 0.5 - 0.01, height, Vector3(0, (PISTON_CROWN - PISTON_SKIRT) * 0.5 * bore, 0), _mat(Color(0.8, 0.6, 0.25), 0.3))
 	var gudgeon := _add_cyl(piston, bore * 0.12, bore * 0.8, Vector3.ZERO, steel)
@@ -198,7 +231,7 @@ func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Mat
 
 	# connecting rod: I-beam shaft (thin across the swing plane, wide along the crank axis), small and big end rings
 	var rod := Node3D.new()
-	add_child(rod)
+	bank.add_child(rod)
 	_rods.append(rod)
 	_rod_shafts.append(_add_box(rod, Vector3(bore * 0.1, _rod_len, bore * 0.2), Vector3.ZERO, steel))
 	var small := _add_cyl(rod, bore * 0.12, bore * 0.12, Vector3.ZERO, steel)
@@ -212,20 +245,20 @@ func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Mat
 # Two intake valves toward the rear and two exhaust valves toward the front, sized from the Cylinder constants (shrunk to fit a
 # small bore), each pushed down by a cam lobe on a camshaft above it. The lobe outline is the Cylinder lift curve, so the cam
 # and the valve agree; the camshaft turns once per two crank turns.
-func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: float, index: int, mat: Material) -> void:
+func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: float, index: int, mat: Material, bank: Node3D) -> void:
 	for intake in [true, false]:
 		var d: float = minf(Cylinder.INTAKE_VALVE_D if intake else Cylinder.EXHAUST_VALVE_D, bore * 0.36 / Units.M_TO_SCENE) * Units.M_TO_SCENE
 		var z := (-1.0 if intake else 1.0) * bore * 0.22
 		var cam := Node3D.new() # the camshaft's turn for this cylinder, axis along x above the valve stems
 		cam.position = Vector3(x, deck + head_h * 1.1 + CAM_BASE, z)
-		add_child(cam)
+		bank.add_child(cam)
 		var shaft := _add_cyl(cam, 0.06, pitch * 0.95, Vector3.ZERO, mat)
 		shaft.rotation.z = PI / 2.0
 		_cams.append({"node": cam, "intake": intake, "cyl": index})
 		for side in [-1, 1]:
 			var valve := Node3D.new()
 			valve.position = Vector3(x + side * d * 0.6, deck, z)
-			add_child(valve)
+			bank.add_child(valve)
 			_add_cyl(valve, d * 0.5, 0.02, Vector3(0.0, 0.01, 0.0), mat) # the face, seated at the deck when closed
 			_add_cyl(valve, 0.025, head_h * 1.1, Vector3(0.0, head_h * 0.55, 0.0), mat) # the stem, up through the head
 			_valves.append({"node": valve, "seat": deck, "intake": intake, "cyl": index})
@@ -298,11 +331,12 @@ func crank_position() -> Vector3:
 func update_crank(crank_deg: float) -> void:
 	if _crank_node == null:
 		return
-	_crank_node.rotation.x = deg_to_rad(crank_deg)
+	# engine-sim turns the crank the other way round from the simulation's cycle angle, so the drawing spins that way too
+	_crank_node.rotation.x = deg_to_rad(-crank_deg)
 	if _balancer != null:
-		_balancer.rotation.x = deg_to_rad(-crank_deg) # one turn per crank turn, the other way
+		_balancer.rotation.x = deg_to_rad(crank_deg) # one turn per crank turn, counter to the crank
 	for i in _rods.size():
-		_update_rod(i, deg_to_rad(crank_deg + _pin_phase[i]))
+		_update_rod(i, deg_to_rad(-(crank_deg + _pin_phase[i])))
 	for v in _valves:
 		# the cycle angle of Cylinder: 0 is firing top dead centre, which is where this cylinder's piston is at the top with its pin phase
 		var phi := fposmod(crank_deg + _pin_phase[v.cyl], 720.0)
@@ -343,9 +377,9 @@ func _add_box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> Mes
 	return mi
 
 
-func _tube(a: Vector3, b: Vector3, radius: float, mat: Material) -> void:
+func _tube(parent: Node3D, a: Vector3, b: Vector3, radius: float, mat: Material) -> void:
 	var dir := b - a
-	var mi := _add_cyl(self, radius, dir.length(), (a + b) * 0.5, mat)
+	var mi := _add_cyl(parent, radius, dir.length(), (a + b) * 0.5, mat)
 	mi.quaternion = Quaternion(Vector3.UP, dir.normalized())
 
 

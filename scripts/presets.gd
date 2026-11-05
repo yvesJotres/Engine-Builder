@@ -8,6 +8,7 @@ const PRESETS := {
 	"Honda CBR150R (K45N)": {
 		"cylinders": 1, "displacement_cc": 149.2, "bore_mm": 57.3, "stroke_mm": 57.8,
 		"rod_ratio": 1.6, "layout": "inline", "header": "stock", "fuel": "petrol",
+		"fire_deg": [0.0], # engine-sim cbr150.mr: one cylinder, wire at 0
 		"redline_rpm": 10600.0, # limiter near 10,600 rpm from a press dyno test (Otomotifnet, 2021), not Honda
 		"flywheel_kg": 2.5, # estimate, no source found yet
 		"flywheel_radius_mm": 75.0, # estimate, see engine_spec.gd
@@ -21,6 +22,7 @@ const PRESETS := {
 		"rod_ratio": 2.0, "compression_ratio": 12.0, "vehicle_kg": 165.0, "layout": "inline", "header": "stock", "fuel": "petrol",
 		"redline_rpm": 14000.0, # engine-sim rpm_v; its note says the limiter sits 500 rpm above redline
 		"twin_pin_deg": 180.0, # crank-pin angle, as stated for this model
+		"fire_deg": [0.0, 180.0], # engine-sim cbr250rr.mr: wires at 0 and 180
 		"flywheel_kg": 3.6, "flywheel_radius_mm": 103.2, # engine-sim flywheel_mass and flywheel_radius
 		"primary_ratio": 1.0, "final_drive": 4.7,
 		"gear_ratios": [6.362, 4.918, 3.934, 3.152, 2.530, 2.136],
@@ -32,6 +34,7 @@ const PRESETS := {
 		"cylinders": 4, "displacement_cc": 249.6, "bore_mm": 50.0, "stroke_mm": 31.8,
 		"rod_ratio": 2.0, "compression_ratio": 11.5, "layout": "inline", "header": "stock", "fuel": "petrol",
 		"redline_rpm": 17000.0,
+		"fire_deg": [0.0, 180.0, 540.0, 360.0], # engine-sim zx_25r.mr: wires 1 to 4 in cylinder order, firing 1-2-4-3 as Kawasaki's inline four
 		"flywheel_kg": 1.0, "flywheel_radius_mm": 53.2,
 		"primary_ratio": 2.9, "final_drive": 3.429,
 		"gear_ratios": [2.929, 2.056, 1.619, 1.333, 1.154, 1.037],
@@ -44,6 +47,7 @@ const PRESETS := {
 		"rod_ratio": 2.06, "compression_ratio": 14.8, "layout": "V", "bank_angle": 90.0, "split_pin_v4": true,
 		"header": "stock", "fuel": "petrol",
 		"redline_rpm": 14250.0,
+		"fire_deg": [0.0, 630.0, 480.0, 390.0], # engine-sim panigale_v4.mr: wire 1 at 0, wire 2 at -90, wire 3 at -240, wire 4 at -330
 		"flywheel_kg": 2.5, "flywheel_radius_mm": 60.0,
 		"vehicle_kg": 200.0,
 	},
@@ -54,6 +58,7 @@ const PRESETS := {
 		"cylinders": 4, "displacement_cc": 998.0, "bore_mm": 79.0, "stroke_mm": 50.9,
 		"rod_ratio": 2.0, "compression_ratio": 13.0, "crossplane": true, "layout": "inline", "header": "stock", "fuel": "petrol",
 		"redline_rpm": 14600.0,
+		"fire_deg": [0.0, 450.0, 270.0, 540.0], # engine-sim yzf_r1.mr: the same sequence with its cylinders numbered from the other end
 		"flywheel_kg": 5.2, "flywheel_radius_mm": 103.2,
 		"primary_ratio": 1.0, "final_drive": 4.7,
 		"gear_ratios": [2.600, 2.176, 1.842, 1.579, 1.381, 1.250],
@@ -63,6 +68,7 @@ const PRESETS := {
 		"cylinders": 1, "displacement_cc": 517.4, "bore_mm": 96.0, "stroke_mm": 71.5,
 		"rod_ratio": 2.13, "layout": "inline", "header": "stock", "fuel": "petrol",
 		"redline_rpm": 5000.0, # from engine-sim redline: 5000 * units.rpm
+		"fire_deg": [0.0], # engine-sim 01_honda_trx520.mr: one cylinder, wire at 0
 		"flywheel_kg": 2.27, # from engine-sim flywheel_mass: 5 * units.lb
 		"flywheel_radius_mm": 96.0, # estimate, same as the bore as before
 	},

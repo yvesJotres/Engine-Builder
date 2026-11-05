@@ -19,6 +19,8 @@ const LABEL_WIDTH := 132.0
 var rod_ratio := 1.6 # not on screen, set by the preset
 var compression_ratio := 11.3 # not on screen, set by the preset
 var crossplane := false # not on screen, set by the preset
+var fire_deg: Array = [] # not on screen, set by the preset: the engine's ignition wiring, so the firing matches it
+var bank_angle := 90.0 # not on screen, set by the preset
 var vehicle_kg := 215.0 # not on screen, set by the preset
 var primary_ratio := 3.26 # gearbox values, set by the preset (defaults: K45R)
 var final_drive := 3.0
@@ -139,6 +141,8 @@ func apply_to(spec: EngineSpec) -> void:
 	spec.rod_ratio = rod_ratio
 	spec.compression_ratio = compression_ratio
 	spec.crossplane = crossplane
+	spec.fire_deg = fire_deg
+	spec.bank_angle = bank_angle
 	spec.vehicle_kg = vehicle_kg
 	spec.primary_ratio = primary_ratio
 	spec.final_drive = final_drive
@@ -190,6 +194,8 @@ func _on_preset_selected(index: int) -> void:
 	rod_ratio = p.rod_ratio
 	compression_ratio = p.get("compression_ratio", 11.3)
 	crossplane = p.get("crossplane", false)
+	fire_deg = p.get("fire_deg", [])
+	bank_angle = p.get("bank_angle", 90.0)
 	vehicle_kg = p.get("vehicle_kg", 215.0)
 	# gearbox: K45R values unless the preset gives its own
 	primary_ratio = p.get("primary_ratio", 3.26)

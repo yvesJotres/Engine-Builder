@@ -9,6 +9,7 @@ extends RefCounted
 const FRICTION_BASE := 0.18 # N·m, rings, valve train and oil shear (pumping loss is in the cylinder model)
 const MAIN_BEARING_FRICTION := 0.01 # N·m per main bearing, two bearings, estimate
 const BALANCER_FRICTION := 0.005 # N·m, balancer shaft bearings and gear, estimate
+const FRICTION_PER_CYLINDER := 0.1 # N·m per cylinder at a 57.3 mm bore (the CBR150R), piston rings and bores; estimate, see the friction note in the plan
 const FRICTION_PER_RPM := 0.0003 # N·m per rpm, bearings and oil shear
 const SUBSTEPS := 1 # each fixed physics step is taken once
 var physics_dt := 1.0 / 3600.0 # s per physics step, set from the pause menu: Accurate 1/3600, Fast 1/1200
@@ -34,6 +35,9 @@ const CLUTCH_FACES := 10.0 # friction faces (5 plates, two faces each)
 const CLUTCH_NM_PER_CC := 0.1 # N·m of clutch capacity per cc, so big engines don't slip; estimate, 150 cc keeps the 25 N·m default
 const CLUTCH_ENGAGE_TIME := 0.6 # s, the lever comes back in about half a second: slow enough to bite gently, quick enough for gear changes
 const CLUTCH_RELEASE_TIME := 0.05 # s, pulling the clutch in is fast
+const CLUTCH_LEVER_TIME := 0.03 # s, the plates follow the lever with only this much lag
+const CLUTCH_BITE_START := 0.5 # lever pull where the plates start to slip, estimate: the friction zone begins here
+const CLUTCH_BITE_END := 0.9 # lever pull where the plates are fully apart, estimate: the friction zone ends here
 const DRIVE_EFFICIENCY := 0.93 # gearbox mesh (6 gears, ~1.5% each), primary drive and chain (~3%) together, estimate
 const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
@@ -56,6 +60,9 @@ var _cyl_key := ""
 var _limiter_time := 0.0
 var ecu := ECU.new()
 var _gas_torque := 0.0 # N·m, the gas torque from the last physics step, used in the next crank kick
+var _clutch_slow_engage := false # true after a Shift pull-in, until the plates are back: then they come back slowly
+var backfire_count := 0 # backfires since the engine was made, for the sound to hear each one once
+var last_backfire_j := 0.0 # J released by the latest backfire, for its loudness
 
 
 # Advances the bike by delta seconds of real time, in fixed physics steps. The physics is the same at any frame rate: a
@@ -82,8 +89,19 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 # One fixed physics step of delta seconds.
 func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, starter_held: bool,
 		clutch_held: bool, brake_held: bool, lambda: float) -> void:
-	var clutch_target := 0.0 if clutch_held else 1.0 - clutch_pull
-	clutch_engage = move_toward(clutch_engage, clutch_target, delta / (CLUTCH_ENGAGE_TIME if clutch_target > 0.0 else CLUTCH_RELEASE_TIME))
+	# the lever sets how far apart the plates are: engaged up to the bite point, slipping through the friction zone, open past it.
+	# The Shift key pulls the clutch fully in, and when it lets go the plates come back slowly
+	var grip_target := 0.0 if clutch_held else clutch_grip(clutch_pull)
+	if clutch_held:
+		_clutch_slow_engage = true
+	var time := CLUTCH_LEVER_TIME
+	if grip_target < clutch_engage:
+		time = CLUTCH_RELEASE_TIME
+	elif _clutch_slow_engage:
+		time = CLUTCH_ENGAGE_TIME
+	clutch_engage = move_toward(clutch_engage, grip_target, delta / time)
+	if clutch_engage >= grip_target and not clutch_held:
+		_clutch_slow_engage = false
 	brake = move_toward(brake, 1.0 if brake_held else 0.0, delta / BRAKE_APPLY_TIME)
 
 	if not ignition or rpm < STALL_RPM:
@@ -100,7 +118,9 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	_build_cylinders(spec)
 	for _i in SUBSTEPS:
 		_update_limiter(h, spec.redline_rpm)
+		# piston rings and bores: each cylinder's ring face grows with its bore. Scaled so a 57.3 mm bore gives FRICTION_PER_CYLINDER.
 		var friction := FRICTION_BASE + 2.0 * MAIN_BEARING_FRICTION + BALANCER_FRICTION + FRICTION_PER_RPM * rpm
+		friction += spec.cylinders * FRICTION_PER_CYLINDER * (spec.bore_mm / 57.3)
 		# constant crankshaft friction: full strength once the crank turns, fading to nothing as it stops
 		friction += spec.crank_friction_nm * minf(rpm / 50.0, 1.0)
 		# kick first, as engine-sim's NSV solver does: the crank speed moves with the gas torque from the last step
@@ -137,9 +157,14 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			var dphi := omega * sub_h * 180.0 / PI
 			var drawn := 0.0
 			for c in cylinders:
-				var res := c.advance(dphi, sub_h, intake.pressure, EngineAir.T0, ign, running and not intake.limiter_cut, fuel, lambda)
+				# the limiter cuts the spark, not the fuel: a cut cylinder still takes its charge, which can backfire in the exhaust
+				var res := c.advance(dphi, sub_h, intake.pressure, EngineAir.T0, ign, running, fuel, lambda, running and not intake.limiter_cut)
 				gas += res.x / sub
 				drawn += res.y
+				if c.backfire_j > 0.0:
+					backfire_count += 1
+					last_backfire_j = c.backfire_j
+					c.backfire_j = 0.0
 				intake.bypass_area = EngineAir.BYPASS_AREA * spec.idle_leak # idle air leaking past the closed plate
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
 			intake.manifold_update(sub_h, throttle, drawn / sub_h)
@@ -148,6 +173,29 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		rpm = omega * 60.0 / TAU
 	limiter_active = intake.limiter_cut
 	torque = torque_sum / SUBSTEPS
+
+
+# Exhaust gas temperature sensor, °C: the average of the cylinders' exhaust gas as their exhaust valves open.
+func exhaust_temp_c() -> float:
+	if cylinders.is_empty():
+		return 0.0
+	var sum := 0.0
+	for c in cylinders:
+		sum += c.exhaust_temp
+	return sum / cylinders.size() - 273.15
+
+
+# O2 sensor, relative to stoichiometric: the average mixture the cylinders burned on their last cycle. 1.0 is exact.
+func o2_lambda() -> float:
+	if cylinders.is_empty():
+		return 0.0
+	var sum := 0.0
+	var n := 0
+	for c in cylinders:
+		if c.last_lambda < 50.0:
+			sum += c.last_lambda
+			n += 1
+	return sum / n if n > 0 else 99.0
 
 
 # Timed ignition cut: at the redline the spark is held off for LIMITER_CUT_TIME, then tried again.
@@ -161,11 +209,11 @@ func _update_limiter(dt: float, redline: float) -> void:
 
 # Builds one Cylinder per cylinder, each started at its own firing angle. Rebuilt only when the geometry changes.
 func _build_cylinders(spec: EngineSpec) -> void:
-	var key := "%d|%s|%s|%s|%s|%s|%s" % [spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio]
+	var key := "%d|%s|%s|%s|%s|%s|%s|%s" % [spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio, str(spec.fire_deg)]
 	if key == _cyl_key:
 		return
 	_cyl_key = key
-	var fire := FiringOrders.fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
+	var fire := FiringOrders.for_spec(spec)
 	cylinders.clear()
 	for i in spec.cylinders:
 		var c := Cylinder.new()
@@ -176,6 +224,10 @@ func _build_cylinders(spec: EngineSpec) -> void:
 
 
 # Most torque the clutch pack can carry when fully engaged, N·m. About 25 N·m with the estimates above.
+static func clutch_grip(pull: float) -> float:
+	return clampf((CLUTCH_BITE_END - pull) / (CLUTCH_BITE_END - CLUTCH_BITE_START), 0.0, 1.0)
+
+
 func clutch_capacity(spec: EngineSpec) -> float:
 	return maxf(CLUTCH_MU * CLUTCH_SPRING_N * CLUTCH_MEAN_R * CLUTCH_FACES, spec.displacement_cc * CLUTCH_NM_PER_CC)
 
