@@ -20,6 +20,7 @@ var _air_integral := 0.0
 
 const KP_AIR := 0.0005 # log units of air per rpm below the target
 const KI_AIR := 0.0005 # log units of air per rpm of error per second
+const AIR_RELEASE_RATE := 2.0 # log units per second the idle valve returns to neutral when the ECU lets go
 const AIR_LIMIT := 5.0 # log units either way: the idle valve can open or close a long way
 
 
@@ -28,7 +29,8 @@ func update(dt: float, rpm: float, throttle: float, running: bool) -> float:
 	# the ECU stays out of the way while the engine is starting and climbing, and only holds the idle once it is running
 	if not running or throttle > IDLE_THROTTLE or rpm < ACTIVE_RPM:
 		_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
-		_air_integral = move_toward(_air_integral, 0.0, RELEASE_RATE * dt)
+		_air_integral = move_toward(_air_integral, 0.0, AIR_RELEASE_RATE * dt)
+		_air_log = _air_integral # the idle valve goes back to the engine's own setting, so a restart is not starved of air
 		trim = _integral
 		return trim
 	var error := target_rpm - rpm
