@@ -61,6 +61,7 @@ var burn_energy_left := 0.0 # J still to release in this cycle
 var burn_energy := 0.0 # J released by the charge in this cycle, total
 var port_p := P0 # Pa, gas pressure at the intake valve
 var runner_q := 0.0 # kg/s, flow along the runner toward the cylinder
+var _residual_kg := 0.0 # kg of burnt gas left in the cylinder when the exhaust valve closed
 var _burnt := 0.0 # share of this cycle's fuel energy released so far, 0 = fresh air, 1 = all burnt
 var wall_loss_j := 0.0 # J of heat lost to the walls since the cylinder was made
 var _u := 0.0 # J, internal energy of the gas: the state that carries from step to step, temperature follows from it
@@ -151,7 +152,11 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		port_p = clampf(port_p + R * tm / PORT_VOLUME * (runner_q * sdt - m_in), 1000.0, 3.0 * P0)
 		var m_out := mass_flow(minf(2.0 * PI * EXHAUST_VALVE_D * lift(p0, EXHAUST_OPEN, EXHAUST_CLOSE, EXHAUST_LIFT), EXHAUST_PORT_AREA), pressure, temp, P0, T0) * sdt
 
-		# intake valve closes: the trapped air sets how much fuel is injected and burned
+		# exhaust valve closes: what is left in the cylinder is burnt gas from the last cycle, not fresh air
+		if _crossed(p0, p1, EXHAUST_CLOSE):
+			_residual_kg = mass
+
+		# intake valve closes: the fresh air that came in sets how much fuel is injected and burned
 		if firing and _crossed(p0, p1, INTAKE_CLOSE):
 			_fuel_charge(tank, lambda)
 
@@ -202,7 +207,8 @@ func _fuel_charge(tank: FuelTank, lambda: float) -> void:
 	burn_energy_left = 0.0
 	if lambda >= MISFIRE_LAMBDA:
 		return # too lean to light
-	var wanted := mass / (tank.afr * lambda)
+	var fresh := maxf(mass - _residual_kg, 0.0) # the burnt gas left from the last cycle takes no fuel
+	var wanted := fresh / (tank.afr * lambda)
 	var supplied := minf(wanted, tank.mass_kg)
 	tank.mass_kg -= supplied
 	mass += supplied # the fuel joins the charge, so the gas carries the mass it releases energy from
