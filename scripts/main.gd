@@ -203,11 +203,12 @@ func _process(delta: float) -> void:
 	var clutch_state := "open" if _sim.clutch_engage < 0.01 else ("engaged" if _sim.clutch_engage > 0.99 else "slipping")
 	var state := "RUNNING" if _sim.running else ("CRANKING" if _sim.rpm > 0.0 else "STOPPED")
 	var power_hp := Units.w_to_hp(Units.power_w(_sim.torque, _sim.rpm))
-	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)   Clutch: %s (%d%% grip)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)\nExhaust %.0f °C   O2 sensor λ %.2f" % [
+	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)   Clutch: %s (%d%% grip)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)\nExhaust %.0f °C   O2 sensor λ %.2f\nTiming %+.1f°   Intake %d° at %.1f mm   Exhaust %d° at %.1f mm   Knocks %d" % [
 		state, roundi(_sim.rpm), _sim.torque, power_hp,
 		Units.pa_to_psi(_sim.intake.pressure), Units.k_to_c(EngineAir.T0),
 		roundi(_throttle * 100), clutch_state, roundi(_sim.clutch_engage * 100.0), _sim.fuel.mass_kg, roundi(_sim.fuel.fraction() * 100), _sim.fuel_flow, _panel.lambda(),
-		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output"), _sim.exhaust_temp_c(), _sim.o2_lambda()])
+		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output"), _sim.exhaust_temp_c(), _sim.o2_lambda(),
+		spec.ignition_offset_deg, roundi(spec.intake_duration_deg), spec.intake_lift_mm, roundi(spec.exhaust_duration_deg), spec.exhaust_lift_mm, _sim.knock_count])
 	if _frame <= 3: _trace("sound settings done")
 	_hud.update(_sim, spec, _clutch_held)
 	if _frame <= 3: _trace("hud updated")
@@ -266,7 +267,7 @@ func _on_panel_changed() -> void:
 	var layout := ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _drivetrain.rear_axle)
 	_exhaust.build(layout)
 	# the pipes set the sound, so a layout change of more than a couple of centimetres rebuilds it
-	var audio_key := "%s|%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, str(spec.fire_deg), roundi(layout.total_length_m() * 50.0)]
+	var audio_key := "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, str(spec.fire_deg), spec.intake_centre_deg, spec.exhaust_centre_deg, spec.exhaust_duration_deg, roundi(layout.total_length_m() * 50.0)]
 	if audio_key != _audio_key:
 		_audio_key = audio_key
 		_sound.setup(spec, layout) # stops the player, so start it again below

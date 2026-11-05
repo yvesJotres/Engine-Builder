@@ -48,6 +48,15 @@ const MAX_FLOW_DT := 2.5e-4 # s, longest port step, the port volume is stiff aga
 const AUTO_IGNITE_K := 900.0 # K, exhaust gas temperature above which unlit fuel leaving the cylinder can catch, estimate
 const BACKFIRE_BURN := 0.5 # share of the unlit charge that burns in the hot exhaust when it catches, estimate
 
+# Valve events of this cylinder's cams: crank degrees after firing top dead centre, and peak lift in metres.
+# The stock constants above are the defaults; set_cams() takes them from the engine spec.
+var intake_open := INTAKE_OPEN
+var intake_close := INTAKE_CLOSE
+var exhaust_open := EXHAUST_OPEN
+var exhaust_close := EXHAUST_CLOSE
+var intake_lift := INTAKE_LIFT
+var exhaust_lift := EXHAUST_LIFT
+
 var swept := 0.0 # m³
 var clearance := 0.0 # m³
 var bore := 0.0 # m
@@ -92,6 +101,16 @@ func setup(bore_mm: float, stroke_mm: float, compression_ratio: float, recip: fl
 	phi = 0.0
 	port_p = P0
 	runner_q = 0.0
+
+
+# Takes this cylinder's valve events and lifts from the engine spec.
+func set_cams(spec: EngineSpec) -> void:
+	intake_open = spec.intake_open_deg()
+	intake_close = spec.intake_close_deg()
+	exhaust_open = spec.exhaust_open_deg()
+	exhaust_close = spec.exhaust_close_deg()
+	intake_lift = spec.intake_lift_mm * 0.001
+	exhaust_lift = spec.exhaust_lift_mm * 0.001
 
 
 # Puts the piston at a phase with the gas at atmospheric pressure, so the start state matches the volume.
@@ -150,32 +169,32 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		var p0 := phi
 		var p1 := phi + sd
 		var dv := volume(p1) - volume(p0)
-		if _crossed(p0, p1, INTAKE_OPEN):
+		if _crossed(p0, p1, intake_open):
 			_burnt = 0.0 # a new cycle starts with fresh air
 
 		# runner: the air column accelerates under the manifold-to-port pressure difference, then the port feeds the valve
 		var v_run := runner_q / (RUNNER_AREA * 1.2)
 		runner_q += RUNNER_AREA / RUNNER_LENGTH * (pm - port_p - 0.5 * RUNNER_LOSS * 1.2 * v_run * absf(v_run)) * sdt
-		var m_in := mass_flow(minf(2.0 * PI * INTAKE_VALVE_D * lift(p0, INTAKE_OPEN, INTAKE_CLOSE, INTAKE_LIFT), INTAKE_PORT_AREA), port_p, tm, pressure, temp) * sdt
+		var m_in := mass_flow(minf(2.0 * PI * INTAKE_VALVE_D * lift(p0, intake_open, intake_close, intake_lift), INTAKE_PORT_AREA), port_p, tm, pressure, temp) * sdt
 		port_p = clampf(port_p + R * tm / PORT_VOLUME * (runner_q * sdt - m_in), 1000.0, 3.0 * P0)
-		var m_out := mass_flow(minf(2.0 * PI * EXHAUST_VALVE_D * lift(p0, EXHAUST_OPEN, EXHAUST_CLOSE, EXHAUST_LIFT), EXHAUST_PORT_AREA), pressure, temp, P0, T0) * sdt
+		var m_out := mass_flow(minf(2.0 * PI * EXHAUST_VALVE_D * lift(p0, exhaust_open, exhaust_close, exhaust_lift), EXHAUST_PORT_AREA), pressure, temp, P0, T0) * sdt
 
 		# exhaust valve closes: what is left in the cylinder is burnt gas from the last cycle, not fresh air
-		if _crossed(p0, p1, EXHAUST_OPEN):
+		if _crossed(p0, p1, exhaust_open):
 			# unlit fuel leaving into hot exhaust catches and pops; the exhaust sensor holds the heat of the last fired cycle
 			if fuel_unburnt_kg > 0.0:
 				if _port_heat > AUTO_IGNITE_K:
 					backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
 				_port_heat = T0 # the heat of the last firing is spent on this charge, so one unlit charge pops per firing
 			fuel_unburnt_kg = 0.0
-		if _fired and _crossed(p0, p1, EXHAUST_OPEN):
+		if _fired and _crossed(p0, p1, exhaust_open):
 			exhaust_temp = temp # the exhaust temperature sensor reads burnt gas as the exhaust valve opens, held through a limiter cut
 			_port_heat = temp # the exhaust port is hot from a firing: this is what an unlit charge can catch from
-		if _crossed(p0, p1, EXHAUST_CLOSE):
+		if _crossed(p0, p1, exhaust_close):
 			_residual_kg = mass
 
 		# intake valve closes: the fresh air that came in sets how much fuel is injected and burned
-		if _crossed(p0, p1, INTAKE_CLOSE):
+		if _crossed(p0, p1, intake_close):
 			_fired = false
 			if firing:
 				_fuel_charge(tank, lambda, spark)

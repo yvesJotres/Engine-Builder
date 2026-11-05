@@ -129,7 +129,7 @@ def promote() -> int:
     return 0
 
 
-GATE_TESTS = ["test_engine", "clutch_stability_test", "touch_controls_test", "spark_check", "ir_check", "ecu_test", "fuel_flow_test", "sensors_test", "v_geometry_test", "engine_geometry_test", "firing_reference_test", "clutch_bite_test", "backfire_test"]
+GATE_TESTS = ["test_engine", "clutch_stability_test", "touch_controls_test", "spark_check", "ir_check", "ecu_test", "fuel_flow_test", "sensors_test", "v_geometry_test", "engine_geometry_test", "firing_reference_test", "clutch_bite_test", "backfire_test", "cam_test", "ignition_offset_test", "fuel_effect_test"]
 
 
 def run_tests() -> bool:

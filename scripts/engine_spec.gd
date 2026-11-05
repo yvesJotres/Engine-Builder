@@ -9,7 +9,7 @@ extends Resource
 @export var bank_angle := 90.0 # V layout only, degrees between banks
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
-@export var fuel := "petrol" # petrol | e85 | diesel
+@export var fuel := "petrol" # petrol | e85
 @export var redline_rpm := 10600.0 # fuel cut-off, per engine: limiter from a press dyno test, not Honda
 @export var idle_target_rpm := 1200.0 # rpm the ECU holds at idle
 @export var crank_friction_nm := 0.0 # N·m, constant crankshaft friction from the engine-sim reference; 0 leaves it out
@@ -21,6 +21,14 @@ extends Resource
 @export var split_pin_v4 := false # 4-cylinder V with a 70 degree split crank pin (Ducati Panigale V4)
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var fire_deg: Array = [] # wire angle per cylinder from engine-sim's ignition wiring, in its cylinder order; empty = generic order
+# Valve timing, in crank degrees after firing top dead centre (0 to 720), and lift. Defaults are the stock cams the sim always used.
+@export var intake_centre_deg := 470.0 # centre of the intake event: opens 120 deg before it, closes 120 deg after
+@export var intake_duration_deg := 240.0 # intake valve open, degrees of crank
+@export var intake_lift_mm := 6.0 # intake peak lift
+@export var exhaust_centre_deg := 255.0 # centre of the exhaust event
+@export var exhaust_duration_deg := 230.0 # exhaust valve open, degrees of crank
+@export var exhaust_lift_mm := 5.0 # exhaust peak lift
+@export var ignition_offset_deg := 0.0 # ignition advance (+) or retard (-) on top of the engine's timing map, degrees
 @export var flywheel_radius_mm := 75.0 # estimate, not a published figure: a light single needs this much inertia to hold idle and rev cleanly
 @export var compression_ratio := 11.3 # Honda CBR150R (K45N), dealer page
 @export var vehicle_kg := 215.0 # bike and rider, estimate; the CBR250RR preset uses engine-sim's 165 kg
@@ -122,4 +130,27 @@ func validation_warning() -> String:
 	var calc := calc_displacement_cc()
 	if absf(calc - displacement_cc) / displacement_cc > 0.02:
 		return "Bore x stroke gives %.0f cc, not %.0f cc" % [calc, displacement_cc]
+	if intake_duration_deg < 150.0 or intake_duration_deg > 300.0 or exhaust_duration_deg < 150.0 or exhaust_duration_deg > 300.0:
+		return "Valve duration must be 150 to 300 degrees"
+	if intake_lift_mm < 2.0 or intake_lift_mm > 15.0 or exhaust_lift_mm < 2.0 or exhaust_lift_mm > 15.0:
+		return "Valve lift must be 2 to 15 mm"
+	if absf(ignition_offset_deg) > 10.0:
+		return "Ignition offset must be within 10 degrees"
 	return ""
+
+
+# Valve event edges, crank degrees after firing top dead centre. The event is centred on the centre angle.
+func intake_open_deg() -> float:
+	return intake_centre_deg - intake_duration_deg * 0.5
+
+
+func intake_close_deg() -> float:
+	return intake_centre_deg + intake_duration_deg * 0.5
+
+
+func exhaust_open_deg() -> float:
+	return exhaust_centre_deg - exhaust_duration_deg * 0.5
+
+
+func exhaust_close_deg() -> float:
+	return exhaust_centre_deg + exhaust_duration_deg * 0.5

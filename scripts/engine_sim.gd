@@ -41,6 +41,13 @@ const CLUTCH_BITE_END := 0.9 # lever pull where the plates are fully apart, esti
 const DRIVE_EFFICIENCY := 0.93 # gearbox mesh (6 gears, ~1.5% each), primary drive and chain (~3%) together, estimate
 const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
+# Fuel evaporating in the intake cools the air drawn in. Only part of the fuel evaporates before the valve shuts (estimate).
+const CHARGE_EVAP_FRACTION := 0.35
+# Knock: the stock ignition map is safe on any fuel. Advancing it by more than the limit knocks: higher octane and lower compression allow more (estimates).
+const KNOCK_BASE_DEG := 4.0
+const KNOCK_PER_OCTANE_DEG := 0.4
+const KNOCK_PER_CR_DEG := 0.5
+const KNOCK_TORQUE_LOSS := 0.3 # share of the gas torque lost when the advance is 5 degrees past the limit (estimate)
 
 var rpm := 0.0 # engine speed
 var omega := 0.0 # crank speed, rad/s
@@ -61,6 +68,8 @@ var _limiter_time := 0.0
 var ecu := ECU.new()
 var _gas_torque := 0.0 # N·m, the gas torque from the last physics step, used in the next crank kick
 var _clutch_slow_engage := false # true after a Shift pull-in, until the plates are back: then they come back slowly
+var knock_count := 0 # knock events since the engine was made: each time the advance goes past the limit
+var _knocking := false
 var backfire_count := 0 # backfires since the engine was made, for the sound to hear each one once
 var last_backfire_j := 0.0 # J released by the latest backfire, for its loudness
 
@@ -116,6 +125,14 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var h := delta / SUBSTEPS
 	var torque_sum := 0.0
 	_build_cylinders(spec)
+	# knock: the rider's advance past what the fuel and compression allow, which costs torque and counts as a knock
+	var knock_excess := maxf(spec.ignition_offset_deg - knock_limit_deg(fuel.octane, spec.compression_ratio), 0.0)
+	if running and knock_excess > 0.0 and not _knocking:
+		knock_count += 1
+	_knocking = running and knock_excess > 0.0
+	var knock_loss := clampf(knock_excess / 5.0, 0.0, 1.0) * KNOCK_TORQUE_LOSS
+	# the fuel evaporating in the intake cools the air drawn in, so E85 and petrol breathe differently
+	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, lambda) if running else 0.0)
 	for _i in SUBSTEPS:
 		_update_limiter(h, spec.redline_rpm)
 		# piston rings and bores: each cylinder's ring face grows with its bore. Scaled so a 57.3 mm bore gives FRICTION_PER_CYLINDER.
@@ -149,7 +166,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		# fast, so one coarse step overshoots), and the average gas torque is used in the next kick
 		# the ECU trims the spark advance at idle to hold the idle speed
 		ecu.target_rpm = spec.idle_target_rpm
-		var ign := 720.0 - (EngineAir.spark_advance_deg(rpm) + ecu.update(h, rpm, throttle, running))
+		var ign := 720.0 - (EngineAir.spark_advance_deg(rpm, spec.ignition_offset_deg) + ecu.update(h, rpm, throttle, running))
 		var gas := 0.0
 		var sub := maxi(1, ceili(h / Cylinder.MAX_FLOW_DT))
 		var sub_h := h / sub
@@ -158,7 +175,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			var drawn := 0.0
 			for c in cylinders:
 				# the limiter cuts the spark, not the fuel: a cut cylinder still takes its charge, which can backfire in the exhaust
-				var res := c.advance(dphi, sub_h, intake.pressure, EngineAir.T0, ign, running, fuel, lambda, running and not intake.limiter_cut)
+				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, lambda, running and not intake.limiter_cut)
 				gas += res.x / sub
 				drawn += res.y
 				if c.backfire_j > 0.0:
@@ -167,6 +184,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					c.backfire_j = 0.0
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
 			intake.manifold_update(sub_h, throttle, drawn / sub_h)
+		gas *= 1.0 - knock_loss
 		_gas_torque = gas
 		torque_sum += gas - friction # shaft torque, what the crank delivers
 		rpm = omega * 60.0 / TAU
@@ -208,7 +226,7 @@ func _update_limiter(dt: float, redline: float) -> void:
 
 # Builds one Cylinder per cylinder, each started at its own firing angle. Rebuilt only when the geometry changes.
 func _build_cylinders(spec: EngineSpec) -> void:
-	var key := "%d|%s|%s|%s|%s|%s|%s|%s" % [spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio, str(spec.fire_deg)]
+	var key := "%d|%s|%s|%s|%s|%s|%s|%s|%s" % [spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio, str(spec.fire_deg), [spec.intake_centre_deg, spec.intake_duration_deg, spec.intake_lift_mm, spec.exhaust_centre_deg, spec.exhaust_duration_deg, spec.exhaust_lift_mm]]
 	if key == _cyl_key:
 		return
 	_cyl_key = key
@@ -217,16 +235,27 @@ func _build_cylinders(spec: EngineSpec) -> void:
 	for i in spec.cylinders:
 		var c := Cylinder.new()
 		c.setup(spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.reciprocating_kg(), spec.rod_over_crank_radius())
+		c.set_cams(spec)
 		# the crank starts at zero, so this cylinder's firing TDC sits at its fire angle
 		c.start_at(-fire[i])
 		cylinders.append(c)
 
 
-# Most torque the clutch pack can carry when fully engaged, N·m. About 25 N·m with the estimates above.
+# How far the ignition can be advanced past the stock map before the engine knocks, degrees.
+static func knock_limit_deg(octane: float, compression_ratio: float) -> float:
+	return KNOCK_BASE_DEG + KNOCK_PER_OCTANE_DEG * (octane - 95.0) - KNOCK_PER_CR_DEG * (compression_ratio - 10.0)
+
+
+# Kelvin the intake air cools by when fuel evaporates in it, at this mixture.
+static func charge_cooling_k(latent: float, afr: float, lambda: float) -> float:
+	return CHARGE_EVAP_FRACTION * latent / (afr * lambda) / Cylinder.CP
+
+
 static func clutch_grip(pull: float) -> float:
 	return clampf((CLUTCH_BITE_END - pull) / (CLUTCH_BITE_END - CLUTCH_BITE_START), 0.0, 1.0)
 
 
+# Most torque the clutch pack can carry when fully engaged, N·m. About 25 N·m with the estimates above.
 func clutch_capacity(spec: EngineSpec) -> float:
 	return maxf(CLUTCH_MU * CLUTCH_SPRING_N * CLUTCH_MEAN_R * CLUTCH_FACES, spec.displacement_cc * CLUTCH_NM_PER_CC)
 

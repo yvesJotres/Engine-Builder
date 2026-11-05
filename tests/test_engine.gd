@@ -433,7 +433,7 @@ func _test_layout(cbr: EngineSpec) -> void:
 	for intake in [true, false]:
 		var lo := INF
 		var hi := 0.0
-		for p in EngineModel._lobe_outline(intake):
+		for p in EngineModel._lobe_outline(intake, EngineSpec.new()):
 			lo = minf(lo, p.length())
 			hi = maxf(hi, p.length())
 		var peak: float = Cylinder.INTAKE_LIFT if intake else Cylinder.EXHAUST_LIFT

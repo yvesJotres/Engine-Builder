@@ -1,9 +1,9 @@
 class_name ControlPanel
 extends CanvasLayer
 
-# Left-hand panel: engine preset and settings, ignition, starter, refuel, sound, readouts.
-# Changes are reported through signals; main.gd applies them to the simulation.
-# Settings sit under short headings, one label and one value per row, so they scan quickly.
+# Left-hand panel: the engine preset, then settings on tabs (engine, air and fuel, valves, ignition, tuning, controls), then the
+# warning and the readouts. Changes are reported through signals; main.gd applies them to the simulation.
+# Each tab holds one label and one value per row, so a tab stays short and the panel does not crowd the screen.
 
 signal changed
 signal refuel_pressed
@@ -42,14 +42,22 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 
-	box.add_child(_heading("Engine"))
 	var preset := OptionButton.new()
 	for preset_name in Presets.PRESETS.keys():
 		preset.add_item(preset_name)
 	preset.item_selected.connect(_on_preset_selected)
 	box.add_child(preset)
-	var engine := _grid(box)
-	# defaults: Honda CBR150R (K45N) reference for measurement study
+
+	# one section at a time, picked from this dropdown: the panel stays as tall as the section it shows
+	var section := OptionButton.new()
+	for title in ["Engine", "Air and fuel", "Valves", "Ignition", "Tuning", "Controls"]:
+		section.add_item(title)
+	box.add_child(section)
+	var pages := VBoxContainer.new()
+	box.add_child(pages)
+	section.item_selected.connect(func(i: int) -> void: _show_section(pages, i))
+
+	var engine := _page(pages, "Engine")
 	_controls["cyl"] = _spin(engine, "Cylinders", 1, 16, 1, 1)
 	_controls["bore"] = _spin(engine, "Bore (mm)", 40, 150, 0.1, 57.3)
 	_controls["stroke"] = _spin(engine, "Stroke (mm)", 40, 150, 0.1, 57.8)
@@ -64,24 +72,44 @@ func _ready() -> void:
 	_controls["layout"].item_selected.connect(func(_i: int) -> void: _refresh_twin())
 	_refresh_twin()
 
-	box.add_child(_heading("Intake and exhaust"))
-	var intake := _grid(box)
-	_controls["header"] = _option(intake, "Header", ["stock", "4-1", "4-2-1"])
-	_controls["fuel"] = _option(intake, "Fuel", ["petrol", "e85"])
-	_controls["lambda"] = _spin(intake, "Mixture λ", 0.6, 1.4, 0.01, 1.0)
+	var air := _page(pages, "Air and fuel")
+	_controls["header"] = _option(air, "Header", ["stock", "4-1", "4-2-1"])
+	_controls["fuel"] = _option(air, "Fuel", ["petrol", "e85"])
+	_controls["fuel"].tooltip_text = "E85 cools the intake charge and resists knock; petrol does neither"
+	_controls["lambda"] = _spin(air, "Mixture λ", 0.6, 1.4, 0.01, 1.0)
 	_controls["lambda"].tooltip_text = "1.0 = stoichiometric"
 
-	box.add_child(_heading("Tuning"))
-	var tuning := _grid(box)
+	var valves := _page(pages, "Valves")
+	_controls["in_dur"] = _spin(valves, "Intake duration", 150, 300, 1, 240)
+	_controls["in_dur"].tooltip_text = "Crank degrees the intake valve is open"
+	_controls["in_lift"] = _spin(valves, "Intake lift (mm)", 2, 15, 0.1, 6.0)
+	_controls["in_centre"] = _spin(valves, "Intake centre", 60, 300, 1, 470)
+	_controls["in_centre"].tooltip_text = "Where the intake event is centred, after firing top dead centre"
+	_controls["ex_dur"] = _spin(valves, "Exhaust duration", 150, 300, 1, 230)
+	_controls["ex_dur"].tooltip_text = "Crank degrees the exhaust valve is open"
+	_controls["ex_lift"] = _spin(valves, "Exhaust lift (mm)", 2, 15, 0.1, 5.0)
+	_controls["ex_centre"] = _spin(valves, "Exhaust centre", 60, 300, 1, 255)
+	_controls["ex_centre"].tooltip_text = "Where the exhaust event is centred, after firing top dead centre"
+
+	var ignition_page := _page(pages, "Ignition")
+	_controls["timing"] = _spin(ignition_page, "Timing (deg)", -10, 10, 0.5, 0)
+	_controls["timing"].tooltip_text = "Advance (+) or retard (-) from the engine's timing map. Too much advance knocks, more on petrol than on E85"
+	var timing_hint := Label.new()
+	timing_hint.text = "+ advances, - retards. Past the knock limit the engine knocks."
+	timing_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	timing_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
+	ignition_page.add_child(timing_hint)
+
+	var tuning := _page(pages, "Tuning")
 	_controls["redline"] = _spin(tuning, "Redline (rpm)", 2000, 20000, 100, 10600)
 	_controls["redline"].tooltip_text = "Fuel is cut at this speed"
 	_controls["flywheel"] = _spin(tuning, "Flywheel (kg)", 0.5, 10.0, 0.01, 2.5)
 	_controls["flywheel_r"] = _spin(tuning, "Flywheel radius (mm)", 20, 150, 0.5, 75.0)
 
-	box.add_child(_heading("Controls"))
+	var controls := _page(pages, "Controls")
 	var ignition := HBoxContainer.new()
 	ignition.add_theme_constant_override("separation", 12)
-	box.add_child(ignition)
+	controls.add_child(ignition)
 	var knob := IgnitionKnob.new()
 	knob.toggled.connect(_on_ignition_toggled)
 	ignition.add_child(knob)
@@ -99,13 +127,12 @@ func _ready() -> void:
 
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 8)
-	box.add_child(buttons)
+	controls.add_child(buttons)
 	var refuel := _button("Refuel", buttons)
 	refuel.pressed.connect(func() -> void: refuel_pressed.emit())
 	var starter := _button("Starter (hold)", buttons)
 	starter.button_down.connect(func() -> void: starter_changed.emit(true))
 	starter.button_up.connect(func() -> void: starter_changed.emit(false))
-
 
 	_warning = Label.new()
 	_warning.modulate = Color(1.0, 0.7, 0.3)
@@ -150,6 +177,13 @@ func apply_to(spec: EngineSpec) -> void:
 	spec.redline_rpm = _controls["redline"].value
 	spec.flywheel_kg = _controls["flywheel"].value
 	spec.flywheel_radius_mm = _controls["flywheel_r"].value
+	spec.intake_duration_deg = _controls["in_dur"].value
+	spec.intake_lift_mm = _controls["in_lift"].value
+	spec.intake_centre_deg = _controls["in_centre"].value
+	spec.exhaust_duration_deg = _controls["ex_dur"].value
+	spec.exhaust_lift_mm = _controls["ex_lift"].value
+	spec.exhaust_centre_deg = _controls["ex_centre"].value
+	spec.ignition_offset_deg = _controls["timing"].value
 
 
 func lambda() -> float:
@@ -172,8 +206,6 @@ func _refresh_twin() -> void:
 	_controls["twin"].visible = twin_applies
 
 
-
-
 func _on_ignition_toggled(on: bool) -> void:
 	_ignition_label.text = "Ignition ON" if on else "Ignition OFF"
 	ignition_changed.emit(on)
@@ -191,6 +223,14 @@ func _on_preset_selected(index: int) -> void:
 	_set_quiet(_controls["redline"], p.redline_rpm)
 	_set_quiet(_controls["flywheel"], p.flywheel_kg)
 	_set_quiet(_controls["flywheel_r"], p.flywheel_radius_mm)
+	# the cams and timing go back to the stock values (or the preset's own) when a preset is picked
+	_set_quiet(_controls["in_dur"], 240.0)
+	_set_quiet(_controls["in_lift"], 6.0)
+	_set_quiet(_controls["in_centre"], 470.0)
+	_set_quiet(_controls["ex_dur"], 230.0)
+	_set_quiet(_controls["ex_lift"], 5.0)
+	_set_quiet(_controls["ex_centre"], 255.0)
+	_set_quiet(_controls["timing"], 0.0)
 	rod_ratio = p.rod_ratio
 	compression_ratio = p.get("compression_ratio", 11.3)
 	crossplane = p.get("crossplane", false)
@@ -203,6 +243,21 @@ func _on_preset_selected(index: int) -> void:
 	gear_ratios = p.get("gear_ratios", Gearbox.ratios())
 	_refresh_twin() # set_quiet does not signal, so update the crank-pin row here
 	changed.emit()
+
+
+# One section: a column that holds its own grid. The first one is shown; the dropdown switches the others in.
+func _page(host: Control, title: String) -> GridContainer:
+	var page := VBoxContainer.new()
+	page.name = title
+	page.visible = host.get_child_count() == 0
+	page.add_theme_constant_override("separation", 8)
+	host.add_child(page)
+	return _grid(page)
+
+
+func _show_section(pages: Control, index: int) -> void:
+	for i in pages.get_child_count():
+		pages.get_child(i).visible = i == index
 
 
 func _grid(box: Control) -> GridContainer:
@@ -262,13 +317,6 @@ func _style_button(b: Button) -> void:
 	b.add_theme_stylebox_override("hover", _box(BUTTON.lightened(0.12), 8, 8))
 	b.add_theme_stylebox_override("pressed", _box(ACCENT, 8, 8)) # lit while held, or while Sound is on
 
-
-func _heading(text: String) -> Label:
-	var l := Label.new()
-	l.text = text.to_upper()
-	l.add_theme_font_size_override("font_size", 13)
-	l.add_theme_color_override("font_color", HEADING)
-	return l
 
 
 # A rounded box used for the panel, the readouts and the buttons.

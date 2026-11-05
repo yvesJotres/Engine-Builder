@@ -24,8 +24,8 @@ var limiter_cut := false # true while the rev limiter has the spark cut, set by 
 # after TDC, which is where torque is best. It follows our own burn duration, so the burn centre stays put at every speed.
 # (engine-sim's speed-only timing map was tried and dropped: it was tuned for that simulator's much slower burn at high
 # speed, and in our burn model it pulls the burn centre to 40 degrees before TDC at 15,000 rpm.) The ECU adds its idle trim.
-static func spark_advance_deg(rpm: float) -> float:
-	return Cylinder.burn_duration_deg(rpm) * Cylinder.WIEBE_CA50 - Cylinder.CA50_TARGET
+static func spark_advance_deg(rpm: float, offset := 0.0) -> float: # offset: the rider's advance (+) or retard (-), degrees
+	return Cylinder.burn_duration_deg(rpm) * Cylinder.WIEBE_CA50 - Cylinder.CA50_TARGET + offset
 
 
 # Moves the manifold for dt seconds: throttle and bypass inflow, drawn_kg_s out to the cylinders.

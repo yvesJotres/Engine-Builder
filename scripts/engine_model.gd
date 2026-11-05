@@ -32,6 +32,7 @@ var _pin_phase: Array[float] = [] # crank-pin angle per cylinder, degrees
 var _plates: Array[MeshInstance3D] = [] # butterfly plate per throttle body
 var _ports: Array[Vector3] = [] # exhaust port per cylinder, model space
 var _cams: Array[Dictionary] = [] # each: node, intake flag, cylinder index
+var _spec: EngineSpec # the spec the drawing was built from: its cam timing and lift drive the valves
 var _valves: Array[Dictionary] = [] # each: node, seat height, intake flag, cylinder index; intake first within a cylinder
 var _high_points: Array[Vector3] = [] # highest parts (plugs, throttle bodies), model space, so the tank can sit above them
 var _injector_local := Vector3.ZERO # nozzle on the first throttle body, model space
@@ -52,6 +53,7 @@ static func crank_world_y() -> float:
 
 
 func build(spec: EngineSpec) -> void:
+	_spec = spec
 	_build_engine(spec)
 	# lean the whole engine about the crankshaft, which sits at its real height above the ground
 	var rot := Basis(Vector3.RIGHT, deg_to_rad(spec.slant_deg))
@@ -263,7 +265,7 @@ func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: flo
 			_add_cyl(valve, 0.025, head_h * 1.1, Vector3(0.0, head_h * 0.55, 0.0), mat) # the stem, up through the head
 			_valves.append({"node": valve, "seat": deck, "intake": intake, "cyl": index})
 			var lobe := CSGPolygon3D.new()
-			lobe.polygon = _lobe_outline(intake)
+			lobe.polygon = _lobe_outline(intake, _spec)
 			lobe.mode = CSGPolygon3D.MODE_DEPTH
 			lobe.depth = LOBE_WIDTH
 			lobe.material = mat
@@ -274,13 +276,13 @@ func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: flo
 
 # Cam lobe outline: radius is the base circle plus the valve lift. A point at angle w from +y toward +z sits at world angle
 # w + cam angle, and the stem is straight below (w = 180°), so w gives the cycle angle phi = 2 (180° - w) while the cam turns phi / 2.
-static func _lobe_outline(intake: bool) -> PackedVector2Array:
+static func _lobe_outline(intake: bool, spec: EngineSpec) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	for k in 120:
 		var w := TAU * k / 120.0
 		var phi := fposmod(2.0 * (180.0 - rad_to_deg(w)), 720.0)
-		var lift := Cylinder.lift(phi, Cylinder.INTAKE_OPEN, Cylinder.INTAKE_CLOSE, Cylinder.INTAKE_LIFT) if intake \
-				else Cylinder.lift(phi, Cylinder.EXHAUST_OPEN, Cylinder.EXHAUST_CLOSE, Cylinder.EXHAUST_LIFT)
+		var lift := Cylinder.lift(phi, spec.intake_open_deg(), spec.intake_close_deg(), spec.intake_lift_mm * 0.001) if intake \
+				else Cylinder.lift(phi, spec.exhaust_open_deg(), spec.exhaust_close_deg(), spec.exhaust_lift_mm * 0.001)
 		var r := CAM_BASE + lift * Units.M_TO_SCENE
 		pts.append(Vector2(-r * sin(w), r * cos(w)))
 	return pts
@@ -340,8 +342,8 @@ func update_crank(crank_deg: float) -> void:
 	for v in _valves:
 		# the cycle angle of Cylinder: 0 is firing top dead centre, which is where this cylinder's piston is at the top with its pin phase
 		var phi := fposmod(crank_deg + _pin_phase[v.cyl], 720.0)
-		var lift := Cylinder.lift(phi, Cylinder.INTAKE_OPEN, Cylinder.INTAKE_CLOSE, Cylinder.INTAKE_LIFT) if v.intake \
-				else Cylinder.lift(phi, Cylinder.EXHAUST_OPEN, Cylinder.EXHAUST_CLOSE, Cylinder.EXHAUST_LIFT)
+		var lift := Cylinder.lift(phi, _spec.intake_open_deg(), _spec.intake_close_deg(), _spec.intake_lift_mm * 0.001) if v.intake \
+				else Cylinder.lift(phi, _spec.exhaust_open_deg(), _spec.exhaust_close_deg(), _spec.exhaust_lift_mm * 0.001)
 		v.node.position.y = v.seat - lift * Units.M_TO_SCENE
 	for c in _cams:
 		c.node.rotation.x = deg_to_rad(fposmod(crank_deg + _pin_phase[c.cyl], 720.0) * 0.5)

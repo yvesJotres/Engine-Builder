@@ -74,6 +74,8 @@ var _click_level := 0.0
 var _pop_left := 0 # samples left in the current backfire pop
 var _pop_level := 0.0 # peak of the current backfire, from the energy that burned in the exhaust
 var _pop_lp := 0.0 # low-passed noise for the pop
+var _exhaust_open := Cylinder.EXHAUST_OPEN # crank degrees after firing that the exhaust valve opens, from the cam timing
+var _ignition_offset := 0.0 # ignition advance from the spec, so the spark crack moves with the timing
 var _click_prev := 0.0
 var _ir := PackedFloat32Array() # exhaust impulse response, decimated, scaled to unit energy
 var _hist := PackedFloat32Array() # the last few decimated exhaust samples, a ring buffer
@@ -133,6 +135,8 @@ func setup(spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	stop()
 	_cycle = 0.0
 	_fire = FiringOrders.for_spec(spec)
+	_exhaust_open = spec.exhaust_open_deg()
+	_ignition_offset = spec.ignition_offset_deg
 	if layout == null:
 		layout = ExhaustLayout.build(spec)
 	_build_pipes(layout)
@@ -226,13 +230,13 @@ func render(frames: int) -> PackedVector2Array:
 		_cycle += step
 		# the exhaust valve opens EXHAUST_OPEN degrees after the cylinder fires, and the burnt gas rushes into its primary
 		for c in cyls:
-			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] + Cylinder.EXHAUST_OPEN):
+			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] + _exhaust_open):
 				_p_age[c] = 0.0
 				_p_len[c] = blow_len
 				_p_amp[c] = _smooth_energy / sqrt(cyls)
 		# the spark jumps the plug gap a little before each firing: a short electrical crack, scaled by the fuel burned
 		for c in cyls:
-			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm)):
+			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm, _ignition_offset)):
 				_click_left = CLICK_SAMPLES
 				_click_level = CLICK_LEVEL * _smooth_energy
 		var click := 0.0
