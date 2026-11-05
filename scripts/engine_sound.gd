@@ -20,10 +20,11 @@ const IR_TAPS_MAX := 256 # taps after decimation, about 98% of the response's en
 const CLICK_SAMPLES := 88 # 2 ms, the length of the spark crack
 const CLICK_LEVEL := 0.02 # peak of the crack at full fuel burn; it happens inside the engine, so it stays quiet
 const CLICK_DECAY := 6.0 # how fast the crack dies away
-const POP_SAMPLES := 1100 # 25 ms, the length of a backfire pop
-const POP_LEVEL := 0.6 # peak of a full backfire, fed into the exhaust response so the pipes shape it
+const POP_SAMPLES := 880 # 20 ms, the length of a backfire pop
+const POP_LEVEL := 0.12 # peak of a full backfire, quiet: a thump in the pipes, not a hiss
 const POP_FULL_J := 250.0 # J of unlit fuel burning in the exhaust for a full pop, estimate: about one cylinder's charge at idle
-const POP_DECAY := 4.0 # how fast the pop dies away
+const POP_DECAY := 5.0 # how fast the pop dies away
+const POP_LP := 0.08 # low-pass on the pop's noise, so it is a thump rather than white hiss
 const OUTPUT_GAIN := 75.0 # calibrated so the loudness matches the earlier single-resonator exhaust (0.30 rms at 6,000 rpm, one cylinder)
 
 var starved := false # true when the sound ran out of audio since the last frame
@@ -72,6 +73,7 @@ var _click_left := 0 # samples left in the current spark crack
 var _click_level := 0.0
 var _pop_left := 0 # samples left in the current backfire pop
 var _pop_level := 0.0 # peak of the current backfire, from the energy that burned in the exhaust
+var _pop_lp := 0.0 # low-passed noise for the pop
 var _click_prev := 0.0
 var _ir := PackedFloat32Array() # exhaust impulse response, decimated, scaled to unit energy
 var _hist := PackedFloat32Array() # the last few decimated exhaust samples, a ring buffer
@@ -243,9 +245,10 @@ func render(frames: int) -> PackedVector2Array:
 			_click_left -= 1
 		# a backfire: a noise burst into the exhaust, decaying over 25 ms, shaped by the pipes like the rest of the note
 		var pop := 0.0
+		_pop_lp += POP_LP * (randf_range(-1.0, 1.0) - _pop_lp) # the noise, low-passed for a thump
 		if _pop_left > 0:
 			var age_p := float(POP_SAMPLES - _pop_left) / POP_SAMPLES
-			pop = _pop_level * randf_range(-1.0, 1.0) * exp(-age_p * POP_DECAY)
+			pop = _pop_level * _pop_lp * exp(-age_p * POP_DECAY)
 			_pop_left -= 1
 		var s := clampf(_convolve(_sample() + pop) + click, -1.0, 1.0)
 		out.append(Vector2(s, s))

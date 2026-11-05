@@ -67,6 +67,7 @@ var exhaust_temp := 300.0 # K, the gas temperature when the exhaust valve last o
 var last_lambda := 1.0 # the mixture the O2 sensor reads, relative to stoichiometric: 1.0 is exact, above is lean
 var _fired := false # true when this cycle's charge was lit, so its exhaust is hot
 var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: it leaves unburnt
+var _port_heat := T0 # K, the exhaust port's heat from the last firing; an unlit charge can catch from it, and it is spent once used
 var backfire_j := 0.0 # J released by backfires since the engine last read it
 var _residual_kg := 0.0 # kg of burnt gas left in the cylinder when the exhaust valve closed
 var _burnt := 0.0 # share of this cycle's fuel energy released so far, 0 = fresh air, 1 = all burnt
@@ -162,11 +163,14 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		# exhaust valve closes: what is left in the cylinder is burnt gas from the last cycle, not fresh air
 		if _crossed(p0, p1, EXHAUST_OPEN):
 			# unlit fuel leaving into hot exhaust catches and pops; the exhaust sensor holds the heat of the last fired cycle
-			if fuel_unburnt_kg > 0.0 and exhaust_temp > AUTO_IGNITE_K:
-				backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
+			if fuel_unburnt_kg > 0.0:
+				if _port_heat > AUTO_IGNITE_K:
+					backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
+				_port_heat = T0 # the heat of the last firing is spent on this charge, so one unlit charge pops per firing
 			fuel_unburnt_kg = 0.0
 		if _fired and _crossed(p0, p1, EXHAUST_OPEN):
 			exhaust_temp = temp # the exhaust temperature sensor reads burnt gas as the exhaust valve opens, held through a limiter cut
+			_port_heat = temp # the exhaust port is hot from a firing: this is what an unlit charge can catch from
 		if _crossed(p0, p1, EXHAUST_CLOSE):
 			_residual_kg = mass
 

@@ -12,7 +12,6 @@ extends Resource
 @export var fuel := "petrol" # petrol | e85 | diesel
 @export var redline_rpm := 10600.0 # fuel cut-off, per engine: limiter from a press dyno test, not Honda
 @export var idle_target_rpm := 1200.0 # rpm the ECU holds at idle
-@export var idle_leak := 1.0 # scale on the idle bypass for this engine, set per engine so the idle lands in the expected range
 @export var crank_friction_nm := 0.0 # N·m, constant crankshaft friction from the engine-sim reference; 0 leaves it out
 @export var flywheel_kg := 2.5 # estimate for the CBR150R, replace with the service manual figure
 @export var primary_ratio := 3.26 # crank to mainshaft, K45R (BikesWiki, 2017+ engine, not confirmed for K45R)

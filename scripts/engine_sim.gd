@@ -165,7 +165,6 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					backfire_count += 1
 					last_backfire_j = c.backfire_j
 					c.backfire_j = 0.0
-				intake.bypass_area = EngineAir.BYPASS_AREA * spec.idle_leak # idle air leaking past the closed plate
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
 			intake.manifold_update(sub_h, throttle, drawn / sub_h)
 		_gas_torque = gas
