@@ -16,7 +16,7 @@ const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch m
 const MAX_STEPS_PER_FRAME := 400 # a safety limit on the steps one frame can run
 var _accumulator := 0.0 # real time not yet simulated, s
 const STARTER_TORQUE := 20.0 # N·m per 150 cc at zero speed, fades to zero at CRANK_RPM; scaled from the CBR150R calibration, estimate
-const CRANK_RPM := 500.0
+const CRANK_RPM := 900.0 # the starter's help fades to zero here, about the speed where the engine holds itself up
 const FIRE_RPM := 400.0 # ignition catches the mixture above this speed
 const STALL_RPM := 200.0 # below this the mixture no longer ignites
 const LIMITER_CUT_TIME := 0.08 # s, spark held off per limiter hit, from engine-sim's ignition module
@@ -46,7 +46,7 @@ var limiter_active := false # the rev limiter has the spark cut
 var clutch_engage := 1.0 # 0 = clutch open, 1 = fully engaged
 var clutch_pull := 0.0 # 0 to 1 from the clutch lever: 1 = pulled in, 0 = at rest (engaged unless Shift is held)
 var brake := 0.0 # 0 = released, 1 = fully applied
-var fuel_flow := 0.0 # g/s, last step
+var fuel_flow := 0.0 # g/s, averaged over the last frame and smoothed over about two engine cycles
 var torque := 0.0 # N·m at the crank, shaft torque averaged over the last step
 var gear := Gearbox.new()
 var intake := EngineAir.new()
@@ -63,6 +63,7 @@ var _gas_torque := 0.0 # N·m, the gas torque from the last physics step, used i
 func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, starter_held: bool,
 		clutch_held: bool, brake_held: bool, lambda: float) -> void:
 	_accumulator = minf(_accumulator + delta, MAX_FRAME_TIME)
+	var fuel_start := fuel.mass_kg
 	var n := 0
 	while _accumulator >= physics_dt and n < MAX_STEPS_PER_FRAME:
 		_advance(physics_dt, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
@@ -70,6 +71,12 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 		n += 1
 	if _accumulator >= physics_dt:
 		_accumulator = 0.0 # still behind after the step limit: drop the backlog rather than fast-forward
+	# Fuel is injected once per engine cycle, so one physics step sees either all of it or none. The flow is the fuel used over
+	# the whole frame, smoothed over about two engine cycles, so the sound and the readouts get a steady value.
+	if n > 0:
+		var instant := (fuel_start - fuel.mass_kg) * 1000.0 / (n * physics_dt)
+		var tau := clampf(240.0 / maxf(rpm, 100.0), 0.05, 0.5)
+		fuel_flow += (instant - fuel_flow) * (1.0 - exp(-n * physics_dt / tau))
 
 
 # One fixed physics step of delta seconds.
@@ -91,7 +98,6 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var h := delta / SUBSTEPS
 	var torque_sum := 0.0
 	_build_cylinders(spec)
-	var fuel_before := fuel.mass_kg
 	for _i in SUBSTEPS:
 		_update_limiter(h, spec.redline_rpm)
 		var friction := FRICTION_BASE + 2.0 * MAIN_BEARING_FRICTION + BALANCER_FRICTION + FRICTION_PER_RPM * rpm
@@ -99,7 +105,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		friction += spec.crank_friction_nm * minf(rpm / 50.0, 1.0)
 		# kick first, as engine-sim's NSV solver does: the crank speed moves with the gas torque from the last step
 		var net := _gas_torque
-		if starter_held and not running:
+		if starter_held: # the starter keeps turning the engine while it is held, even after the engine fires
 			# one cylinder's worth of starter per cylinder: each one's compression resists the crank on cranking
 			net += STARTER_TORQUE * spec.displacement_cc / 150.0 * clampf(1.0 - rpm / CRANK_RPM, 0.0, 1.0)
 		net -= friction
@@ -140,7 +146,6 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		_gas_torque = gas
 		torque_sum += gas - friction # shaft torque, what the crank delivers
 		rpm = omega * 60.0 / TAU
-	fuel_flow = (fuel_before - fuel.mass_kg) * 1000.0 / delta if delta > 0.0 else 0.0
 	limiter_active = intake.limiter_cut
 	torque = torque_sum / SUBSTEPS
 

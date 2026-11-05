@@ -36,10 +36,10 @@ func _init() -> void:
 		ecu.update(dt, 5000.0, 0.5, true) # throttle open
 	check(absf(ecu.air_factor() - 1.0) < 0.05, "the idle valve returns to neutral with the throttle open, got %.3f" % ecu.air_factor())
 
-	# 3. Below the active speed the ECU stays out of the way, so starting is left alone.
+	# 3. Below the active speed (just under the firing speed) the ECU stays out of the way.
 	var starting := ECU.new()
 	for i in int(2.0 / dt):
-		starting.update(dt, 600.0, 0.0, true)
+		starting.update(dt, 200.0, 0.0, true)
 	check(starting.trim == 0.0 and starting.air_factor() == 1.0, "no ECU action below the active rpm")
 
 	# 4. The spark advance keeps the burn centre (50% burnt) at the target after TDC at every speed, and never falls as rpm rises.
@@ -57,6 +57,13 @@ func _init() -> void:
 	check(centred, "the burn centre sits at the target after TDC at every speed")
 	check(monotonic, "the spark advance never falls as rpm rises")
 	check(EngineAir.spark_advance_deg(1200.0) > 5.0 and EngineAir.spark_advance_deg(1200.0) < 25.0, "idle advance is in a sane range, got %.1f" % EngineAir.spark_advance_deg(1200.0))
+
+	# 5. A just-fired engine, well below the idle target, gets the start boost: the valve opens wide at once.
+	var fired := ECU.new()
+	fired.target_rpm = 1200.0
+	for i in int(0.5 / dt):
+		fired.update(dt, 500.0, 0.0, true)
+	check(fired.air_factor() > 3.0, "a just-fired engine gets the start air boost, got x%.2f" % fired.air_factor())
 
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)
