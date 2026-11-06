@@ -25,16 +25,13 @@ Patcher="*res://scripts/updates/patcher.gd"
 
 [display]
 
-window/size/mode=3
-; phones only: the layout scales to the screen (a PC keeps its window size)
 window/size/viewport_width=1920
 window/size/viewport_height=1080
+window/size/mode=3
 window/stretch/mode.mobile="canvas_items"
 window/stretch/aspect.mobile="expand"
 
 [rendering]
 
-textures/vram_compression/import_etc2_astc=true
-; Forward Plus on desktop; Android (tagged "mobile") uses the Compatibility renderer, which runs on phones
-renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

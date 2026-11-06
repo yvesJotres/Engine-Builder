@@ -8,6 +8,7 @@ Start it with:  python patch_server.py --port 8799 --secret YOUR_SECRET   (8799 
 (or set the ENGINE_BUILDER_SECRET environment variable). It refuses to start without a secret; --open is for local tests.
 Endpoints (GET):
   /health                              public and secret-free: {ok, uptime_seconds, patches}
+  /patch/library                       engine library (presets) - public, no secret needed
   /patch[/android|/windows]/info       version.json of the channel, without the draft (404 when nothing is published)
   /patch[/android|/windows]/game.pck   the full base patch
   /patch[/android|/windows]/delta.pck  the newest final delta
@@ -25,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.environ.get("ENGINE_BUILDER_DATA") or os.path.dirname(os.path.abspath(__file__))
 PATCH_DIR = os.path.join(HERE, "patches")
 PATCH_ROUTE = re.compile(r"^/patch(?:/(android|windows))?/(info|game\.pck|delta\.pck)$")
+LIBRARY_ROUTE = re.compile(r"^/patch/library$")
 STARTED = time.time()
 SECRET = ""
 
@@ -39,6 +41,15 @@ def read_patch_info(platform: str):
     folder = patch_dir(platform)
     path = os.path.join(folder, "version.json")
     if not os.path.exists(path) or not os.path.exists(os.path.join(folder, "game.pck")):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_library():
+    """The engine library (presets) from library.json, or None if not present."""
+    path = os.path.join(HERE, "library.json")
+    if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -79,6 +90,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.send_json(200, health())
+        if LIBRARY_ROUTE.match(self.path.split("?")[0]):
+            lib = read_library()
+            if lib is None:
+                return self.send_json(404, {"error": "no library published"})
+            return self.send_json(200, lib)
         if not self.secret_ok():
             return self.send_json(403, {"error": "bad secret"})
         route = PATCH_ROUTE.match(self.path.split("?")[0])

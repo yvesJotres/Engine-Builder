@@ -28,12 +28,13 @@ var primary_ratio := 3.26 # gearbox values, set by the preset (defaults: K45R)
 var final_drive := 3.0
 var gear_ratios: Array = Gearbox.ratios()
 var _controls := {}
+var _preset_button: OptionButton
+var _library_ready := false
+var _kill_button: Button
+var _twin_label: Label
 var _warning: Label
 var _throttle_label: Label
 var _sensor_label: Label
-var _twin_label: Label
-var _kill_button: Button
-
 
 func _ready() -> void:
 	var panel := PanelContainer.new()
@@ -58,11 +59,12 @@ func _ready() -> void:
 	_style_kill(false)
 	box.add_child(_kill_button)
 
-	var preset := OptionButton.new()
-	for preset_name in Presets.PRESETS.keys():
-		preset.add_item(preset_name)
-	preset.item_selected.connect(_on_preset_selected)
-	box.add_child(preset)
+	# preset dropdown - populated when library is ready
+	_preset_button = OptionButton.new()
+	_preset_button.focus_mode = Control.FOCUS_NONE
+	_preset_button.custom_minimum_size.y = CONTROL_HEIGHT
+	_preset_button.item_selected.connect(_on_preset_selected)
+	box.add_child(_preset_button)
 
 	# the dyno test runs the whole sequence by itself: start, every gear at full throttle, then the curve
 	var dyno := Button.new()
@@ -73,6 +75,10 @@ func _ready() -> void:
 	_style_button(dyno)
 	dyno.pressed.connect(func() -> void: dyno_pressed.emit())
 	box.add_child(dyno)
+
+	# Load engine library from server
+	EngineLibrary.get_instance().library_ready.connect(_on_library_ready)
+	EngineLibrary.get_instance().fetch()
 
 	# one section at a time, picked from this dropdown: the panel stays as tall as the section it shows
 	var section := OptionButton.new()
@@ -91,7 +97,9 @@ func _ready() -> void:
 	_controls["twin"] = OptionButton.new()
 	for item in ["360", "270", "180"]:
 		_controls["twin"].add_item(item)
-	_controls["twin"].item_selected.connect(func(_i: int) -> void: changed.emit())
+	_controls["twin"].item_selected.connect(func(_i: int) -> void:
+		fire_deg = [0.0, float(_controls["twin"].get_item_text(_controls["twin"].selected))]
+		changed.emit())
 	_controls["twin"].tooltip_text = "Crank pin angle, 2-cylinder inline only"
 	_twin_label = _row(engine, "Crank pin", _controls["twin"])
 	_controls["cyl"].value_changed.connect(func(_v: float) -> void: _refresh_twin())
@@ -233,6 +241,17 @@ func toggle_kill() -> void:
 	_kill_button.button_pressed = not _kill_button.button_pressed
 
 
+func _on_library_ready(library: Dictionary) -> void:
+	_library_ready = true
+	_preset_button.clear()
+	for name in library.keys():
+		_preset_button.add_item(name)
+	# Select the first preset by default
+	if _preset_button.get_item_count() > 0:
+		_preset_button.select(0)
+		_on_preset_selected(0)
+
+
 func _on_kill_toggled(killed: bool) -> void:
 	_style_kill(killed)
 	kill_switch_changed.emit(killed)
@@ -247,7 +266,13 @@ func _style_kill(killed: bool) -> void:
 
 
 func _on_preset_selected(index: int) -> void:
-	var p: Dictionary = Presets.PRESETS.values()[index]
+	var library: Dictionary = EngineLibrary.get_instance().get_library()
+	if library.is_empty():
+		return
+	var names: Array = library.keys()
+	if index >= names.size():
+		return
+	var p: Dictionary = library[names[index]]
 	_set_quiet(_controls["cyl"], p.cylinders)
 	_set_quiet(_controls["bore"], p.bore_mm)
 	_set_quiet(_controls["stroke"], p.stroke_mm)

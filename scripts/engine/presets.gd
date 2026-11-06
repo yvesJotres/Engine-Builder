@@ -30,26 +30,32 @@ const PRESETS := {
 	# Kawasaki ZX-25R (2020 on): bore, stroke, compression and redline from Otomotifnet MY2022 and Autocar India.
 	# Primary 2.900 (87/30) and final 3.429 (48/14) from the same sheet. Gear ratios, rod ratio and flywheel from engine-sim's zx_25r.mr
 	# (MIT, Copyright 2022 Ange Yaghi). Its own gearing gives a 6th-gear total of 5.4 against 10.3 here, so this set is not engine-sim's.
+	# Increased flywheel inertia for launch stability (was 1.0kg/53mm).
 	"Kawasaki ZX-25R (2020)": {
 		"cylinders": 4, "displacement_cc": 249.6, "bore_mm": 50.0, "stroke_mm": 31.8,
 		"rod_ratio": 2.0, "compression_ratio": 11.5, "layout": "inline", "header": "stock", "fuel": "ron95",
 		"redline_rpm": 17000.0,
 		"fire_deg": [0.0, 180.0, 540.0, 360.0], # engine-sim zx_25r.mr: wires 1 to 4 in cylinder order, firing 1-2-4-3 as Kawasaki's inline four
-		"flywheel_kg": 1.0, "flywheel_radius_mm": 53.2,
+		"flywheel_kg": 2.0, "flywheel_radius_mm": 80.0,
 		"primary_ratio": 2.9, "final_drive": 3.429,
 		"gear_ratios": [2.929, 2.056, 1.619, 1.333, 1.154, 1.037],
 	},
 	# Ducati Panigale V4 (1,103 cc): bore, stroke, redline, rod length, flywheel and the 90 degree V with a 70 degree split crank pin
 	# from engine-sim's panigale_v4.mr (MIT, Copyright 2022 Ange Yaghi). Firing is the reference's ignition wiring. Compression is
 	# worked out from its 20 cc chamber and 30.5 mm compression height. The intake, exhaust and cam timing are the simulator's own.
+	# Primary 1.652 (47/28.47) and final 2.206 (36/16.32) from service manual. Gear ratios from engine-sim.
+	# Added idle_target_rpm for V4 stability. Increased flywheel for launch (was 2.5kg/60mm, then 4kg/80mm).
 	"Ducati Panigale V4 (1,103 cc)": {
 		"cylinders": 4, "displacement_cc": 1102.7, "bore_mm": 81.0, "stroke_mm": 53.5,
 		"rod_ratio": 2.06, "compression_ratio": 14.8, "layout": "V", "bank_angle": 90.0, "split_pin_v4": true,
 		"header": "stock", "fuel": "ron95",
 		"redline_rpm": 14250.0,
+		"idle_target_rpm": 1300.0,
 		"fire_deg": [0.0, 630.0, 480.0, 390.0], # engine-sim panigale_v4.mr: wire 1 at 0, wire 2 at -90, wire 3 at -240, wire 4 at -330
-		"flywheel_kg": 2.5, "flywheel_radius_mm": 60.0,
+		"flywheel_kg": 5.5, "flywheel_radius_mm": 100.0,
 		"vehicle_kg": 200.0,
+		"primary_ratio": 1.652, "final_drive": 2.206,
+		"gear_ratios": [2.588, 2.143, 1.800, 1.571, 1.381, 1.238],
 	},
 	# Yamaha YZF-R1M (2015): bore and stroke from motodealers.co.uk and Ultimate Motorcycling, compression 13.0 from the same sources.
 	# Gear ratios, redline (limiter 14,600), flywheel, rod ratio and 200 kg mass from engine-sim's yzf_r1.mr (MIT, Copyright 2022 Ange Yaghi).
@@ -64,12 +70,25 @@ const PRESETS := {
 		"gear_ratios": [2.600, 2.176, 1.842, 1.579, 1.381, 1.250],
 		"vehicle_kg": 200.0,
 	},
+	"Yamaha MT-07 (CP2, 689 cc)": {
+		"cylinders": 2, "displacement_cc": 689.0, "bore_mm": 80.0, "stroke_mm": 68.6,
+		"rod_ratio": 1.7, "compression_ratio": 11.5, "layout": "inline", "header": "stock", "fuel": "ron95",
+		"redline_rpm": 10500.0,
+		"twin_pin_deg": 270.0, # 270° crank pin angle for the CP2 parallel twin
+		"fire_deg": [0.0, 270.0], # 270° crank: cylinder 2 fires 270° after cylinder 1 (intervals 270°/450°)
+		"flywheel_kg": 6.0, "flywheel_radius_mm": 105.0, # increased for 270° twin launch
+		"primary_ratio": 2.0, "final_drive": 2.667,
+		"gear_ratios": [2.692, 2.063, 1.667, 1.400, 1.227, 1.100],
+		"vehicle_kg": 182.0,
+	},
 	"Honda TRX520 (engine-sim)": {
 		"cylinders": 1, "displacement_cc": 517.4, "bore_mm": 96.0, "stroke_mm": 71.5,
 		"rod_ratio": 2.13, "layout": "inline", "header": "stock", "fuel": "ron95",
 		"redline_rpm": 5000.0, # from engine-sim redline: 5000 * units.rpm
 		"fire_deg": [0.0], # engine-sim 01_honda_trx520.mr: one cylinder, wire at 0
-		"flywheel_kg": 2.27, # from engine-sim flywheel_mass: 5 * units.lb
-		"flywheel_radius_mm": 96.0, # estimate, same as the bore as before
+		"flywheel_kg": 5.0, "flywheel_radius_mm": 120.0, # increased inertia for launch
+		"vehicle_kg": 300.0,
+		"primary_ratio": 3.13, "final_drive": 3.0,
+		"gear_ratios": [3.5, 2.2, 1.6, 1.2, 0.95, 0.8],
 	},
 }

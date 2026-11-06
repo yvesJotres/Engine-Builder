@@ -1,3 +1,4 @@
+class_name ServerSettings
 extends RefCounted
 ## Reads the accounts server's address and secret from config/server.local.cfg (not committed to Git).
 ## Kept in its own file, not on CloudSync, so the patched scripts work with the copy of CloudSync in the app.
@@ -64,12 +65,10 @@ static func _chosen() -> String:
 		return ""
 	return str(data.get("url", ""))
 
-
 static func _remember(address: String) -> void:
 	var file := FileAccess.open(CHOSEN_FILE, FileAccess.WRITE)
 	if file != null:
 		file.store_string(JSON.stringify({"url": address, "at": Time.get_unix_time_from_system()}))
-
 
 static var _warned := false  # the warning is shown once, not on every request
 
@@ -88,6 +87,12 @@ static func _is_secure(address: String) -> bool:
 static func secret() -> String:
 	return _setting("secret")
 
+static func headers() -> PackedStringArray:
+	var h := PackedStringArray()
+	var s := secret()
+	if s != "":
+		h.append("X-Engine-Builder-Secret: " + s)
+	return h
 
 static func _setting(key: String) -> String:
 	var config := ConfigFile.new()
