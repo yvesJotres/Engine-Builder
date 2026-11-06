@@ -39,6 +39,8 @@ var _touch_starter := false
 var _sound_gate := 0.0 # 0 = exhaust silent, 1 = exhaust full, fades between
 const SOUND_FADE_TIME := 0.05 # s, fade in and out of the exhaust note
 var _backfires_heard := 0 # the sim's backfire count the sound has already played
+var _dyno := DynoTest.new() # the automatic dyno test: starts, runs every gear, and records the curve
+var _dyno_view: DynoView # the dyno test's screen: the curve and the peaks
 
 
 func _ready() -> void:
@@ -87,9 +89,13 @@ func _ready() -> void:
 		_sim.fuel.refill()
 		_hud.flash("TANK FILLED"))
 	_panel.kill_switch_changed.connect(func(killed: bool) -> void: _ignition = not killed)
+	_panel.dyno_pressed.connect(_on_dyno_pressed)
 
 	_hud = Hud.new()
 	add_child(_hud)
+	_dyno_view = DynoView.new()
+	add_child(_dyno_view)
+	_dyno_view.stop_requested.connect(func() -> void: _dyno.cancel())
 
 	_pause = preload("res://scenes/pause_menu.tscn").instantiate()
 	add_child(_pause)
@@ -160,7 +166,14 @@ func _process(delta: float) -> void:
 	_clutch_held = Input.is_physical_key_pressed(KEY_SHIFT) or _touch_clutch > 0.5
 	_brake_held = Input.is_physical_key_pressed(KEY_B) or _touch_brake
 
-	if not _paused:
+	if _dyno.active() and not _paused:
+		# the dyno test drives the throttle, clutch and gearbox itself, and steps the same engine physics
+		_dyno.advance(delta, _sim, spec, _panel.lambda(), _ignition)
+		_throttle = _dyno.throttle
+		_clutch_held = _dyno.clutch_held
+		_crank = fmod(_crank + _sim.rpm * 6.0 * delta, 720.0)
+		_drivetrain.update(_crank, _sim.speed / EngineSim.tire_radius_m() * 60.0 / TAU, delta)
+	elif not _paused:
 		# W cranks the engine while it is stopped, same as the starter button
 		# the starter only turns the engine in neutral or with the clutch pulled in, as the interlock on a modern bike
 		var wants_start := _touch_starter or (open_keys and not _sim.running)
@@ -223,10 +236,15 @@ func _process(delta: float) -> void:
 	if _frame <= 3: _trace("sound settings done")
 	_hud.update(_sim, spec, _clutch_held)
 	if _frame <= 3: _trace("hud updated")
+	if _dyno_view.is_open():
+		_dyno_view.refresh(_dyno)
 
 
 # E shifts up, Q shifts down, both only with the clutch pulled. The dashboard says what happened.
 func _shift(up: bool) -> void:
+	if _dyno.active():
+		_hud.flash("DYNO TEST IS RUNNING")
+		return
 	# no gate: a rider can click through several gears on one pull, or shift without the clutch. Shifting under load with the
 	# clutch in is smooth; without it the clutch slips (capped torque) while engine and wheel speeds catch up, as on a real bike.
 	var before := _sim.gear.gear
@@ -240,6 +258,19 @@ func _shift(up: bool) -> void:
 		_hud.flash("NEUTRAL")
 	else:
 		_hud.flash("UPSHIFT" if up else "DOWNSHIFT")
+
+
+# The dyno test button: starts the automatic test, or stops it when it is already running.
+func _on_dyno_pressed() -> void:
+	if _dyno.active():
+		_dyno.cancel()
+		return
+	if not _ignition:
+		_hud.flash("KILL SWITCH IS ON: SET IT TO RUN FOR THE DYNO TEST")
+		return
+	_dyno.start(spec, _sim)
+	_dyno_view.open()
+	_dyno_view.refresh(_dyno)
 
 
 func _set_paused(on: bool) -> void:

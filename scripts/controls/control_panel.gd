@@ -8,6 +8,7 @@ extends CanvasLayer
 signal changed
 signal refuel_pressed
 signal kill_switch_changed(killed: bool)
+signal dyno_pressed
 
 const PANEL_WIDTH := 340.0 # wider and larger text for touch; the bottom-left touch pads sit beside its lower edge
 const PANEL_FONT := 18 # text size on the panel, up from the default 16
@@ -62,6 +63,16 @@ func _ready() -> void:
 		preset.add_item(preset_name)
 	preset.item_selected.connect(_on_preset_selected)
 	box.add_child(preset)
+
+	# the dyno test runs the whole sequence by itself: start, every gear at full throttle, then the curve
+	var dyno := Button.new()
+	dyno.text = "Dyno test"
+	dyno.focus_mode = Control.FOCUS_NONE
+	dyno.custom_minimum_size = Vector2(0, CONTROL_HEIGHT + 4)
+	dyno.tooltip_text = "Starts the engine, runs every gear at full throttle, and plots torque and power. Press again to stop"
+	_style_button(dyno)
+	dyno.pressed.connect(func() -> void: dyno_pressed.emit())
+	box.add_child(dyno)
 
 	# one section at a time, picked from this dropdown: the panel stays as tall as the section it shows
 	var section := OptionButton.new()
