@@ -4,7 +4,7 @@ Hands the game's patches to the app. It serves only what publish_update.py and p
 The app checks each patch's signature against the public key in scripts/updates/patcher.gd, so a copy of this
 server cannot publish a patch the app accepts. Drafts are never served.
 
-Start it with:  python patch_server.py --port 8787 --secret YOUR_SECRET
+Start it with:  python patch_server.py --port 8799 --secret YOUR_SECRET   (8799 is its own port; Flatframe uses 8787 and 8788)
 (or set the ENGINE_BUILDER_SECRET environment variable). It refuses to start without a secret; --open is for local tests.
 Endpoints (GET):
   /health                              public and secret-free: {ok, uptime_seconds, patches}
@@ -106,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     global SECRET
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=int(os.environ.get("ENGINE_BUILDER_PORT", "8787")))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("ENGINE_BUILDER_PORT", "8799")))
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--secret", default=os.environ.get("ENGINE_BUILDER_SECRET", ""))
     parser.add_argument("--open", action="store_true", help="run without a secret (local tests only)")

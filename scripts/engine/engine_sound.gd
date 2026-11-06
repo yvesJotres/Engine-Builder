@@ -24,6 +24,10 @@ const POP_SAMPLES := 880 # 20 ms, the length of a backfire pop
 const POP_LEVEL := 0.12 # peak of a full backfire, quiet: a thump in the pipes, not a hiss
 const POP_FULL_J := 250.0 # J of unlit fuel burning in the exhaust for a full pop, estimate: about one cylinder's charge at idle
 const POP_DECAY := 5.0 # how fast the pop dies away
+const PING_HZ := 5500.0 # the metal rings at this frequency when the end gas detonates, in the 5 to 7 kHz knock band
+const PING_TAU := 0.0015 # s, how fast the ping dies away
+const PING_SAMPLES := 528 # 12 ms, the longest a ping is heard
+const PING_LEVEL := 0.12 # peak of a full knock ping, quiet next to the exhaust: it comes through the block, not the pipes
 const POP_LP := 0.08 # low-pass on the pop's noise, so it is a thump rather than white hiss
 const OUTPUT_GAIN := 75.0 # calibrated so the loudness matches the earlier single-resonator exhaust (0.30 rms at 6,000 rpm, one cylinder)
 
@@ -76,6 +80,9 @@ var _pop_level := 0.0 # peak of the current backfire, from the energy that burne
 var _pop_lp := 0.0 # low-passed noise for the pop
 var _exhaust_open := Cylinder.EXHAUST_OPEN # crank degrees after firing that the exhaust valve opens, from the cam timing
 var _ignition_offset := 0.0 # ignition advance from the spec, so the spark crack moves with the timing
+var knock := 0.0 # 0 to 1: how hard the engine is knocking now (0 = not at all), set each frame by main.gd
+var _ping_left := 0 # samples left in the current detonation ping
+var _ping_amp := 0.0 # peak of the current ping
 var _click_prev := 0.0
 var _ir := PackedFloat32Array() # exhaust impulse response, decimated, scaled to unit energy
 var _hist := PackedFloat32Array() # the last few decimated exhaust samples, a ring buffer
@@ -239,6 +246,16 @@ func render(frames: int) -> PackedVector2Array:
 			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm, _ignition_offset)):
 				_click_left = CLICK_SAMPLES
 				_click_level = CLICK_LEVEL * _smooth_energy
+		# knock: a detonation near the end of each burn sends a ping through the block, scaled by how far past the limit it is
+		for c in cyls:
+			if firing and knock > 0.0 and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm, _ignition_offset) + 0.8 * Cylinder.burn_duration_deg(rpm)):
+				_ping_left = PING_SAMPLES
+				_ping_amp = PING_LEVEL * knock
+		var ping := 0.0
+		if _ping_left > 0:
+			var age_p := float(PING_SAMPLES - _ping_left) / RATE
+			ping = _ping_amp * (sin(TAU * PING_HZ * age_p) + 0.3 * randf_range(-1.0, 1.0) * exp(-age_p / 0.0003)) * exp(-age_p / PING_TAU)
+			_ping_left -= 1
 		var click := 0.0
 		if _click_left > 0:
 			# noise differenced once to make it bright, decaying over the 2 ms
@@ -254,7 +271,7 @@ func render(frames: int) -> PackedVector2Array:
 			var age_p := float(POP_SAMPLES - _pop_left) / POP_SAMPLES
 			pop = _pop_level * _pop_lp * exp(-age_p * POP_DECAY)
 			_pop_left -= 1
-		var s := clampf(_convolve(_sample() + pop) + click, -1.0, 1.0)
+		var s := clampf(_convolve(_sample() + pop) + click + ping, -1.0, 1.0)
 		out.append(Vector2(s, s))
 	return out
 
@@ -271,8 +288,8 @@ func _sample() -> float:
 	_bass_lp += 0.02 * (out - _bass_lp)
 	_mid_lp += 0.15 * (out - _mid_lp)
 	out += bass_gain * _bass_lp + high_gain * (out - _mid_lp)
-	# muffling eases off as rpm rises: full top end from 3,000 rpm up, a quarter of it at idle
-	_lp += lowpass * clampf(rpm / 3000.0, 0.25, 1.0) * (out * 0.5 - _lp)
+	# muffling eases off as rpm rises: full top end from 3,000 rpm up, half at idle
+	_lp += lowpass * clampf(rpm / 3000.0, 0.5, 1.0) * (out * 0.5 - _lp)
 	return clampf(_lp, -1.0, 1.0)
 
 

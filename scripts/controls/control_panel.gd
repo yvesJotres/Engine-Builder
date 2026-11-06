@@ -1,16 +1,17 @@
 class_name ControlPanel
 extends CanvasLayer
 
-# Left-hand panel: the engine preset, then settings on tabs (engine, air and fuel, valves, ignition, tuning, controls), then the
-# warning and the readouts. Changes are reported through signals; main.gd applies them to the simulation.
-# Each tab holds one label and one value per row, so a tab stays short and the panel does not crowd the screen.
+# Left-hand panel: the engine kill switch, the engine preset, then one section at a time (engine, air and fuel, valves, timing,
+# tuning), then the warning and the readouts. Changes are reported through signals; main.gd applies them to the simulation.
+# Each section holds one label and one value per row, so the panel does not crowd the screen.
 
 signal changed
 signal refuel_pressed
-signal ignition_changed(on: bool)
-signal starter_changed(held: bool)
+signal kill_switch_changed(killed: bool)
 
-const PANEL_WIDTH := 300.0 # the touch pads start at x = 340 on the 1920x1080 layout, so this keeps clear of them
+const PANEL_WIDTH := 340.0 # wider and larger text for touch; the bottom-left touch pads sit beside its lower edge
+const PANEL_FONT := 18 # text size on the panel, up from the default 16
+const CONTROL_HEIGHT := 40.0 # minimum height of a spin box, dropdown or button, so they are easy to hit
 const ACCENT := Color(0.25, 0.55, 0.9)
 const BUTTON := Color(0.16, 0.17, 0.21)
 const HEADING := Color(0.55, 0.75, 1.0)
@@ -28,8 +29,9 @@ var gear_ratios: Array = Gearbox.ratios()
 var _controls := {}
 var _warning: Label
 var _throttle_label: Label
+var _sensor_label: Label
 var _twin_label: Label
-var _ignition_label: Label
+var _kill_button: Button
 
 
 func _ready() -> void:
@@ -37,10 +39,23 @@ func _ready() -> void:
 	panel.position = Vector2(16, 16)
 	panel.custom_minimum_size = Vector2(PANEL_WIDTH, 0)
 	panel.add_theme_stylebox_override("panel", _box(Color(0.06, 0.06, 0.08, 0.93), 12, 14))
+	var theme := Theme.new()
+	theme.default_font_size = PANEL_FONT
+	panel.theme = theme
 	add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
+
+	# the engine kill switch, always in view: RUN lets the engine start and run, KILLED cuts the ignition
+	_kill_button = Button.new()
+	_kill_button.toggle_mode = true
+	_kill_button.focus_mode = Control.FOCUS_NONE
+	_kill_button.custom_minimum_size = Vector2(0, 52)
+	_kill_button.tooltip_text = "Engine kill switch (K): RUN to start and run, KILLED to cut the ignition"
+	_kill_button.toggled.connect(_on_kill_toggled)
+	_style_kill(false)
+	box.add_child(_kill_button)
 
 	var preset := OptionButton.new()
 	for preset_name in Presets.PRESETS.keys():
@@ -50,7 +65,7 @@ func _ready() -> void:
 
 	# one section at a time, picked from this dropdown: the panel stays as tall as the section it shows
 	var section := OptionButton.new()
-	for title in ["Engine", "Air and fuel", "Valves", "Ignition", "Tuning", "Controls"]:
+	for title in ["Engine", "Air and fuel", "Valves", "Timing", "Tuning"]:
 		section.add_item(title)
 	box.add_child(section)
 	var pages := VBoxContainer.new()
@@ -59,8 +74,8 @@ func _ready() -> void:
 
 	var engine := _page(pages, "Engine")
 	_controls["cyl"] = _spin(engine, "Cylinders", 1, 16, 1, 1)
-	_controls["bore"] = _spin(engine, "Bore (mm)", 40, 150, 0.1, 57.3)
-	_controls["stroke"] = _spin(engine, "Stroke (mm)", 40, 150, 0.1, 57.8)
+	_controls["bore"] = _spin(engine, "Bore (mm)", 30, 150, 0.1, 57.3)
+	_controls["stroke"] = _spin(engine, "Stroke (mm)", 20, 150, 0.1, 57.8)
 	_controls["layout"] = _option(engine, "Layout", ["inline", "V"])
 	_controls["twin"] = OptionButton.new()
 	for item in ["360", "270", "180"]:
@@ -74,65 +89,47 @@ func _ready() -> void:
 
 	var air := _page(pages, "Air and fuel")
 	_controls["header"] = _option(air, "Header", ["stock", "4-1", "4-2-1"])
-	_controls["fuel"] = _option(air, "Fuel", ["petrol", "e85"])
-	_controls["fuel"].tooltip_text = "E85 cools the intake charge and resists knock; petrol does neither"
+	_controls["fuel"] = _option(air, "Fuel", FuelTank.LABELS)
+	_controls["fuel"].select(FuelTank.KINDS.find("ron95")) # RON 95 is the default, as before the grades were added
+	_controls["fuel"].tooltip_text = "Higher RON resists knock, so the ignition can run more advance. E85 also cools the intake charge"
 	_controls["lambda"] = _spin(air, "Mixture λ", 0.6, 1.4, 0.01, 1.0)
 	_controls["lambda"].tooltip_text = "1.0 = stoichiometric"
+	var refuel := Button.new()
+	refuel.text = "Refuel"
+	refuel.focus_mode = Control.FOCUS_NONE
+	refuel.custom_minimum_size = Vector2(0, 40)
+	_style_button(refuel)
+	refuel.pressed.connect(func() -> void: refuel_pressed.emit())
+	_row(air, "Tank", refuel)
 
 	var valves := _page(pages, "Valves")
 	_controls["in_dur"] = _spin(valves, "Intake duration", 150, 300, 1, 240)
 	_controls["in_dur"].tooltip_text = "Crank degrees the intake valve is open"
 	_controls["in_lift"] = _spin(valves, "Intake lift (mm)", 2, 15, 0.1, 6.0)
-	_controls["in_centre"] = _spin(valves, "Intake centre", 60, 300, 1, 470)
+	_controls["in_centre"] = _spin(valves, "Intake centre", 360, 600, 1, 470)
 	_controls["in_centre"].tooltip_text = "Where the intake event is centred, after firing top dead centre"
 	_controls["ex_dur"] = _spin(valves, "Exhaust duration", 150, 300, 1, 230)
 	_controls["ex_dur"].tooltip_text = "Crank degrees the exhaust valve is open"
 	_controls["ex_lift"] = _spin(valves, "Exhaust lift (mm)", 2, 15, 0.1, 5.0)
-	_controls["ex_centre"] = _spin(valves, "Exhaust centre", 60, 300, 1, 255)
+	_controls["ex_centre"] = _spin(valves, "Exhaust centre", 120, 360, 1, 255)
 	_controls["ex_centre"].tooltip_text = "Where the exhaust event is centred, after firing top dead centre"
 
-	var ignition_page := _page(pages, "Ignition")
-	_controls["timing"] = _spin(ignition_page, "Timing (deg)", -10, 10, 0.5, 0)
-	_controls["timing"].tooltip_text = "Advance (+) or retard (-) from the engine's timing map. Too much advance knocks, more on petrol than on E85"
+	var timing_page := _page(pages, "Timing")
+	_controls["timing"] = _spin(timing_page, "Timing (deg)", -10, 10, 0.5, 0)
+	_controls["timing"].tooltip_text = "Advance (+) or retard (-) from the engine's timing map. Too much advance knocks; higher RON and E85 allow more"
 	var timing_hint := Label.new()
 	timing_hint.text = "+ advances, - retards. Past the knock limit the engine knocks."
 	timing_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	timing_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
-	ignition_page.add_child(timing_hint)
+	timing_page.add_child(timing_hint)
 
 	var tuning := _page(pages, "Tuning")
-	_controls["redline"] = _spin(tuning, "Redline (rpm)", 2000, 20000, 100, 10600)
+	_controls["redline"] = _spin(tuning, "Redline (rpm)", 2000, 20000, 50, 10600)
 	_controls["redline"].tooltip_text = "Fuel is cut at this speed"
+	_controls["idle"] = _spin(tuning, "Idle speed (rpm)", 400, 4000, 10, 1200)
+	_controls["idle"].tooltip_text = "The rpm the ECU holds at idle with the throttle closed, like the idle screw on a real bike"
 	_controls["flywheel"] = _spin(tuning, "Flywheel (kg)", 0.5, 10.0, 0.01, 2.5)
-	_controls["flywheel_r"] = _spin(tuning, "Flywheel radius (mm)", 20, 150, 0.5, 75.0)
-
-	var controls := _page(pages, "Controls")
-	var ignition := HBoxContainer.new()
-	ignition.add_theme_constant_override("separation", 12)
-	controls.add_child(ignition)
-	var knob := IgnitionKnob.new()
-	knob.toggled.connect(_on_ignition_toggled)
-	ignition.add_child(knob)
-	var knob_text := VBoxContainer.new()
-	knob_text.alignment = BoxContainer.ALIGNMENT_CENTER
-	knob_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ignition.add_child(knob_text)
-	_ignition_label = Label.new()
-	_ignition_label.text = "Ignition OFF"
-	knob_text.add_child(_ignition_label)
-	var knob_hint := Label.new()
-	knob_hint.text = "Click the knob"
-	knob_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
-	knob_text.add_child(knob_hint)
-
-	var buttons := HBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 8)
-	controls.add_child(buttons)
-	var refuel := _button("Refuel", buttons)
-	refuel.pressed.connect(func() -> void: refuel_pressed.emit())
-	var starter := _button("Starter (hold)", buttons)
-	starter.button_down.connect(func() -> void: starter_changed.emit(true))
-	starter.button_up.connect(func() -> void: starter_changed.emit(false))
+	_controls["flywheel_r"] = _spin(tuning, "Flywheel radius (mm)", 20, 150, 0.1, 75.0)
 
 	_warning = Label.new()
 	_warning.modulate = Color(1.0, 0.7, 0.3)
@@ -144,10 +141,19 @@ func _ready() -> void:
 	readout.add_theme_stylebox_override("panel", _box(Color(0.0, 0.0, 0.0, 0.5), 8, 8))
 	box.add_child(readout)
 	_throttle_label = Label.new()
-	_throttle_label.add_theme_font_size_override("font_size", 15)
+	_throttle_label.add_theme_font_size_override("font_size", PANEL_FONT - 1)
 	_throttle_label.add_theme_color_override("font_color", Color(0.82, 0.84, 0.9))
 	_throttle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	readout.add_child(_throttle_label)
+	# the sensors sit in a second box under the engine readout
+	var sensors := PanelContainer.new()
+	sensors.add_theme_stylebox_override("panel", _box(Color(0.0, 0.0, 0.0, 0.5), 8, 8))
+	box.add_child(sensors)
+	_sensor_label = Label.new()
+	_sensor_label.add_theme_font_size_override("font_size", PANEL_FONT - 2)
+	_sensor_label.add_theme_color_override("font_color", Color(0.75, 0.9, 0.8))
+	_sensor_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sensors.add_child(_sensor_label)
 
 
 # Copies the panel's values into the engine spec.
@@ -164,7 +170,7 @@ func apply_to(spec: EngineSpec) -> void:
 	var twin: OptionButton = _controls["twin"]
 	spec.twin_pin_deg = float(twin.get_item_text(twin.selected))
 	spec.header = header.get_item_text(header.selected)
-	spec.fuel = fuel.get_item_text(fuel.selected)
+	spec.fuel = FuelTank.KINDS[fuel.selected]
 	spec.rod_ratio = rod_ratio
 	spec.compression_ratio = compression_ratio
 	spec.crossplane = crossplane
@@ -184,6 +190,7 @@ func apply_to(spec: EngineSpec) -> void:
 	spec.exhaust_lift_mm = _controls["ex_lift"].value
 	spec.exhaust_centre_deg = _controls["ex_centre"].value
 	spec.ignition_offset_deg = _controls["timing"].value
+	spec.idle_target_rpm = _controls["idle"].value
 
 
 func lambda() -> float:
@@ -192,6 +199,10 @@ func lambda() -> float:
 
 func set_warning(text: String) -> void:
 	_warning.text = text
+
+
+func set_sensor_text(text: String) -> void:
+	_sensor_label.text = text
 
 
 func set_throttle_text(text: String) -> void:
@@ -206,9 +217,22 @@ func _refresh_twin() -> void:
 	_controls["twin"].visible = twin_applies
 
 
-func _on_ignition_toggled(on: bool) -> void:
-	_ignition_label.text = "Ignition ON" if on else "Ignition OFF"
-	ignition_changed.emit(on)
+# Flips the kill switch, as the K key does.
+func toggle_kill() -> void:
+	_kill_button.button_pressed = not _kill_button.button_pressed
+
+
+func _on_kill_toggled(killed: bool) -> void:
+	_style_kill(killed)
+	kill_switch_changed.emit(killed)
+
+
+# Green RUN when the engine may run, red KILLED when the ignition is cut.
+func _style_kill(killed: bool) -> void:
+	_kill_button.text = "ENGINE KILLED  (K)" if killed else "ENGINE RUN  (K)"
+	var fill := Color(0.72, 0.13, 0.13) if killed else Color(0.13, 0.46, 0.22)
+	for state in ["normal", "pressed", "hover", "focus"]:
+		_kill_button.add_theme_stylebox_override(state, _box(fill.lightened(0.1) if state == "hover" else fill, 8, 8))
 
 
 func _on_preset_selected(index: int) -> void:
@@ -218,7 +242,7 @@ func _on_preset_selected(index: int) -> void:
 	_set_quiet(_controls["stroke"], p.stroke_mm)
 	_select_text(_controls["layout"], p.layout)
 	_select_text(_controls["header"], p.header)
-	_select_text(_controls["fuel"], p.fuel)
+	_controls["fuel"].select(FuelTank.KINDS.find(p.fuel))
 	_select_text(_controls["twin"], str(int(p.get("twin_pin_deg", 360.0))))
 	_set_quiet(_controls["redline"], p.redline_rpm)
 	_set_quiet(_controls["flywheel"], p.flywheel_kg)
@@ -231,6 +255,7 @@ func _on_preset_selected(index: int) -> void:
 	_set_quiet(_controls["ex_lift"], 5.0)
 	_set_quiet(_controls["ex_centre"], 255.0)
 	_set_quiet(_controls["timing"], 0.0)
+	_set_quiet(_controls["idle"], 1200.0)
 	rod_ratio = p.rod_ratio
 	compression_ratio = p.get("compression_ratio", 11.3)
 	crossplane = p.get("crossplane", false)
@@ -286,6 +311,7 @@ func _spin(grid: GridContainer, label: String, lo: float, hi: float, step: float
 	s.max_value = hi
 	s.step = step
 	s.value = value
+	s.custom_minimum_size.y = CONTROL_HEIGHT
 	s.value_changed.connect(func(_v: float) -> void: changed.emit())
 	_row(grid, label, s)
 	return s
@@ -295,6 +321,7 @@ func _option(grid: GridContainer, label: String, items: Array) -> OptionButton:
 	var o := OptionButton.new()
 	for item in items:
 		o.add_item(item)
+	o.custom_minimum_size.y = CONTROL_HEIGHT
 	o.item_selected.connect(func(_i: int) -> void: changed.emit())
 	_row(grid, label, o)
 	return o
@@ -305,7 +332,7 @@ func _button(text: String, parent: Control) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, 52)
+	b.custom_minimum_size = Vector2(0, CONTROL_HEIGHT + 12)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_button(b)
 	parent.add_child(b)

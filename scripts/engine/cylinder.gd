@@ -73,6 +73,8 @@ var burn_energy := 0.0 # J released by the charge in this cycle, total
 var port_p := P0 # Pa, gas pressure at the intake valve
 var runner_q := 0.0 # kg/s, flow along the runner toward the cylinder
 var exhaust_temp := 300.0 # K, the gas temperature when the exhaust valve last opened: the exhaust temperature sensor
+var peak_temp := 300.0 # K, the hottest gas in the current cycle so far
+var last_peak_temp := 300.0 # K, the hottest gas in the last complete cycle: the chamber temperature sensor reads it
 var last_lambda := 1.0 # the mixture the O2 sensor reads, relative to stoichiometric: 1.0 is exact, above is lean
 var _fired := false # true when this cycle's charge was lit, so its exhaust is hot
 var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: it leaves unburnt
@@ -153,9 +155,10 @@ static func _subsonic(area: float, p_up: float, t_up: float, p_down: float) -> f
 
 # Advances the cylinder by dphi degrees, taking dt seconds. pm and tm: manifold pressure and temperature.
 # ign_phi: spark phase. firing: the engine is running. tank: fuel is drawn when the intake valve closes.
+# limiter_cut: true when the rev limiter has cut spark for this cycle - if true, fuel is cut to prevent unburnt mixture.
 # Returns Vector2(average gas torque over dphi in N·m, mass drawn from the manifold in kg).
 func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firing: bool,
-		tank: FuelTank, lambda: float, spark: bool = true) -> Vector2:
+		tank: FuelTank, lambda: float, spark: bool = true, limiter_cut: bool = false) -> Vector2:
 	var steps := maxi(1, maxi(ceili(absf(dphi) / STEP_DEG), ceili(dt / MAX_FLOW_DT)))
 	var sd := dphi / steps
 	var sdt := dt / steps
@@ -170,6 +173,8 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		var p1 := phi + sd
 		var dv := volume(p1) - volume(p0)
 		if _crossed(p0, p1, intake_open):
+			last_peak_temp = peak_temp # the cycle just ended: its hottest gas
+			peak_temp = temp
 			_burnt = 0.0 # a new cycle starts with fresh air
 
 		# runner: the air column accelerates under the manifold-to-port pressure difference, then the port feeds the valve
@@ -197,7 +202,7 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		if _crossed(p0, p1, intake_close):
 			_fired = false
 			if firing:
-				_fuel_charge(tank, lambda, spark)
+				_fuel_charge(tank, lambda, spark, limiter_cut)
 
 		# combustion heat, released over the burn duration starting at the spark
 		var dq := 0.0
@@ -227,6 +232,7 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		# guard: a single step must never push the gas outside physical limits
 		temp = clampf(u / (mass * cv), 200.0, 4000.0)
 		_u = mass * cv * temp
+		peak_temp = maxf(peak_temp, temp) # the hottest gas this cycle: the chamber temperature sensor
 		pressure = clampf(mass * R * temp / volume(p1), 1000.0, 1.0e7)
 
 		var dtheta := sd * PI / 180.0
@@ -241,10 +247,13 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 	return Vector2(work / theta if theta > 0.0 else 0.0, drawn)
 
 
-func _fuel_charge(tank: FuelTank, lambda: float, spark: bool) -> void:
+func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool = false) -> void:
 	burn_energy = 0.0
 	burn_energy_left = 0.0
-	last_lambda = 99.0 # the O2 sensor reads very lean when nothing is burned
+	last_lambda = 1.0 # neutral when cycle is cut or not fired
+	# Limiter cut: fuel cut to prevent unburnt mixture in exhaust
+	if limiter_cut:
+		return
 	if lambda >= MISFIRE_LAMBDA:
 		return # too lean to light
 	var fresh := maxf(mass - _residual_kg, 0.0) # the burnt gas left from the last cycle takes no fuel
@@ -259,7 +268,9 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool) -> void:
 	fuel_unburnt_kg = 0.0
 	if supplied > 0.0:
 		last_lambda = fresh / (tank.afr * supplied) # the air-fuel ratio actually burned, relative to stoichiometric: what the O2 sensor sees
-	burn_energy = supplied * tank.lhv * COMBUSTION_EFFICIENCY
+	# only the fuel the air can burn releases energy: in a rich mixture the excess passes through unburnt and cools the exhaust
+	var burnable := minf(supplied, fresh / tank.afr)
+	burn_energy = burnable * tank.lhv * COMBUSTION_EFFICIENCY
 	burn_energy_left = burn_energy
 	_fired = supplied > 0.0
 

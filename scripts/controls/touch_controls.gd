@@ -17,12 +17,12 @@ const SPRING_TIME := 0.25 # s, a released lever springs back to rest in about th
 
 func _ready() -> void:
 	visible = OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
-	# On the 1920x1080 layout: the margins clear the control panel on the left and the dashboard in the bottom right.
+	# On the 1920x1080 layout: the margins clear the settings panel on the left and the dashboard in the bottom right.
 	# The bottom margin leaves a gap above the dashboard so the pads do not run into it.
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE # the empty parts of the screen still orbit the camera
-	margin.add_theme_constant_override("margin_left", 340)
+	margin.add_theme_constant_override("margin_left", 372) # clear of the settings panel: 16 px offset plus its 340 px width, and a gap
 	margin.add_theme_constant_override("margin_right", 16)
 	margin.add_theme_constant_override("margin_top", 16)
 	margin.add_theme_constant_override("margin_bottom", 290)

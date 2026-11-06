@@ -129,18 +129,26 @@ def promote() -> int:
     return 0
 
 
-GATE_TESTS = ["test_engine", "clutch_stability_test", "touch_controls_test", "spark_check", "ir_check", "ecu_test", "fuel_flow_test", "sensors_test", "v_geometry_test", "engine_geometry_test", "firing_reference_test", "clutch_bite_test", "backfire_test", "cam_test", "ignition_offset_test", "fuel_effect_test"]
+GATE_TESTS = ["test_engine", "clutch_stability_test", "touch_controls_test", "spark_check", "ir_check", "ecu_test", "fuel_flow_test", "sensors_test", "v_geometry_test", "engine_geometry_test", "firing_reference_test", "clutch_bite_test", "backfire_test", "cam_test", "ignition_offset_test", "fuel_effect_test", "fuel_chemistry_test", "panel_defaults_test", "game_idle_test"]
 
 
 def run_tests() -> bool:
     """Runs every asserting test and the server's own tests. A failure stops the publish."""
     for name in GATE_TESTS:
         print("test gate: %s ..." % name, flush=True)
-        run = subprocess.run([GODOT, "--headless", "--path", ROOT, "-s", "res://tests/%s.gd" % name],
-                             capture_output=True, text=True, timeout=1200)
-        if run.returncode != 0:
-            lines = [l for l in run.stdout.splitlines() if "FAIL" in l or "ERROR" in l][:10]
-            print("TEST GATE FAILED: %s (exit code %d)" % (name, run.returncode))
+        # A script that fails to parse makes Godot print the error and then hang, so each test gets a short limit,
+        # and any script error in its output fails the gate even when the exit code looks fine.
+        try:
+            run = subprocess.run([GODOT, "--headless", "--path", ROOT, "-s", "res://tests/%s.gd" % name],
+                                 capture_output=True, text=True, timeout=180)
+            output, code = run.stdout + run.stderr, run.returncode
+        except subprocess.TimeoutExpired as expired:
+            output = (expired.stdout or b"").decode("utf-8", "replace") if isinstance(expired.stdout, bytes) else (expired.stdout or "")
+            output += "\nTIMEOUT: no result after 180 seconds (Godot hung)"
+            code = -1
+        if code != 0 or "SCRIPT ERROR" in output or "TIMEOUT" in output:
+            lines = [l for l in output.splitlines() if "FAIL" in l or "ERROR" in l or "TIMEOUT" in l][:10]
+            print("TEST GATE FAILED: %s (exit code %d)" % (name, code))
             for line in lines:
                 print("  " + line)
             return False

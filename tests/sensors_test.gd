@@ -48,6 +48,14 @@ func _init() -> void:
 	var egt := sim.exhaust_temp_c()
 	print("exhaust temperature at full throttle: %.0f C at %.0f rpm" % [egt, sim.rpm])
 	check(egt > 400.0 and egt < 1100.0, "the exhaust temperature is plausible at full throttle, got %.0f C" % egt)
+	# the sensor reads the last complete cycle, which is cold while the limiter cuts the spark, so take the hottest reading in half a second
+	var chamber := 0.0
+	for i in 30:
+		sim.step(1.0 / 60.0, spec, 1.0, true, false, false, false, 1.0)
+		chamber = maxf(chamber, sim.chamber_peak_c())
+	print("chamber peak at full throttle: %.0f C" % chamber)
+	check(chamber > egt and chamber > 1000.0 and chamber < 3000.0, "the chamber peak is hotter than the exhaust and in the combustion range (%.0f C)" % chamber)
+	check(sim.port_temps_c().size() == spec.cylinders, "one port temperature per cylinder")
 
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

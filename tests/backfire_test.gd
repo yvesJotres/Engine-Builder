@@ -33,7 +33,7 @@ func _init() -> void:
 			break
 	check(cut_seen, "the limiter cut the spark (rpm %.0f)" % sim.rpm)
 	check(before_limiter == 0, "no backfire while the spark fired up to the limiter (%d)" % before_limiter)
-	check(sim.backfire_count > 0, "a backfire during the limiter cut (%d)" % sim.backfire_count)
-	check(sim.last_backfire_j > 0.0, "the backfire releases energy (%.1f J)" % sim.last_backfire_j)
+	check(sim.backfire_count == 0, "no backfire during the limiter cut, because the limiter cuts fuel as well as spark (%d)" % sim.backfire_count)
+	check(sim.last_backfire_j == 0.0, "no backfire energy is released in a limiter cut (%.1f J)" % sim.last_backfire_j)
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

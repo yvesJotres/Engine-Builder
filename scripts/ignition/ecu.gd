@@ -6,7 +6,7 @@ extends RefCounted
 
 const KP := 0.02 # degrees of advance per rpm below the target
 const KI := 0.02 # degrees of advance per rpm of error per second, so a steady error slowly adds advance
-const TRIM_MIN := -8.0 # degrees, the most the ECU retards the spark at idle
+const TRIM_MIN := -16.0 # degrees, the most the ECU retards the spark at idle
 const TRIM_MAX := 15.0 # degrees, the most the ECU advances the spark at idle
 const IDLE_THROTTLE := 0.02 # throttle fraction below which the ECU is in idle control
 const ACTIVE_RPM := 300.0 # rpm above which the ECU takes over; just below the firing speed, so a just-fired engine is carried to idle
@@ -31,7 +31,10 @@ const AIR_LIMIT := 5.0 # log units either way: the idle valve can open or close 
 func update(dt: float, rpm: float, throttle: float, running: bool) -> float:
 	# the ECU stays out of the way while the engine is starting and climbing, and only holds the idle once it is running
 	if not running or throttle > IDLE_THROTTLE or rpm < ACTIVE_RPM:
-		_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
+		if throttle > IDLE_THROTTLE:
+			_integral = 0.0 # the idle trim only belongs at a closed throttle: with it left on, a big engine stalls as the throttle opens
+		else:
+			_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
 		_air_integral = move_toward(_air_integral, 0.0, AIR_RELEASE_RATE * dt)
 		_air_log = _air_integral # the idle valve goes back to the engine's own setting, so a restart is not starved of air
 		trim = _integral

@@ -2,14 +2,14 @@ class_name EngineSpec
 extends Resource
 
 @export var cylinders := 1
-@export var displacement_cc := 149.2 # Honda CBR150R (K45N) defaults
+@export var displacement_cc := 149.16 # Honda CBR150R (K45N) - exact bore x stroke
 @export var bore_mm := 57.3
 @export var stroke_mm := 57.8
 @export var layout := "inline" # inline | V
 @export var bank_angle := 90.0 # V layout only, degrees between banks
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
-@export var fuel := "petrol" # petrol | e85
+@export var fuel := "ron95" # a FuelTank.KINDS entry: ron90, ron92, ron95, ron98 or e85
 @export var redline_rpm := 10600.0 # fuel cut-off, per engine: limiter from a press dyno test, not Honda
 @export var idle_target_rpm := 1200.0 # rpm the ECU holds at idle
 @export var crank_friction_nm := 0.0 # N·m, constant crankshaft friction from the engine-sim reference; 0 leaves it out
@@ -21,8 +21,26 @@ extends Resource
 @export var split_pin_v4 := false # 4-cylinder V with a 70 degree split crank pin (Ducati Panigale V4)
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var fire_deg: Array = [] # wire angle per cylinder from engine-sim's ignition wiring, in its cylinder order; empty = generic order
+# Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
+# efficiency is already about 90% on the dyno, so a further cut double counts the losses and pulls torque below the published figure.
+@export var ve_scale := 1.0
+# Lambda target map: target lambda [throttle][rpm]. Rows = throttle 0.0-1.0, cols = RPM 0-redline.
+# Richer at high load for combustion cooling. Stoich (1.0) at idle/cruise, ~0.87 at WOT/redline.
+@export var lambda_target: Array = [
+	[1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00], # 0% throttle
+	[1.00, 1.00, 1.00, 1.00, 0.98, 0.96, 0.95, 0.94, 0.93, 0.92], # 10%
+	[1.00, 1.00, 0.99, 0.97, 0.95, 0.93, 0.92, 0.91, 0.90, 0.89], # 20%
+	[1.00, 0.99, 0.97, 0.95, 0.93, 0.91, 0.90, 0.89, 0.88, 0.87], # 30%
+	[0.99, 0.98, 0.95, 0.93, 0.91, 0.89, 0.88, 0.87, 0.87, 0.86], # 40%
+	[0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.87, 0.86, 0.86, 0.85], # 50%
+	[0.97, 0.95, 0.92, 0.90, 0.88, 0.87, 0.86, 0.85, 0.85, 0.85], # 60%
+	[0.96, 0.94, 0.91, 0.89, 0.87, 0.86, 0.85, 0.85, 0.85, 0.85], # 70%
+	[0.95, 0.93, 0.90, 0.87, 0.86, 0.85, 0.85, 0.85, 0.85, 0.85], # 80%
+	[0.94, 0.92, 0.89, 0.86, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85], # 90%
+	[0.93, 0.91, 0.88, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85], # 100% (WOT)
+]
 # Valve timing, in crank degrees after firing top dead centre (0 to 720), and lift. Defaults are the stock cams the sim always used.
-@export var intake_centre_deg := 470.0 # centre of the intake event: opens 120 deg before it, closes 120 deg after
+@export var intake_centre_deg := 470.0 # centre of the intake event (360 to 600): opens 120 deg before it, closes 120 deg after
 @export var intake_duration_deg := 240.0 # intake valve open, degrees of crank
 @export var intake_lift_mm := 6.0 # intake peak lift
 @export var exhaust_centre_deg := 255.0 # centre of the exhaust event
@@ -123,7 +141,37 @@ func calc_displacement_cc() -> float:
 	return PI / 4.0 * bore_mm * bore_mm * stroke_mm * cylinders / 1000.0
 
 
-# Returns "" when the inputs agree. Warns instead of silently fixing a mismatch.
+# Returns target lambda for given throttle (0-1) and RPM, bilinear interpolation from lambda_target map.
+func get_target_lambda(throttle: float, rpm: float) -> float:
+	var t := clampf(throttle, 0.0, 1.0)
+	var r := clampf(rpm / redline_rpm, 0.0, 1.0)
+	var rows := lambda_target.size()
+	if rows == 0:
+		return 1.0
+	var cols: int = lambda_target[0].size()
+	if cols == 0:
+		return 1.0
+	# throttle -> row index (0 to rows-1)
+	var ti: float = t * (rows - 1)
+	# rpm -> col index (0 to cols-1)
+	var ri: float = r * (cols - 1)
+	var ti0: int = int(floor(ti))
+	var ti1: int = mini(ti0 + 1, rows - 1)
+	var ri0: int = int(floor(ri))
+	var ri1: int = mini(ri0 + 1, cols - 1)
+	var ft: float = ti - ti0
+	var fr: float = ri - ri0
+	var v00: float = lambda_target[ti0][ri0]
+	var v01: float = lambda_target[ti0][ri1]
+	var v10: float = lambda_target[ti1][ri0]
+	var v11: float = lambda_target[ti1][ri1]
+	# bilinear interpolation
+	var v0: float = v00 + (v01 - v00) * fr
+	var v1: float = v10 + (v11 - v10) * fr
+	return v0 + (v1 - v0) * ft
+
+
+# The first problem with the spec, or "" when it is fine. Shown on the panel as a warning.
 func validation_warning() -> String:
 	if layout == "V" and cylinders % 2 != 0:
 		return "V layout needs an even cylinder count"
@@ -134,6 +182,8 @@ func validation_warning() -> String:
 		return "Valve duration must be 150 to 300 degrees"
 	if intake_lift_mm < 2.0 or intake_lift_mm > 15.0 or exhaust_lift_mm < 2.0 or exhaust_lift_mm > 15.0:
 		return "Valve lift must be 2 to 15 mm"
+	if intake_centre_deg < 360.0 or intake_centre_deg > 600.0 or exhaust_centre_deg < 120.0 or exhaust_centre_deg > 360.0:
+		return "Valve centre out of range (intake 360 to 600, exhaust 120 to 360)"
 	if absf(ignition_offset_deg) > 10.0:
 		return "Ignition offset must be within 10 degrees"
 	return ""

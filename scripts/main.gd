@@ -27,8 +27,7 @@ var _paused := false
 var _frame := 0 # debug trace: frames since start
 var _crank := 0.0 # crank angle for the drawing, 0..720
 var _throttle := 0.0
-var _ignition := false
-var _starter_held := false
+var _ignition := true # the engine kill switch is on RUN; the panel flips it
 var _clutch_held := false # Shift is held: clutch pulled in
 var _brake_held := false # B is held
 var _sound_on := true # the Sound option in the pause menu
@@ -87,8 +86,7 @@ func _ready() -> void:
 	_panel.refuel_pressed.connect(func() -> void:
 		_sim.fuel.refill()
 		_hud.flash("TANK FILLED"))
-	_panel.ignition_changed.connect(func(on: bool) -> void: _ignition = on)
-	_panel.starter_changed.connect(func(held: bool) -> void: _starter_held = held)
+	_panel.kill_switch_changed.connect(func(killed: bool) -> void: _ignition = not killed)
 
 	_hud = Hud.new()
 	add_child(_hud)
@@ -127,6 +125,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE or event.keycode == KEY_ESCAPE:
 			_set_paused(not _paused)
 			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_K:
+			_panel.toggle_kill()
+			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_E or event.keycode == KEY_Q:
 			_shift(event.keycode == KEY_E)
 			get_viewport().set_input_as_handled()
@@ -162,12 +163,12 @@ func _process(delta: float) -> void:
 	if not _paused:
 		# W cranks the engine while it is stopped, same as the starter button
 		# the starter only turns the engine in neutral or with the clutch pulled in, as the interlock on a modern bike
-		var wants_start := _starter_held or _touch_starter or (open_keys and not _sim.running)
+		var wants_start := _touch_starter or (open_keys and not _sim.running)
 		var in_neutral_or_pulled := _sim.gear.gear == 0 or _clutch_held
 		if wants_start and not in_neutral_or_pulled:
 			_hud.flash("PULL CLUTCH OR SHIFT TO NEUTRAL TO START")
 		if wants_start and not _ignition:
-			_hud.flash("TURN IGNITION ON TO START")
+			_hud.flash("KILL SWITCH IS ON: SET IT TO RUN TO START")
 		# only the Shift key pulls the clutch fully apart; the lever's own pull sets the friction zone through clutch_pull
 		_sim.step(delta, spec, _throttle, _ignition, wants_start and in_neutral_or_pulled, Input.is_physical_key_pressed(KEY_SHIFT), _brake_held, _panel.lambda())
 		if _frame <= 3: _trace("sim stepped")
@@ -192,7 +193,9 @@ func _process(delta: float) -> void:
 	var afr: float = FuelTank.PROPERTIES[_sim.fuel.kind].afr
 	var max_fuel_g_s: float = max_air_kg_s / afr * 1000.0
 	# sound pressure grows with the square root of acoustic power, and power follows the fuel burned
-	_sound.energy = sqrt(clampf(_sim.fuel_flow / max_fuel_g_s, 0.0, 1.0))
+	# floor at 0.02 ratio (~14% energy) so idle isn't disproportionately quiet
+	_sound.energy = sqrt(maxf(_sim.fuel_flow / max_fuel_g_s, 0.02))
+	_sound.knock = clampf(_sim.knock_excess / 5.0, 0.0, 1.0) # the detonation ping grows with how far past the knock limit the advance is
 	_sound.volume_db = (0.0 if _sound_on else -80.0) + linear_to_db(maxf(_sound_gate, 0.0001))
 	# each backfire pops the exhaust once, and flashes on the dashboard
 	if _sim.backfire_count != _backfires_heard:
@@ -203,12 +206,20 @@ func _process(delta: float) -> void:
 	var clutch_state := "open" if _sim.clutch_engage < 0.01 else ("engaged" if _sim.clutch_engage > 0.99 else "slipping")
 	var state := "RUNNING" if _sim.running else ("CRANKING" if _sim.rpm > 0.0 else "STOPPED")
 	var power_hp := Units.w_to_hp(Units.power_w(_sim.torque, _sim.rpm))
-	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)   Clutch: %s (%d%% grip)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)\nExhaust %.0f °C   O2 sensor λ %.2f\nTiming %+.1f°   Intake %d° at %.1f mm   Exhaust %d° at %.1f mm   Knocks %d" % [
+	_panel.set_throttle_text("Engine: %s  RPM: %d\nTorque %.1f N·m   Power %.1f hp\nIntake %.1f psi   Air %.0f °C\nThrottle: %d%%  (hold W/Up, springs back)   Clutch: %s (%d%% grip)\nFuel: %.1f kg (%d%%)  flow %.2f g/s  λ %.2f\nSound: %s (%s)\nTiming %+.1f°   Intake %d° at %.1f mm   Exhaust %d° at %.1f mm   Knocks %d" % [
 		state, roundi(_sim.rpm), _sim.torque, power_hp,
 		Units.pa_to_psi(_sim.intake.pressure), Units.k_to_c(EngineAir.T0),
 		roundi(_throttle * 100), clutch_state, roundi(_sim.clutch_engage * 100.0), _sim.fuel.mass_kg, roundi(_sim.fuel.fraction() * 100), _sim.fuel_flow, _panel.lambda(),
-		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output"), _sim.exhaust_temp_c(), _sim.o2_lambda(),
+		"on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output"),
 		spec.ignition_offset_deg, roundi(spec.intake_duration_deg), spec.intake_lift_mm, roundi(spec.exhaust_duration_deg), spec.exhaust_lift_mm, _sim.knock_count])
+	# the sensors: chamber temperature (hottest gas each cylinder reached last cycle), exhaust port temperature per header runner, O2
+	var hottest := 0.0
+	for c in _sim.cylinders:
+		hottest = maxf(hottest, c.last_peak_temp - 273.15)
+	var headers := ""
+	for t in _sim.port_temps_c():
+		headers += "%.0f  " % t
+	_panel.set_sensor_text("Chamber: avg %.0f °C, hottest %.0f °C\nExhaust port (header), °C: %sO2 sensor λ %.2f  (exhaust %.0f °C)" % [_sim.chamber_peak_c(), hottest, headers, _sim.o2_lambda(), _sim.exhaust_temp_c()])
 	if _frame <= 3: _trace("sound settings done")
 	_hud.update(_sim, spec, _clutch_held)
 	if _frame <= 3: _trace("hud updated")
@@ -267,7 +278,7 @@ func _on_panel_changed() -> void:
 	var layout := ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _drivetrain.rear_axle)
 	_exhaust.build(layout)
 	# the pipes set the sound, so a layout change of more than a couple of centimetres rebuilds it
-	var audio_key := "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, str(spec.fire_deg), spec.intake_centre_deg, spec.exhaust_centre_deg, spec.exhaust_duration_deg, roundi(layout.total_length_m() * 50.0)]
+	var audio_key := "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%d" % [spec.cylinders, spec.displacement_cc, spec.header, spec.fuel, spec.twin_pin_deg, spec.crossplane, str(spec.fire_deg), spec.intake_centre_deg, spec.exhaust_centre_deg, spec.exhaust_duration_deg, spec.ignition_offset_deg, roundi(layout.total_length_m() * 50.0)]
 	if audio_key != _audio_key:
 		_audio_key = audio_key
 		_sound.setup(spec, layout) # stops the player, so start it again below

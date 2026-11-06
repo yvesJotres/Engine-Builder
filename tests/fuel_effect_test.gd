@@ -52,17 +52,17 @@ func _knocks(kind: String, offset: float) -> int:
 
 func _init() -> void:
 	await process_frame
-	var petrol := _torque("petrol")
+	var petrol := _torque("ron95")
 	var e85 := _torque("e85")
 	print("torque at 7000 rpm: petrol %.2f N·m, E85 %.2f N·m" % [petrol, e85])
 	check(e85 > petrol * 1.01, "E85 makes more torque than petrol from its cooler charge (%.2f vs %.2f)" % [e85, petrol])
 	var petrol_limit := EngineSim.knock_limit_deg(95.0, 11.3)
 	var e85_limit := EngineSim.knock_limit_deg(105.0, 11.3)
 	check(e85_limit > petrol_limit + 3.0, "E85 tolerates more advance than petrol (limit %.1f vs %.1f deg)" % [e85_limit, petrol_limit])
-	var petrol_knocks := _knocks("petrol", 5.0)
+	var petrol_knocks := _knocks("ron95", 5.0)
 	var e85_knocks := _knocks("e85", 5.0)
 	check(petrol_knocks > 0, "petrol knocks with +5 deg advance (%d knocks)" % petrol_knocks)
 	check(e85_knocks == 0, "E85 does not knock with +5 deg advance (%d knocks)" % e85_knocks)
-	check(_knocks("petrol", 0.0) == 0, "stock timing does not knock on petrol")
+	check(_knocks("ron95", 0.0) == 0, "stock timing does not knock on petrol")
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

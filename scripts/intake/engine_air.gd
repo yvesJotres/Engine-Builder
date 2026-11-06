@@ -28,11 +28,18 @@ static func spark_advance_deg(rpm: float, offset := 0.0) -> float: # offset: the
 	return Cylinder.burn_duration_deg(rpm) * Cylinder.WIEBE_CA50 - Cylinder.CA50_TARGET + offset
 
 
+# Returns target lambda for given throttle (0-1) and RPM, using the spec's lambda_target map.
+static func get_target_lambda(spec: EngineSpec, throttle: float, rpm: float) -> float:
+	return spec.get_target_lambda(throttle, rpm)
+
+
 # Moves the manifold for dt seconds: throttle and bypass inflow, drawn_kg_s out to the cylinders.
-func manifold_update(dt: float, throttle: float, drawn_kg_s: float) -> void:
+func manifold_update(dt: float, throttle: float, drawn_kg_s: float, spec: EngineSpec = null) -> void:
+	# Apply VE scale to drawn air mass (cylinder intake) to match real volumetric efficiency; 1.0 when no spec is given
+	var drawn_scaled := drawn_kg_s * (spec.ve_scale if spec != null else 1.0)
 	var plate_area := THROTTLE_AREA * (1.0 - cos(throttle * PI / 2.0))
 	var inflow := _orifice(plate_area) + _orifice(bypass_area)
-	pressure = clampf(pressure + R_AIR * T0 / MANIFOLD_VOLUME * (inflow - drawn_kg_s) * dt, MIN_PRESSURE, P0)
+	pressure = clampf(pressure + R_AIR * T0 / MANIFOLD_VOLUME * (inflow - drawn_scaled) * dt, MIN_PRESSURE, P0)
 
 
 # Compressible mass flow through an orifice from atmosphere into the manifold, kg/s.

@@ -10,7 +10,7 @@ const FRICTION_BASE := 0.18 # N·m, rings, valve train and oil shear (pumping lo
 const MAIN_BEARING_FRICTION := 0.01 # N·m per main bearing, two bearings, estimate
 const BALANCER_FRICTION := 0.005 # N·m, balancer shaft bearings and gear, estimate
 const FRICTION_PER_CYLINDER := 0.1 # N·m per cylinder at a 57.3 mm bore (the CBR150R), piston rings and bores; estimate, see the friction note in the plan
-const FRICTION_PER_RPM := 0.0003 # N·m per rpm, bearings and oil shear
+const FRICTION_PER_RPM := 0.00012 # N·m per rpm, bearings and oil shear: about 1.2 N·m at 7,000 rpm (about 1 bar FMEP for a 150 cc single), estimate
 const SUBSTEPS := 1 # each fixed physics step is taken once
 var physics_dt := 1.0 / 3600.0 # s per physics step, set from the pause menu: Accurate 1/3600, Fast 1/1200
 const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch must not make the sim run in fast-forward
@@ -21,7 +21,7 @@ const CRANK_RPM := 900.0 # the starter's help fades to zero here, about the spee
 const FIRE_RPM := 400.0 # ignition catches the mixture above this speed
 const STALL_RPM := 200.0 # below this the mixture no longer ignites
 const LIMITER_CUT_TIME := 0.08 # s, spark held off per limiter hit, from engine-sim's ignition module
-const DRAG_CDA := 0.55 # m², drag coefficient times frontal area, estimate
+const DRAG_CDA := 0.40 # m², drag coefficient times frontal area: a naked sport bike with rider, Cd about 0.65 on about 0.6 m², estimate
 const AIR_DENSITY := 1.2 # kg/m³
 const ROLLING_COEFF := 0.015
 const GRAVITY := 9.81
@@ -42,7 +42,7 @@ const DRIVE_EFFICIENCY := 0.93 # gearbox mesh (6 gears, ~1.5% each), primary dri
 const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
 # Fuel evaporating in the intake cools the air drawn in. Only part of the fuel evaporates before the valve shuts (estimate).
-const CHARGE_EVAP_FRACTION := 0.35
+const CHARGE_EVAP_FRACTION := 0.1 # calibrated so E85 gains about 5% wide-open torque over petrol: its 3% more energy per kg of air plus the cooler charge, the top of the published range
 # Knock: the stock ignition map is safe on any fuel. Advancing it by more than the limit knocks: higher octane and lower compression allow more (estimates).
 const KNOCK_BASE_DEG := 4.0
 const KNOCK_PER_OCTANE_DEG := 0.4
@@ -70,6 +70,7 @@ var _gas_torque := 0.0 # N·m, the gas torque from the last physics step, used i
 var _clutch_slow_engage := false # true after a Shift pull-in, until the plates are back: then they come back slowly
 var knock_count := 0 # knock events since the engine was made: each time the advance goes past the limit
 var _knocking := false
+var knock_excess := 0.0 # degrees the advance is past the knock limit now: 0 when the engine is not knocking
 var backfire_count := 0 # backfires since the engine was made, for the sound to hear each one once
 var last_backfire_j := 0.0 # J released by the latest backfire, for its loudness
 
@@ -126,13 +127,15 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var torque_sum := 0.0
 	_build_cylinders(spec)
 	# knock: the rider's advance past what the fuel and compression allow, which costs torque and counts as a knock
-	var knock_excess := maxf(spec.ignition_offset_deg - knock_limit_deg(fuel.octane, spec.compression_ratio), 0.0)
+	knock_excess = maxf(spec.ignition_offset_deg - knock_limit_deg(fuel.octane, spec.compression_ratio), 0.0)
 	if running and knock_excess > 0.0 and not _knocking:
 		knock_count += 1
 	_knocking = running and knock_excess > 0.0
 	var knock_loss := clampf(knock_excess / 5.0, 0.0, 1.0) * KNOCK_TORQUE_LOSS
 	# the fuel evaporating in the intake cools the air drawn in, so E85 and petrol breathe differently
-	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, lambda) if running else 0.0)
+	# Dynamic target lambda from spec map (throttle x RPM), scaled by the panel ratio
+	var target_lambda := EngineAir.get_target_lambda(spec, throttle, rpm) * lambda
+	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, target_lambda) if running else 0.0)
 	for _i in SUBSTEPS:
 		_update_limiter(h, spec.redline_rpm)
 		# piston rings and bores: each cylinder's ring face grows with its bore. Scaled so a 57.3 mm bore gives FRICTION_PER_CYLINDER.
@@ -174,8 +177,8 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			var dphi := omega * sub_h * 180.0 / PI
 			var drawn := 0.0
 			for c in cylinders:
-				# the limiter cuts the spark, not the fuel: a cut cylinder still takes its charge, which can backfire in the exhaust
-				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, lambda, running and not intake.limiter_cut)
+				# limiter cuts both spark AND fuel to prevent unburnt mixture in exhaust
+				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, target_lambda, running and not intake.limiter_cut, intake.limiter_cut)
 				gas += res.x / sub
 				drawn += res.y
 				if c.backfire_j > 0.0:
@@ -183,7 +186,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					last_backfire_j = c.backfire_j
 					c.backfire_j = 0.0
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
-			intake.manifold_update(sub_h, throttle, drawn / sub_h)
+			intake.manifold_update(sub_h, throttle, drawn / sub_h, spec)
 		gas *= 1.0 - knock_loss
 		_gas_torque = gas
 		torque_sum += gas - friction # shaft torque, what the crank delivers
@@ -200,6 +203,24 @@ func exhaust_temp_c() -> float:
 	for c in cylinders:
 		sum += c.exhaust_temp
 	return sum / cylinders.size() - 273.15
+
+
+# Chamber temperature sensor, °C: the hottest gas each cylinder reached in its last complete cycle, averaged over the cylinders.
+func chamber_peak_c() -> float:
+	if cylinders.is_empty():
+		return 0.0
+	var sum := 0.0
+	for c in cylinders:
+		sum += c.last_peak_temp
+	return sum / cylinders.size() - 273.15
+
+
+# Exhaust port temperatures, °C, one per cylinder: the gas each one last sent out (what each header runner carries).
+func port_temps_c() -> Array:
+	var out := []
+	for c in cylinders:
+		out.append(c.exhaust_temp - 273.15)
+	return out
 
 
 # O2 sensor, relative to stoichiometric: the average mixture the cylinders burned on their last cycle. 1.0 is exact.
