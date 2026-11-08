@@ -316,27 +316,27 @@ func _ready() -> void:
 	_controls["flywheel_r"] = _spin(tuning, "Flywheel radius (mm)", 20, 150, 0.1, 75.0)
 	_controls["power_mode"] = _option(tuning, "Power mode", ["F", "M", "L"])
 		_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
-	
+
 		# Quickshifter detailed controls (only visible when has_quickshifter)
-				_controls["qs_enabled"] = _option(tuning, "Quickshifter", ["Off", "On"])
-				_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
-				_feature_labels["qs_enabled"] = _feature_labels["qs_enabled"] = _row(tuning, "Quickshifter", _controls["qs_enabled"])
-				_controls["qs_sensitivity"] = _spin(tuning, "Shift Sensitivity", 0.1, 1.0, 0.05, 0.7)
-				_controls["qs_sensitivity"].tooltip_text = "Force threshold to trigger shift (strain gauge sensitivity)"
-				_feature_labels["qs_sensitivity"] = _row(tuning, "Shift Sensitivity", _controls["qs_sensitivity"])
-				_controls["qs_cut_base"] = _spin(tuning, "Base Cut (ms)", 20, 100, 5, 50)
-				_controls["qs_cut_base"].tooltip_text = "Base ignition cut duration at low RPM"
-				_feature_labels["qs_cut_base"] = _row(tuning, "Base Cut (ms)", _controls["qs_cut_base"])
-				_controls["qs_blip_time"] = _spin(tuning, "Downshift Blip (ms)", 20, 200, 10, 80)
-				_controls["qs_blip_time"].tooltip_text = "Throttle blip duration for clutchless downshift"
-				_feature_labels["qs_blip_time"] = _row(tuning, "Downshift Blip (ms)", _controls["qs_blip_time"])
-				_controls["qs_blip_throttle"] = _spin(tuning, "Blip Throttle %", 0.1, 0.5, 0.05, 0.3)
-				_controls["qs_blip_throttle"].tooltip_text = "Throttle fraction during downshift blip"
-				_feature_labels["qs_blip_throttle"] = _row(tuning, "Blip Throttle %", _controls["qs_blip_throttle"])
-				_controls["qs_flat_shift"] = _option(tuning, "Flat Shift", ["Off", "On"])
-				_controls["qs_flat_shift"].tooltip_text = "Hold throttle cracked during upshift for faster shifts"
-				_feature_labels["qs_flat_shift"] = _row(tuning, "Flat Shift", _controls["qs_flat_shift"])
-	
+		_controls["qs_enabled"] = _option(tuning, "Quickshifter", ["Off", "On"])
+		_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
+		_feature_labels["qs_enabled"] = _row(tuning, "Quickshifter", _controls["qs_enabled"])
+		_controls["qs_sensitivity"] = _spin(tuning, "Shift Sensitivity", 0.1, 1.0, 0.05, 0.7)
+		_controls["qs_sensitivity"].tooltip_text = "Force threshold to trigger shift (strain gauge sensitivity)"
+		_feature_labels["qs_sensitivity"] = _row(tuning, "Shift Sensitivity", _controls["qs_sensitivity"])
+		_controls["qs_cut_base"] = _spin(tuning, "Base Cut (ms)", 20, 100, 5, 50)
+		_controls["qs_cut_base"].tooltip_text = "Base ignition cut duration at low RPM"
+		_feature_labels["qs_cut_base"] = _row(tuning, "Base Cut (ms)", _controls["qs_cut_base"])
+		_controls["qs_blip_time"] = _spin(tuning, "Downshift Blip (ms)", 20, 200, 10, 80)
+		_controls["qs_blip_time"].tooltip_text = "Throttle blip duration for clutchless downshift"
+		_feature_labels["qs_blip_time"] = _row(tuning, "Downshift Blip (ms)", _controls["qs_blip_time"])
+		_controls["qs_blip_throttle"] = _spin(tuning, "Blip Throttle %", 0.1, 0.5, 0.05, 0.3)
+		_controls["qs_blip_throttle"].tooltip_text = "Throttle fraction during downshift blip"
+		_feature_labels["qs_blip_throttle"] = _row(tuning, "Blip Throttle %", _controls["qs_blip_throttle"])
+		_controls["qs_flat_shift"] = _option(tuning, "Flat Shift", ["Off", "On"])
+		_controls["qs_flat_shift"].tooltip_text = "Hold throttle cracked during upshift for faster shifts"
+		_feature_labels["qs_flat_shift"] = _row(tuning, "Flat Shift", _controls["qs_flat_shift"])
+
 		_feature_switch(tuning, "launch_control", "Launch control", "Holds launch RPM while the clutch is pulled and throttle is high.")
 	_feature_switch(tuning, "abs_enabled", "ABS", "Anti-lock braking system. Intervention is available when wheel-brake simulation is active.")
 	_feature_switch(tuning, "traction_control_enabled", "Traction control", "Traction control. Intervention is available when tyre-slip simulation is active.")
