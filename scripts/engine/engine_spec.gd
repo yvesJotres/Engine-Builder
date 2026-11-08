@@ -2,6 +2,36 @@ class_name EngineSpec
 extends Resource
 
 @export var cylinders := 1
+@export var vehicle_type := "motorcycle"
+@export var transmission_type := "manual"
+@export var wheelbase_mm := 1310.0
+@export var wheel_radius_m := 0.0
+@export var vehicle_length_mm := 0.0
+@export var vehicle_width_mm := 0.0
+@export var vehicle_height_mm := 0.0
+@export var front_track_mm := 0.0
+@export var rear_track_mm := 0.0
+@export var front_wheel_radius_m := 0.0
+@export var front_tire_width_mm := 0.0
+@export var rear_tire_width_mm := 0.0
+@export var fuel_capacity_l := 12.0
+@export var drag_area_m2 := 0.4
+@export var max_boost_ratio := 1.0
+@export var electric_compressor := false # estimated electric compressor, controlled independently of engine speed
+@export var v3r_style := false # V3R-inspired appearance, not a measured replica
+@export var compressor_battery_wh := 40.0 # estimated usable electrical energy
+@export var compressor_power_w := 2000.0 # estimated power at full boost
+@export var compressor_charge_w := 1000.0 # estimated charging power
+@export var boost_spool_time := 0.6
+@export var compressor_map_id: String = "" # e.g. "garrett_gtx3076r"
+@export var compressor_inertia_kgm2: float = 0.00005 # kg·m², compressor+turbine shaft
+@export var turbine_a_r: float = 0.63 # turbine housing A/R, for non-electric
+@export var wastegate_type: String = "internal" # internal, external, none
+@export var wastegate_pressure_ratio: float = 0.0 # PR at which wastegate opens (0 = spring pressure)
+@export var turbine_efficiency: float = 0.70 # adiabatic efficiency
+@export var intake_area_scale := 1.0
+@export var manifold_volume_scale := 1.0
+@export var clutch_capacity_nm := 0.0
 @export var displacement_cc := 149.16 # Honda CBR150R (K45N) - exact bore x stroke
 @export var bore_mm := 57.3
 @export var stroke_mm := 57.8
@@ -10,6 +40,29 @@ extends Resource
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
 @export var fuel := "ron95" # a FuelTank.KINDS entry: ron90, ron92, ron95, ron98 or e85
+@export var exhaust_ir_path := "" # custom muffler IR WAV (res://assets/ir/...); empty = auto by layout
+
+# Cam lobe. 0 = half sine. 1 = a cam card: raised cosine between the 0.050 inch points, straight ramps to the seat
+# (mgispeedware.com/camshaft-calculator). 2 = a lift table in crank degrees and millimetres.
+enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
+@export var cam_lobe_profile: int = 1 # default to flat-taper for realism
+@export var intake_lobe_profile: int = 1 # override per-valve (or -1 to use cam_lobe_profile)
+@export var exhaust_lobe_profile: int = 1
+# For CUSTOM profile: lift curve as [deg_after_firing_TDC, lift_mm] pairs, 0-720 deg.
+# Example: [[350, 0], [380, 2], [420, 6], [460, 6], [500, 2], [530, 0]]
+@export var intake_lift_curve: Array = []
+@export var exhaust_lift_curve: Array = []
+# Kept so an older preset still loads. The cam-card lobe does not use a flat top.
+@export var intake_flat_fraction := 0.3
+@export var exhaust_flat_fraction := 0.3
+# Seat to the 0.050 inch point, crank degrees. 0 uses the calculator's default: the seat is 1.14 times the 0.050 duration.
+@export var intake_open_ramp_deg := 0.0
+@export var intake_close_ramp_deg := 0.0
+@export var exhaust_open_ramp_deg := 0.0
+@export var exhaust_close_ramp_deg := 0.0
+@export var intake_duration_050_deg := 0.0 # duration at 0.050 inch. 0 derives it from the seat duration
+@export var exhaust_duration_050_deg := 0.0
+
 @export var redline_rpm := 10600.0 # fuel cut-off, per engine: limiter from a press dyno test, not Honda
 @export var idle_target_rpm := 1200.0 # rpm the ECU holds at idle
 @export var crank_friction_nm := 0.0 # N·m, constant crankshaft friction from the engine-sim reference; 0 leaves it out
@@ -19,8 +72,20 @@ extends Resource
 @export var gear_ratios: Array = [3.0833, 1.9412, 1.5, 1.2273, 1.0417, 0.9231] # K45R tooth counts, 1st to 6th
 @export var twin_pin_deg := 360.0 # 2-cylinder only: crank-pin angle between the two cylinders, 360, 270 or 180
 @export var split_pin_v4 := false # 4-cylinder V with a 70 degree split crank pin (Ducati Panigale V4)
+@export var shared_v_crankpins := false # pair cylinders 1-2, 3-4, etc. on common V-engine crankpins
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var fire_deg: Array = [] # wire angle per cylinder from engine-sim's ignition wiring, in its cylinder order; empty = generic order
+# Quickshifter: cuts ignition/fuel during upshift to unload the gearbox for clutchless shift
+@export var quickshifter := false # enable quickshifter (Kawasaki SE, etc.)
+@export var quickshifter_cut_time := 0.05 # s, ignition+fuel cut duration during upshift
+@export var quickshifter_min_rpm := 3000.0 # rpm above which quickshifter activates
+# Power modes: F (Full), M (Mid), L (Low) - changes throttle response and ignition timing
+@export var power_mode := "F" # "F", "M", or "L"
+# Launch control: holds RPM at launch_rpm while clutch pulled + throttle > launch_throttle + speed < launch_speed
+@export var launch_control := false # enable launch control (Kawasaki SE, etc.)
+@export var launch_rpm := 8000.0 # target RPM for launch control
+@export var launch_throttle := 0.95 # throttle fraction to arm launch control
+@export var launch_speed_kmh := 30.0 # speed below which launch control is active (km/h)
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
 # efficiency is already about 90% on the dyno, so a further cut double counts the losses and pulls torque below the published figure.
 @export var ve_scale := 1.0
@@ -43,6 +108,11 @@ extends Resource
 @export var intake_centre_deg := 470.0 # centre of the intake event (360 to 600): opens 120 deg before it, closes 120 deg after
 @export var intake_duration_deg := 240.0 # intake valve open, degrees of crank
 @export var intake_lift_mm := 6.0 # intake peak lift
+@export var intake_valve_mm := 20.0 # one intake valve head, two valves. 20 mm is the small-single estimate; a published head size replaces it
+@export var exhaust_valve_mm := 17.0 # one exhaust valve head, two valves
+@export var runner_length_m := 0.25 # throttle body to the valve. 0.25 m is the small-single estimate; a shorter runner holds its fill to a higher rpm
+@export var wall_heat_scale := 1.0 # 1 keeps the generic wall-heat estimate. Lower keeps more of the burn as torque on an engine that publishes more than that estimate gives
+@export var valve_cd := 0.7 # discharge coefficient of the valve curtain. 0.7 is the small-single estimate
 @export var exhaust_centre_deg := 255.0 # centre of the exhaust event
 @export var exhaust_duration_deg := 230.0 # exhaust valve open, degrees of crank
 @export var exhaust_lift_mm := 5.0 # exhaust peak lift
@@ -53,6 +123,25 @@ extends Resource
 @export var tyre_kg := 8.0 # both tyres, estimate (about 4.5 kg rear, 3.5 kg front); wheel and tyre masses are not published for the K45R
 @export var rim_kg := 8.0 # both wheels with brake discs and the rear sprocket, estimate
 @export var slant_deg := 20.0 # cylinder lean, degrees, top toward the front. Estimate, not from a manual
+# Slipper clutch: reduces clutch capacity during engine braking to prevent rear wheel hop
+@export var slipper_clutch := false # enable slipper clutch (Kawasaki ZX-25R, etc.)
+@export var slipper_ramp := 0.5 # fraction of clutch capacity retained during engine braking (0.5 = 50%)
+# The air the correction factor is quoted against. The cylinders still breathe Cylinder.P0 and Cylinder.T0; these numbers
+# only turn a finished dyno sheet into an SAE J1349 figure, so a published comparison can say which day it was corrected to.
+@export var ambient_pressure_pa := 101325.0
+@export var ambient_temp_k := 300.0
+@export var relative_humidity := 0.0 # 0 to 1, water vapour taken out of the dry-air pressure in the SAE factor
+@export var starter_torque_nm := 0.0 # N·m at zero speed. 0 keeps the 20 N·m per 150 cc estimate
+@export var oil_temp_c := 100.0 # °C at the start of a run. 100 is already warm, so a dyno matches a hot engine
+@export var coolant_temp_c := 90.0
+@export var oil_operating_c := 100.0
+@export var coolant_operating_c := 90.0
+# Dyno shift. 0 means the test's own default (97% of redline, an 8 s plateau wait, the clutch opened fully).
+@export var dyno_shift_fraction := 0.0
+@export var dyno_shift_style := "clutch" # clutch: open the lever. flat: a short slip, throttle kept cracked
+@export var dyno_rider_skill := 1.0 # 1 feeds the clutch at the normal rate and shifts at dyno_shift_fraction
+@export var dyno_plateau_rpm := 0.0 # rpm gained over the plateau window. 0 picks a fine value from the redline
+@export var dyno_plateau_after := 0.0 # s in a gear before a flat rpm trace ends it. 0 uses 8 s
 
 @export var piston_kg := 0.09 # piston with rings and pin, estimate
 @export var rod_kg := 0.20 # connecting rod, estimate, so crank plus rod is about 2.5 kg
@@ -173,8 +262,10 @@ func get_target_lambda(throttle: float, rpm: float) -> float:
 
 # The first problem with the spec, or "" when it is fine. Shown on the panel as a warning.
 func validation_warning() -> String:
-	if layout == "V" and cylinders % 2 != 0:
-		return "V layout needs an even cylinder count"
+	if layout == "W" and cylinders % 4 != 0:
+		return "W layout needs a multiple of four cylinders"
+	if layout == "V" and cylinders < 2:
+		return "V layout needs at least two cylinders"
 	var calc := calc_displacement_cc()
 	if absf(calc - displacement_cc) / displacement_cc > 0.02:
 		return "Bore x stroke gives %.0f cc, not %.0f cc" % [calc, displacement_cc]
@@ -186,6 +277,27 @@ func validation_warning() -> String:
 		return "Valve centre out of range (intake 360 to 600, exhaust 120 to 360)"
 	if absf(ignition_offset_deg) > 10.0:
 		return "Ignition offset must be within 10 degrees"
+	# Cam profile validation
+	if intake_lobe_profile == CamLobeProfile.CUSTOM and intake_lift_curve.size() < 4:
+		return "CUSTOM intake lift curve needs at least 4 points"
+	if exhaust_lobe_profile == CamLobeProfile.CUSTOM and exhaust_lift_curve.size() < 4:
+		return "CUSTOM exhaust lift curve needs at least 4 points"
+	if intake_flat_fraction < 0.0 or intake_flat_fraction > 0.8:
+		return "intake_flat_fraction must be 0.0 to 0.8"
+	if exhaust_flat_fraction < 0.0 or exhaust_flat_fraction > 0.8:
+		return "exhaust_flat_fraction must be 0.0 to 0.8"
+	if intake_open_ramp_deg < 0.0 or intake_open_ramp_deg > intake_duration_deg * 0.5:
+		return "intake_open_ramp_deg must be 0 to half duration"
+	if intake_close_ramp_deg < 0.0 or intake_close_ramp_deg > intake_duration_deg * 0.5:
+		return "intake_close_ramp_deg must be 0 to half duration"
+	if exhaust_open_ramp_deg < 0.0 or exhaust_open_ramp_deg > exhaust_duration_deg * 0.5:
+		return "exhaust_open_ramp_deg must be 0 to half duration"
+	if exhaust_close_ramp_deg < 0.0 or exhaust_close_ramp_deg > exhaust_duration_deg * 0.5:
+		return "exhaust_close_ramp_deg must be 0 to half duration"
+	if intake_duration_050_deg > 0.0 and (intake_duration_050_deg < 80.0 or intake_duration_050_deg > intake_duration_deg):
+		return "intake duration at 0.050 inch must sit inside the seat duration"
+	if exhaust_duration_050_deg > 0.0 and (exhaust_duration_050_deg < 80.0 or exhaust_duration_050_deg > exhaust_duration_deg):
+		return "exhaust duration at 0.050 inch must sit inside the seat duration"
 	return ""
 
 
@@ -204,3 +316,33 @@ func exhaust_open_deg() -> float:
 
 func exhaust_close_deg() -> float:
 	return exhaust_centre_deg + exhaust_duration_deg * 0.5
+
+
+# Crank angle where the valve reaches 0.050 inch on the way open, degrees after firing top dead centre.
+func intake_050_open_deg() -> float:
+	return intake_open_deg() + seat_ramps(intake_duration_deg, intake_duration_050_deg, intake_open_ramp_deg, intake_close_ramp_deg).x
+
+
+func intake_050_close_deg() -> float:
+	return intake_close_deg() - seat_ramps(intake_duration_deg, intake_duration_050_deg, intake_open_ramp_deg, intake_close_ramp_deg).y
+
+
+func exhaust_050_open_deg() -> float:
+	return exhaust_open_deg() + seat_ramps(exhaust_duration_deg, exhaust_duration_050_deg, exhaust_open_ramp_deg, exhaust_close_ramp_deg).x
+
+
+func exhaust_050_close_deg() -> float:
+	return exhaust_close_deg() - seat_ramps(exhaust_duration_deg, exhaust_duration_050_deg, exhaust_open_ramp_deg, exhaust_close_ramp_deg).y
+
+
+# Degrees from the seat to the 0.050 inch point. Explicit ramps win. Otherwise the seat is 1.14 times the 0.050 duration.
+static func seat_ramps(seat_deg: float, duration_050: float, open_ramp: float, close_ramp: float) -> Vector2:
+	if open_ramp > 0.0 or close_ramp > 0.0:
+		var opening := open_ramp if open_ramp > 0.0 else close_ramp
+		var closing := close_ramp if close_ramp > 0.0 else open_ramp
+		var cap := seat_deg * 0.45
+		return Vector2(minf(opening, cap), minf(closing, cap))
+	var at_050 := duration_050 if duration_050 > 0.0 else seat_deg / 1.14
+	at_050 = clampf(at_050, seat_deg * 0.5, seat_deg)
+	var ramp := (seat_deg - at_050) * 0.5
+	return Vector2(ramp, ramp)
