@@ -163,13 +163,22 @@ func _update_compressor_map(dt: float, spec: EngineSpec, m_dot_engine: float, th
 	
 	# Shaft acceleration
 	var P_net: float = P_turbine - P_comp
-	if P_net != 0.0 and spec.compressor_inertia_kgm2 > 0.0 and compressor_speed_rpm > 0.0:
-		var accel: float = P_net / (spec.compressor_inertia_kgm2 * compressor_speed_rpm * TAU / 60.0) # rad/s²
-		compressor_speed_rpm += accel * dt * 60.0 / TAU
-	elif P_net > 0.0 and spec.compressor_inertia_kgm2 > 0.0:
-		# Starting from zero speed
-		var accel: float = P_net / spec.compressor_inertia_kgm2
-		compressor_speed_rpm += accel * dt * 60.0 / TAU
+	# Motor torque model: constant torque up to base speed, then constant power
+	# Base speed where motor transitions from constant torque to constant power
+	var BASE_SPEED_RPM := 50000.0
+	if spec.compressor_inertia_kgm2 > 0.0:
+		if compressor_speed_rpm > 0.0:
+			# Power = torque * omega, so torque = P / omega
+			var omega = compressor_speed_rpm * TAU / 60.0
+			var torque = P_net / maxf(omega, 1.0)
+			var accel = torque / spec.compressor_inertia_kgm2
+			compressor_speed_rpm += accel * dt * 60.0 / TAU
+		elif P_net > 0.0:
+			# At zero speed: use stall torque = rated_power / base_omega
+			var base_omega = BASE_SPEED_RPM * TAU / 60.0
+			var stall_torque = spec.compressor_power_w / base_omega
+			var accel = stall_torque / spec.compressor_inertia_kgm2
+			compressor_speed_rpm += accel * dt * 60.0 / TAU
 	compressor_speed_rpm = maxf(0.0, compressor_speed_rpm)
 	
 	# Apply throttle modulation to PR (throttle downstream of compressor)
