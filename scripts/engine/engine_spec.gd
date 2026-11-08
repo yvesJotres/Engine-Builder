@@ -40,6 +40,7 @@ extends Resource
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
 @export var fuel := "ron95" # a FuelTank.KINDS entry: ron90, ron92, ron95, ron98 or e85
+@export var ecu_binary := "" # optional verified ECU flash; unsupported layouts are ignored safely
 @export var exhaust_ir_path := "" # custom muffler IR WAV (res://assets/ir/...); empty = auto by layout
 
 # Cam lobe. 0 = half sine. 1 = a cam card: raised cosine between the 0.050 inch points, straight ramps to the seat
@@ -75,10 +76,20 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var shared_v_crankpins := false # pair cylinders 1-2, 3-4, etc. on common V-engine crankpins
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var fire_deg: Array = [] # wire angle per cylinder from engine-sim's ignition wiring, in its cylinder order; empty = generic order
+# Rider aids are split into hardware availability and the rider's switch state.
+# A preset must explicitly advertise a feature before the panel can enable it.
+@export var has_quickshifter := false
+@export var has_launch_control := false
+@export var has_abs := false
+@export var has_traction_control := false
 # Quickshifter: cuts ignition/fuel during upshift to unload the gearbox for clutchless shift
-@export var quickshifter := false # enable quickshifter (Kawasaki SE, etc.)
+@export var quickshifter := false # rider switch, only valid when has_quickshifter
 @export var quickshifter_cut_time := 0.05 # s, ignition+fuel cut duration during upshift
+@export var quickshifter_cut_profile: Array = [] # per-gear cut time profile: [ [ [rpm, cut_ms], ... ], ... ] for gears 1-6
 @export var quickshifter_min_rpm := 3000.0 # rpm above which quickshifter activates
+# Downshift blip
+@export var quickshifter_blip_time := 0.08 # s, throttle blip duration for clutchless downshift
+@export var quickshifter_blip_throttle := 0.3 # throttle fraction during downshift blip
 # Power modes: F (Full), M (Mid), L (Low) - changes throttle response and ignition timing
 @export var power_mode := "F" # "F", "M", or "L"
 # Launch control: holds RPM at launch_rpm while clutch pulled + throttle > launch_throttle + speed < launch_speed
@@ -86,6 +97,8 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var launch_rpm := 8000.0 # target RPM for launch control
 @export var launch_throttle := 0.95 # throttle fraction to arm launch control
 @export var launch_speed_kmh := 30.0 # speed below which launch control is active (km/h)
+@export var abs_enabled := false # rider switch, only valid when has_abs
+@export var traction_control_enabled := false # rider switch, only valid when has_traction_control
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
 # efficiency is already about 90% on the dyno, so a further cut double counts the losses and pulls torque below the published figure.
 @export var ve_scale := 1.0
