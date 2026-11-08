@@ -38,6 +38,7 @@ var final_drive := 3.0
 var gear_ratios: Array = Gearbox.ratios()
 var _vehicle_settings := {}
 var _controls := {}
+var _feature_labels := {}
 var _preset_button: OptionButton
 var _library_ready := false
 var _preset_ids: Array = []
@@ -188,17 +189,17 @@ func _ready() -> void:
 	ENGINE_LIBRARY.get_instance().fetch()
 
 	# one section at a time, picked from this dropdown: the panel stays as tall as the section it shows
-		var section := OptionButton.new()
-		section.custom_minimum_size.y = CONTROL_HEIGHT
-		section.tooltip_text = "Engine settings section"
-		for title in ["Engine", "Air and fuel", "Valves", "Timing", "Tuning", "Turbo"]:
-			section.add_item(title)
-		box.add_child(section)
-		var pages := VBoxContainer.new()
-		box.add_child(pages)
-		section.item_selected.connect(func(i: int) -> void: _show_section(pages, i))
+	var section := OptionButton.new()
+	section.custom_minimum_size.y = CONTROL_HEIGHT
+	section.tooltip_text = "Engine settings section"
+	for title in ["Engine", "Air and fuel", "Valves", "Timing", "Tuning", "Turbo"]:
+		section.add_item(title)
+	box.add_child(section)
+	var pages := VBoxContainer.new()
+	box.add_child(pages)
+	section.item_selected.connect(func(i: int) -> void: _show_section(pages, i))
 
-		var engine := _page(pages, "Engine")
+	var engine := _page(pages, "Engine")
 	_controls["cyl"] = _spin(engine, "Cylinders", 1, 16, 1, 1)
 	_controls["bore"] = _spin(engine, "Bore (mm)", 30, 150, 0.1, 57.3)
 	_controls["stroke"] = _spin(engine, "Stroke (mm)", 20, 150, 0.1, 57.8)
@@ -314,30 +315,44 @@ func _ready() -> void:
 	_controls["flywheel"] = _spin(tuning, "Flywheel (kg)", 0.5, 10.0, 0.01, 2.5)
 	_controls["flywheel_r"] = _spin(tuning, "Flywheel radius (mm)", 20, 150, 0.1, 75.0)
 	_controls["power_mode"] = _option(tuning, "Power mode", ["F", "M", "L"])
-	_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
-	_controls["quickshifter"] = OptionButton.new()
-	_controls["quickshifter"].add_item("Off")
-	_controls["quickshifter"].add_item("On")
-	_controls["quickshifter"].tooltip_text = "Quickshifter: clutchless upshift with ignition/fuel cut (SE models)"
-	_row(tuning, "Quickshifter", _controls["quickshifter"])
-	_controls["launch_control"] = OptionButton.new()
-	_controls["launch_control"].add_item("Off")
-	_controls["launch_control"].add_item("On")
-	_controls["launch_control"].tooltip_text = "Launch control: holds RPM at launch_rpm while clutch pulled + throttle > 95% (SE models)"
-	_row(tuning, "Launch control", _controls["launch_control"])
+		_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
+	
+		# Quickshifter detailed controls (only visible when has_quickshifter)
+				_controls["qs_enabled"] = _option(tuning, "Quickshifter", ["Off", "On"])
+				_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
+				_feature_labels["qs_enabled"] = _feature_labels["qs_enabled"] = _row(tuning, "Quickshifter", _controls["qs_enabled"])
+				_controls["qs_sensitivity"] = _spin(tuning, "Shift Sensitivity", 0.1, 1.0, 0.05, 0.7)
+				_controls["qs_sensitivity"].tooltip_text = "Force threshold to trigger shift (strain gauge sensitivity)"
+				_feature_labels["qs_sensitivity"] = _row(tuning, "Shift Sensitivity", _controls["qs_sensitivity"])
+				_controls["qs_cut_base"] = _spin(tuning, "Base Cut (ms)", 20, 100, 5, 50)
+				_controls["qs_cut_base"].tooltip_text = "Base ignition cut duration at low RPM"
+				_feature_labels["qs_cut_base"] = _row(tuning, "Base Cut (ms)", _controls["qs_cut_base"])
+				_controls["qs_blip_time"] = _spin(tuning, "Downshift Blip (ms)", 20, 200, 10, 80)
+				_controls["qs_blip_time"].tooltip_text = "Throttle blip duration for clutchless downshift"
+				_feature_labels["qs_blip_time"] = _row(tuning, "Downshift Blip (ms)", _controls["qs_blip_time"])
+				_controls["qs_blip_throttle"] = _spin(tuning, "Blip Throttle %", 0.1, 0.5, 0.05, 0.3)
+				_controls["qs_blip_throttle"].tooltip_text = "Throttle fraction during downshift blip"
+				_feature_labels["qs_blip_throttle"] = _row(tuning, "Blip Throttle %", _controls["qs_blip_throttle"])
+				_controls["qs_flat_shift"] = _option(tuning, "Flat Shift", ["Off", "On"])
+				_controls["qs_flat_shift"].tooltip_text = "Hold throttle cracked during upshift for faster shifts"
+				_feature_labels["qs_flat_shift"] = _row(tuning, "Flat Shift", _controls["qs_flat_shift"])
+	
+		_feature_switch(tuning, "launch_control", "Launch control", "Holds launch RPM while the clutch is pulled and throttle is high.")
+	_feature_switch(tuning, "abs_enabled", "ABS", "Anti-lock braking system. Intervention is available when wheel-brake simulation is active.")
+	_feature_switch(tuning, "traction_control_enabled", "Traction control", "Traction control. Intervention is available when tyre-slip simulation is active.")
 	_controls["slipper_clutch"] = OptionButton.new()
 	_controls["slipper_clutch"].add_item("Off")
 	_controls["slipper_clutch"].add_item("On")
 	_controls["slipper_clutch"].tooltip_text = "Slipper clutch: reduces clutch capacity during engine braking to prevent rear wheel hop"
 	_row(tuning, "Slipper clutch", _controls["slipper_clutch"])
 
-		var turbo := _page(pages, "Turbo")
-		var map_view = CompressorMapView.new()
-		map_view.custom_minimum_size = Vector2(300, 300)
-		turbo.add_child(map_view)
-		_controls["compressor_map_view"] = map_view
+	var turbo := _page(pages, "Turbo")
+	var map_view = CompressorMapView.new()
+	map_view.custom_minimum_size = Vector2(300, 300)
+	turbo.add_child(map_view)
+	_controls["compressor_map_view"] = map_view
 
-		_warning = Label.new()
+	_warning = Label.new()
 	_warning.modulate = Color(1.0, 0.7, 0.3)
 	_warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_warning)
@@ -371,7 +386,7 @@ func apply_to(spec: EngineSpec) -> void:
 	spec.final_drive = final_drive
 	spec.gear_ratios = gear_ratios
 	var default_spec := EngineSpec.new()
-	for key in ["vehicle_type", "transmission_type", "wheelbase_mm", "wheel_radius_m", "vehicle_length_mm", "vehicle_width_mm", "vehicle_height_mm", "front_track_mm", "rear_track_mm", "front_wheel_radius_m", "front_tire_width_mm", "rear_tire_width_mm", "fuel_capacity_l", "drag_area_m2", "max_boost_ratio", "electric_compressor", "boost_spool_time", "intake_area_scale", "manifold_volume_scale", "clutch_capacity_nm"]:
+	for key in ["vehicle_type", "transmission_type", "wheelbase_mm", "wheel_radius_m", "vehicle_length_mm", "vehicle_width_mm", "vehicle_height_mm", "front_track_mm", "rear_track_mm", "front_wheel_radius_m", "front_tire_width_mm", "rear_tire_width_mm", "fuel_capacity_l", "drag_area_m2", "max_boost_ratio", "electric_compressor", "boost_spool_time", "intake_area_scale", "manifold_volume_scale", "clutch_capacity_nm", "ecu_binary", "has_quickshifter", "has_launch_control", "has_abs", "has_traction_control"]:
 		spec.set(key, _vehicle_settings.get(key, default_spec.get(key)))
 	spec.v3r_style = bool(_vehicle_settings.get("v3r_style", false))
 	spec.max_boost_ratio = _controls["boost_ratio"].value
@@ -406,10 +421,25 @@ func apply_to(spec: EngineSpec) -> void:
 	spec.exhaust_duration_050_deg = float(_vehicle_settings.get("exhaust_duration_050_deg", 0.0))
 	spec.intake_lift_curve = _vehicle_settings.get("intake_lift_curve", [])
 	spec.exhaust_lift_curve = _vehicle_settings.get("exhaust_lift_curve", [])
-	# New ZX-25R features
+	# Feature switches are only applied when fitted to this preset.
 	spec.power_mode = _controls["power_mode"].get_item_text(_controls["power_mode"].selected)
-	spec.quickshifter = _controls["quickshifter"].selected == 1
-	spec.launch_control = _controls["launch_control"].selected == 1
+		# Quickshifter detailed controls
+		spec.quickshifter = spec.has_quickshifter and _controls["qs_enabled"].selected == 1
+		spec.quickshifter_cut_time = _controls["qs_cut_base"].value / 1000.0
+		spec.quickshifter_blip_time = _controls["qs_blip_time"].value / 1000.0
+		spec.quickshifter_blip_throttle = _controls["qs_blip_throttle"].value
+		# Build cut profile from base (simplified: scale by gear)
+		spec.quickshifter_cut_profile = []
+		for g in range(6):
+			var base = _controls["qs_cut_base"].value
+			var profile = [[3000, base + 10], [6000, base], [10000, base - 10]]
+			# Adjust per gear
+			for p in profile:
+				p[1] = p[1] * (1.0 - g * 0.05)  # shorter cut in higher gears
+			spec.quickshifter_cut_profile.append(profile)
+		spec.launch_control = spec.has_launch_control and _controls["launch_control"].selected == 1
+	spec.abs_enabled = spec.has_abs and _controls["abs_enabled"].selected == 1
+	spec.traction_control_enabled = spec.has_traction_control and _controls["traction_control_enabled"].selected == 1
 	spec.slipper_clutch = _controls["slipper_clutch"].selected == 1
 	spec.slipper_ramp = 0.5 # fixed for now, could add a spin box later
 
@@ -498,6 +528,7 @@ func _load_build() -> void:
 	var preset_index := _preset_ids.find(str(config.get_value(build_name, "preset_id", "")))
 	if preset_index >= 0:
 		_preset_button.select(preset_index)
+	_refresh_feature_switches()
 	_refresh_twin()
 	_build_name.text = build_name
 	_build_status.text = "Loaded: " + build_name
@@ -716,13 +747,63 @@ func _on_preset_selected(index: int) -> void:
 	valve_cd = p.get("valve_cd", 0.7)
 	final_drive = p.get("final_drive", 3.0)
 	gear_ratios = p.get("gear_ratios", Gearbox.ratios())
-	# New ZX-25R features
+	# Feature switches reflect fitted hardware, never stale controls from another bike.
 	_select_text(_controls["power_mode"], p.get("power_mode", "F"))
 	_controls["quickshifter"].select(1 if p.get("quickshifter", false) else 0)
 	_controls["launch_control"].select(1 if p.get("launch_control", false) else 0)
+	_controls["abs_enabled"].select(1 if p.get("abs_enabled", false) else 0)
+	_controls["traction_control_enabled"].select(1 if p.get("traction_control_enabled", false) else 0)
 	_controls["slipper_clutch"].select(1 if p.get("slipper_clutch", false) else 0)
+	_refresh_feature_switches()
 	_refresh_twin() # set_quiet does not signal, so update the crank-pin row here
 	changed.emit()
+
+func _feature_switch(grid: GridContainer, key: String, label_text: String, tooltip: String) -> void:
+	var option := OptionButton.new()
+	option.add_item("Off")
+	option.add_item("On")
+	option.custom_minimum_size.y = CONTROL_HEIGHT
+	option.tooltip_text = tooltip
+	option.item_selected.connect(func(_index: int) -> void: changed.emit())
+	_controls[key] = option
+	_feature_labels[key] = _row(grid, label_text, option)
+
+
+func _refresh_feature_switches() -> void:
+	var fitted := {
+		"quickshifter": bool(_vehicle_settings.get("has_quickshifter", _vehicle_settings.get("quickshifter", false))),
+		"launch_control": bool(_vehicle_settings.get("has_launch_control", _vehicle_settings.get("launch_control", false))),
+		"abs_enabled": bool(_vehicle_settings.get("has_abs", false)),
+		"traction_control_enabled": bool(_vehicle_settings.get("has_traction_control", false)),
+	}
+	for key in fitted:
+		var visible: bool = fitted[key]
+		_controls[key].visible = visible
+		_feature_labels[key].visible = visible
+		if not visible:
+			_controls[key].select(0)
+	
+	# Quickshifter detailed controls visibility
+	var qs_visible := fitted["quickshifter"]
+	_controls["qs_enabled"].visible = qs_visible
+	_controls["qs_sensitivity"].visible = qs_visible
+	_controls["qs_cut_base"].visible = qs_visible
+	_controls["qs_blip_time"].visible = qs_visible
+	_controls["qs_blip_throttle"].visible = qs_visible
+	_controls["qs_flat_shift"].visible = qs_visible
+	# Also hide their labels
+	if _feature_labels.has("qs_enabled"):
+		_feature_labels["qs_enabled"].visible = qs_visible
+	if _feature_labels.has("qs_sensitivity"):
+		_feature_labels["qs_sensitivity"].visible = qs_visible
+	if _feature_labels.has("qs_cut_base"):
+		_feature_labels["qs_cut_base"].visible = qs_visible
+	if _feature_labels.has("qs_blip_time"):
+		_feature_labels["qs_blip_time"].visible = qs_visible
+	if _feature_labels.has("qs_blip_throttle"):
+		_feature_labels["qs_blip_throttle"].visible = qs_visible
+	if _feature_labels.has("qs_flat_shift"):
+		_feature_labels["qs_flat_shift"].visible = qs_visible
 
 
 # One section: a column that holds its own grid. The first one is shown; the dropdown switches the others in.
