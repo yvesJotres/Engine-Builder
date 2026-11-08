@@ -1,0 +1,80 @@
+{
+  "display_name": "Kawasaki ZX-25R (2020)",
+  "geometry": {
+    "cylinders": 4,
+    "displacement_cc": 249.6,
+    "bore_mm": 50.0,
+    "stroke_mm": 31.8,
+    "rod_ratio": 2.0,
+    "layout": "inline",
+    "compression_ratio": 11.5,
+    "twin_pin_deg": 360.0,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      180.0,
+      540.0,
+      360.0
+    ],
+    "vehicle_kg": 182.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 2.0,
+    "flywheel_radius_mm": 80.0,
+    "wheel_radius_m": 0.3069,
+    "slipper_clutch": true,
+    "slipper_ramp": 0.5
+  },
+  "valvetrain": {
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 240.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 230.0,
+    "exhaust_lift_mm": 5.0
+  },
+  "drivetrain": {
+    "redline_rpm": 17000.0,
+    "primary_ratio": 2.9,
+    "final_drive": 3.429,
+    "gear_ratios": [
+      2.929,
+      2.056,
+      1.619,
+      1.333,
+      1.154,
+      1.037
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1200.0,
+    "ve_scale": 1.0,
+    "lambda_target": null,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4,
+    "quickshifter": true,
+    "quickshifter_cut_time": 0.05,
+    "quickshifter_min_rpm": 3000.0,
+    "power_mode": "F",
+    "launch_control": true,
+    "launch_rpm": 8000.0,
+    "launch_throttle": 0.95,
+    "launch_speed_kmh": 30.0
+  },
+  "ecu": {
+    "binary_path": ""
+  },
+  "metadata": {
+    "source": "Otomotifnet MY2022 + Autocar India + engine-sim zx_25r.mr (MIT, Copyright 2022 Ange Yaghi)",
+    "year": 2020,
+    "region": "JP",
+    "notes": "Bore x stroke from Otomotifnet MY2022 and Autocar India: 50.0 x 31.8 mm = 249.6 cc. Primary 2.900 (87/30) and final 3.429 (48/14). Gear ratios, rod ratio, flywheel from engine-sim zx_25r.mr. Increased flywheel inertia for launch stability (was 1.0kg/53mm). Quickshifter, launch control, slipper clutch, and power modes (F/M/L) enabled per SE spec."
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "display_name": "Honda V3R 900 E-Compressor (estimated)",
+  "geometry": {
+    "cylinders": 3,
+    "displacement_cc": 899.9,
+    "bore_mm": 75.0,
+    "stroke_mm": 67.9,
+    "rod_ratio": 1.7,
+    "layout": "V",
+    "v3r_style": true,
+    "bank_angle": 75.0,
+    "compression_ratio": 10.5,
+    "fire_deg": [0.0, 240.0, 480.0],
+    "vehicle_kg": 210.0,
+    "slant_deg": 0.0,
+    "flywheel_kg": 4.0,
+    "flywheel_radius_mm": 90.0
+  },
+  "valvetrain": {
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 240.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 230.0,
+    "exhaust_lift_mm": 5.0
+  },
+  "drivetrain": {
+    "redline_rpm": 12000.0,
+    "primary_ratio": 2.0,
+    "final_drive": 2.8,
+    "gear_ratios": [2.692, 2.063, 1.667, 1.4, 1.227, 1.1],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1200.0,
+    "max_boost_ratio": 1.25,
+    "electric_compressor": true,
+    "boost_spool_time": 0.15,
+    "intake_area_scale": 2.0
+  },
+  "ecu": {"binary_path": ""},
+  "metadata": {
+    "source": "https://global.honda/en/newsroom/news/2025/c251104ceng.html",
+    "year": 2025,
+    "region": "prototype",
+    "notes": "Honda confirms approximately 900 cc, a 75-degree liquid-cooled V3 and an electronically controlled compressor. Bore, stroke, firing angles, compression, boost, cam, redline, mass and gearing are simulator estimates, not Honda specifications."
+  }
+}

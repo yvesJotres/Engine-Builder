@@ -1,0 +1,75 @@
+{
+  "display_name": "Mercedes-AMG M276 DE30LA (3.0L V6 Twin-Turbo)",
+  "geometry": {
+    "cylinders": 6,
+    "displacement_cc": 2996.0,
+    "bore_mm": 88.0,
+    "stroke_mm": 82.1,
+    "rod_ratio": 1.65,
+    "layout": "V",
+    "bank_angle": 60.0,
+    "compression_ratio": 10.5,
+    "twin_pin_deg": 360.0,
+    "split_pin_v4": false,
+    "split_pin_v6": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      240.0,
+      480.0,
+      120.0,
+      360.0,
+      600.0
+    ],
+    "vehicle_kg": 1750.0,
+    "tyre_kg": 16.0,
+    "rim_kg": 12.0,
+    "slant_deg": 15.0,
+    "piston_kg": 0.35,
+    "rod_kg": 0.45,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.0,
+    "flywheel_kg": 4.0,
+    "flywheel_radius_mm": 90.0,
+    "wheel_radius_m": 0.335
+  },
+  "valvetrain": {
+    "intake_centre_deg": 440.0,
+    "intake_duration_deg": 220.0,
+    "intake_lift_mm": 9.5,
+    "exhaust_centre_deg": 220.0,
+    "exhaust_duration_deg": 215.0,
+    "exhaust_lift_mm": 8.0
+  },
+  "drivetrain": {
+    "redline_rpm": 6800.0,
+    "primary_ratio": 1.0,
+    "final_drive": 3.0,
+    "gear_ratios": [
+      4.0,
+      2.5,
+      1.8,
+      1.4,
+      1.1,
+      0.9,
+      0.8
+    ],
+    "header": "twin_turbo",
+    "fuel": "ron98",
+    "idle_target_rpm": 700.0,
+    "ve_scale": 1.25,
+    "lambda_target": null,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.65
+  },
+  "ecu": {
+    "binary_path": ""
+  },
+  "metadata": {
+    "source": "Mercedes-AMG M276 DE30LA (C43/S43/GLC43) - Public data from Wikipedia and service manuals",
+    "year": 2016,
+    "region": "DE",
+    "notes": "3.0L V6 twin-turbo (M276 DE30LA). Bore 88mm x stroke 82.1mm = 2996cc. 60° V6, DOHC 24V with independent VVT. Twin IHI turbochargers ~1.0-1.2 bar boost. Direct injection piezo injectors. Power 328-385 hp @ 5500-6000 rpm, Torque 480-521 Nm @ 2000-4200 rpm. Compression 10.5:1 (turbo DI). Redline 6800 rpm. Firing order 1-4-2-5-3-6 (crank angles 0, 240, 480, 120, 360, 600). Rod ratio ~1.65 (rod ~135mm). Direct injection, piezo multi-spray. Vehicle mass 1750kg (typical C43/S43). Drag area ~0.65 m². 9-speed automatic transmission ratios approximated."
+  }
+}

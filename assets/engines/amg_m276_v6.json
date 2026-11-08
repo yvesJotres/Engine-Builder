@@ -1,0 +1,91 @@
+{
+  "display_name": "Mercedes-AMG M276 3.0L Twin-Turbo V6 (DE30LA)",
+  "geometry": {
+    "cylinders": 6,
+    "displacement_cc": 2996.0,
+    "bore_mm": 88.0,
+    "stroke_mm": 82.1,
+    "rod_ratio": 1.65,
+    "layout": "V",
+    "v3r_style": false,
+    "bank_angle": 60.0,
+    "compression_ratio": 10.5,
+    "twin_pin_deg": 360,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      240.0,
+      480.0,
+      120.0,
+      360.0,
+      600.0
+    ],
+    "vehicle_kg": 1850.0,
+    "tyre_kg": 12.0,
+    "rim_kg": 12.0,
+    "slant_deg": 0.0,
+    "piston_kg": 0.38,
+    "rod_kg": 0.55,
+    "rod_big_fraction": 0.42,
+    "balancer_kg": 0.0,
+    "flywheel_kg": 8.5,
+    "flywheel_radius_mm": 115.0,
+    "wheel_radius_m": 0.33
+  },
+  "valvetrain": {
+    "intake_centre_deg": 485.0,
+    "intake_duration_deg": 220.0,
+    "intake_lift_mm": 8.5,
+    "exhaust_centre_deg": 235.0,
+    "exhaust_duration_deg": 215.0,
+    "exhaust_lift_mm": 7.8,
+    "cam_lobe_profile": 1,
+    "intake_lobe_profile": 1,
+    "exhaust_lobe_profile": 1,
+    "intake_open_ramp_deg": 18.0,
+    "intake_close_ramp_deg": 22.0,
+    "exhaust_open_ramp_deg": 15.0,
+    "exhaust_close_ramp_deg": 20.0
+  },
+  "drivetrain": {
+    "redline_rpm": 6800.0,
+    "primary_ratio": 1.0,
+    "final_drive": 3.27,
+    "gear_ratios": [
+      4.714,
+      3.143,
+      2.106,
+      1.667,
+      1.285,
+      1.0,
+      0.839,
+      0.667,
+      0.54
+    ],
+    "header": "4-2-1",
+    "fuel": "ron98",
+    "idle_target_rpm": 700.0,
+    "ve_scale": 1.15,
+    "lambda_target": null,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 650,
+    "drag_area_m2": 0.72,
+    "max_boost_ratio": 2.2,
+    "electric_compressor": false,
+    "boost_spool_time": 0.8,
+    "compressor_battery_wh": 0.0,
+    "compressor_power_w": 0.0,
+    "compressor_charge_w": 0.0,
+    "intake_area_scale": 1.2
+  },
+  "ecu": {
+    "binary_path": "res://ecu_bins/amg_m276.bin"
+  },
+  "metadata": {
+    "source": "Wikipedia (M276 DE30LA) + AMG C43/E43 specs; estimates for compression, redline, boost, valve timing, rod ratio, weight",
+    "year": 2016,
+    "region": "DE",
+    "notes": "M276 3.0L twin-turbo V6 as used in C43, GLC43, E43, SLC43. 60-degree V-angle. Firing order 1-4-2-5-3-6 (crank throws at 0/240/480/120/360/600). Twin turbo, 10.5:1 compression (est). Peak power 270-287 kW @ 5500-6000 rpm. Peak torque 480-521 Nm @ 2000-4200 rpm. 9-speed 9G-Tronic ratios approximated. Compression ratio, valve timing, boost pressure, redline, rod ratio, and engine weight are estimates - no official service manual values published."
+  }
+}
