@@ -8,8 +8,10 @@ const THROTTLE_SPEED := 1.5 # full travel per second while held open
 const CAR_MODEL := preload("res://scripts/drivetrain/car_model.gd")
 const DYNO_TEST_SCRIPT := preload("res://scripts/dyno/dyno_test.gd")
 const DYNO_VIEW_SCRIPT := preload("res://scripts/dyno/dyno_view.gd")
+const DYNO_CELL_SCRIPT := preload("res://scripts/dyno/dyno_cell.gd")
 const AUDIO_RENDERER_SCRIPT := preload("res://scripts/render/audio_renderer.gd")
 const ENGINE_STATS_SCRIPT := preload("res://scripts/ui/engine_stats.gd")
+const SHIFT_SENSOR := preload("res://scripts/ignition/shift_sensor.gd")
 const THROTTLE_RETURN_SPEED := 3.0 # full travel per second when released, like a return spring
 const SHIFT_PRELOAD_TIME := 0.8
 const SHIFT_MATCH_RPM := 300.0
@@ -40,6 +42,9 @@ var _frame := 0 # debug trace: frames since start
 var _crank := 0.0 # crank angle for the drawing, 0..720
 var _throttle := 0.0
 var _ignition := true # the engine kill switch is on RUN; the panel flips it
+# Phones: the app closes when it has been in the background for this long
+const BACKGROUND_LIMIT_MS := 30000
+var _background_since := -1
 var _clutch_held := false # Shift is held: clutch pulled in
 var _brake_held := false # B is held
 var _sound_on := true # the Sound option in the pause menu
@@ -50,11 +55,20 @@ var _touch_brake := false
 var _touch_starter := false
 var _panel_starter := false
 var _keyboard_starting := false
+var _shift_sensor: ShiftSensor
 var _sound_gate := 0.0 # 0 = exhaust silent, 1 = exhaust full, fades between
 var _idle_audio_cleared := false
 const SOUND_FADE_TIME := 0.05 # s, fade in and out of the exhaust note
 var _backfires_heard := 0 # the sim's backfire count the sound has already played
 var _dyno = DYNO_TEST_SCRIPT.new()
+# Dyno cell: the bike runs against a roller drum with an eddy-current brake
+const DRUM_MASS_KG := 80.0 # drum inertia as the equivalent mass at the tyre (about 5 kg·m² on a 0.25 m drum), estimate
+const CELL_LOAD_RPM := 2500.0 # rpm above which the cell's brake loads the engine
+const CELL_MAX_LOAD_N := 1000.0 # eddy-current brake force at the tyre at 100% load, estimate
+var _cell_on := false
+var _cell: Node3D
+var _cell_status: Label
+var _cell_load := 0.5
 var _dyno_view
 var _audio_renderer
 var _pending_shift := 0
@@ -136,6 +150,7 @@ func _ready() -> void:
 	_dyno_view = DYNO_VIEW_SCRIPT.new()
 	add_child(_dyno_view)
 	_dyno_view.stop_requested.connect(func() -> void: _dyno.cancel())
+	_build_cell_panel()
 
 	_pause = preload("res://scenes/pause_menu.tscn").instantiate()
 	add_child(_pause)
@@ -161,6 +176,13 @@ func _ready() -> void:
 	_touch.shift_pressed.connect(_shift)
 	_touch.pause_pressed.connect(func() -> void: _set_paused(not _paused))
 	_touch.setup_pressed.connect(func() -> void: _set_setup_open(not _panel.visible))
+	
+	# Shift sensor for realistic quickshifter
+	_shift_sensor = SHIFT_SENSOR.new()
+	_shift_sensor.upshift_threshold = 0.7
+	_shift_sensor.downshift_threshold = 0.7
+	_shift_sensor.debounce_ms = 50
+	
 	if OS.has_feature("mobile"):
 		_set_setup_open(false)
 	_trace("scene built")
@@ -177,11 +199,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE or event.keycode == KEY_ESCAPE:
 			_set_paused(not _paused)
 			get_viewport().set_input_as_handled()
+		elif _paused:
+			pass # the game keys below do nothing while the pause menu is up
 		elif event.keycode == KEY_K:
 			_panel.toggle_kill()
-			get_viewport().set_input_as_handled()
-		elif event.keycode == KEY_E or event.keycode == KEY_Q:
-			_shift(event.keycode == KEY_E)
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_F11:
 			var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
@@ -203,8 +224,9 @@ func _process(delta: float) -> void:
 	_frame += 1
 	if _frame <= 120 or _frame % 120 == 0:
 		_trace("frame %d" % _frame)
-	var open_keys := Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP)
-	var close_keys := Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN)
+	# while paused no gameplay key counts
+	var open_keys := not _paused and (Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP))
+	var close_keys := not _paused and (Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN))
 	_update_keyboard_starter(open_keys)
 	# spring-return throttle: holding W/Up opens it, letting go springs it back to closed
 	if open_keys and not _keyboard_starting:
@@ -227,6 +249,25 @@ func _process(delta: float) -> void:
 
 	_sim.audio_enabled = _sound_on
 	_sound.audio_enabled = _sound_on
+	
+	# Shift sensor: compute shift force from input
+	var shift_force := 0.0
+	if not _paused:
+		if Input.is_physical_key_pressed(KEY_E):
+			shift_force = 1.0
+		elif Input.is_physical_key_pressed(KEY_Q):
+			shift_force = -1.0
+		# Touch controls would feed here too
+	
+	var shift_result = _shift_sensor.update(shift_force, delta)
+	
+	if shift_result == 1:
+		_shift(true)
+	elif shift_result == -1:
+		_shift(false)
+		# Trigger downshift blip
+		_sim.ecu.trigger_quickshifter_downshift(spec)
+
 	if _dyno.active() and not _paused:
 		# the dyno test drives the throttle, clutch and gearbox itself, and steps the same engine physics
 		_dyno.advance(delta, _sim, spec, _panel.lambda(), _ignition)
@@ -244,6 +285,11 @@ func _process(delta: float) -> void:
 		if wants_start and not _ignition:
 			_hud.flash("KILL SWITCH IS ON: SET IT TO RUN TO START")
 		# only the Shift key pulls the clutch fully apart; the lever's own pull sets the friction zone through clutch_pull
+		# Get throttle override from ECU (quickshifter cut/blip)
+		var ecu_throttle_override = _sim.ecu.update(delta, _sim.rpm, _throttle, _sim.running, spec, _sim.speed, _sim.clutch_pull, _sim.gear.gear)
+		if ecu_throttle_override >= 0.0:
+			_throttle = ecu_throttle_override
+		
 		_sim.step(delta, spec, _throttle, _ignition, wants_start and in_neutral_or_pulled, Input.is_physical_key_pressed(KEY_SHIFT), _brake_held, _panel.lambda())
 		_update_shift_request(delta)
 		if _frame <= 3: _trace("sim stepped")
@@ -309,18 +355,18 @@ func _process(delta: float) -> void:
 		_panel.lambda(), spec.ignition_offset_deg,
 		_sim.knock_count, "on" if _sound_on else "muted", "starved" if _sound.starved else ("playing" if _sound.playing else "no output")])
 	if spec.electric_compressor:
-			_stats._engine_data.text += "\nE-compressor: %.2f×  Battery %.0f%% (estimated)" % [_sim.intake.boost_ratio, _sim.intake.compressor_charge * 100.0]
-		# Update compressor map view if turbo section is available
-		if _panel._controls.has("compressor_map_view") and _sim.intake.compressor_map != null:
-			var map_view = _panel._controls["compressor_map_view"]
-			var corr_flow = _sim.intake.compressor_map.correct_flow(_sim.intake.pressure * _sim.intake.manifold_volume_scale / (EngineAir.R_AIR * EngineAir.T0), EngineAir.T0, EngineAir.P0)
-			# Use engine mass flow as approximation
-			var m_dot = 0.0
-			for c in _sim.cylinders:
-				m_dot += c.runner_q * (EngineAir.P0 / (EngineAir.R_AIR * EngineAir.T0))
-			corr_flow = _sim.intake.compressor_map.correct_flow(m_dot, EngineAir.T0, EngineAir.P0)
-			var corr_speed = _sim.intake.compressor_map.correct_speed(_sim.intake.compressor_speed_rpm, EngineAir.T0)
-			map_view.set_operating_point(corr_flow, _sim.intake.compressor_pr, corr_speed)
+		_stats._engine_data.text += "\nE-compressor: %.2f×  Battery %.0f%% (estimated)" % [_sim.intake.boost_ratio, _sim.intake.compressor_charge * 100.0]
+	# Update compressor map view if turbo section is available
+	if _panel._controls.has("compressor_map_view") and _sim.intake.compressor_map != null:
+		var map_view = _panel._controls["compressor_map_view"]
+		var corr_flow = _sim.intake.compressor_map.correct_flow(_sim.intake.pressure * _sim.intake.manifold_volume_scale / (EngineAir.R_AIR * EngineAir.T0), EngineAir.T0, EngineAir.P0)
+		# Use engine mass flow as approximation
+		var m_dot = 0.0
+		for c in _sim.cylinders:
+			m_dot += c.runner_q * (EngineAir.P0 / (EngineAir.R_AIR * EngineAir.T0))
+		corr_flow = _sim.intake.compressor_map.correct_flow(m_dot, EngineAir.T0, EngineAir.P0)
+		var corr_speed = _sim.intake.compressor_map.correct_speed(_sim.intake.compressor_speed_rpm, EngineAir.T0)
+		map_view.set_operating_point(corr_flow, _sim.intake.compressor_pr, corr_speed)
 	# the sensors: chamber temperature (hottest gas each cylinder reached last cycle), exhaust port span, O2
 	var hottest := 0.0
 	for c in _sim.cylinders:
@@ -365,6 +411,7 @@ func _update_vehicle_wheels(delta: float) -> void:
 		_car.update(wheel_rpm, delta)
 	else:
 		_drivetrain.update(_crank, wheel_rpm, delta)
+	_update_cell(delta)
 
 
 func _shift_dual_clutch(up: bool) -> void:
@@ -440,6 +487,105 @@ func _update_shift_request(delta: float) -> void:
 		_hud.flash("UPSHIFT" if up else "DOWNSHIFT")
 
 
+# Phones only: after BACKGROUND_LIMIT_MS in the background the app closes. Android can freeze a backgrounded app, so the time
+# is also checked when it comes back, and the app closes then if the limit has passed.
+func _notification(what: int) -> void:
+	if not OS.has_feature("mobile"):
+		return
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if _background_since < 0:
+			_background_since = Time.get_ticks_msec()
+			get_tree().create_timer(BACKGROUND_LIMIT_MS / 1000.0).timeout.connect(_close_if_still_background)
+	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_close_if_still_background()
+		_background_since = -1
+
+
+func _close_if_still_background() -> void:
+	if _background_since >= 0 and Time.get_ticks_msec() - _background_since >= BACKGROUND_LIMIT_MS:
+		get_tree().quit()
+
+
+# The dyno cell controls: the drum on or off, and how hard its brake loads the engine
+func _build_cell_panel() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 1
+	add_child(layer)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	panel.offset_left = -320.0
+	panel.offset_right = -16.0
+	panel.offset_top = 132.0
+	layer.add_child(panel)
+	var box := VBoxContainer.new()
+	panel.add_child(box)
+	var title := Label.new()
+	title.text = "DYNO CELL"
+	box.add_child(title)
+	var drum := CheckButton.new()
+	drum.text = "Drum on"
+	drum.toggled.connect(_set_cell)
+	box.add_child(drum)
+	var load_label := Label.new()
+	box.add_child(load_label)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 100.0
+	slider.value = _cell_load * 100.0
+	slider.custom_minimum_size.x = 260.0
+	box.add_child(slider)
+	var show_load := func(percent: float) -> void:
+		load_label.text = "Brake load %d%%" % int(percent)
+	show_load.call(slider.value)
+	slider.value_changed.connect(func(percent: float) -> void:
+		_cell_load = percent / 100.0
+		show_load.call(percent)
+		_apply_cell())
+	var run := Button.new()
+	run.text = "Run dyno sweep"
+	run.focus_mode = Control.FOCUS_NONE
+	run.custom_minimum_size = Vector2(0, 44)
+	run.pressed.connect(_on_dyno_pressed)
+	box.add_child(run)
+	_cell_status = Label.new()
+	box.add_child(_cell_status)
+
+
+func _set_cell(on: bool) -> void:
+	_cell_on = on
+	_apply_cell()
+
+
+# Builds the rollers and fan under the bike's wheels. Called each time a bike is built, since the wheels move with the frame.
+func _build_cell_equipment() -> void:
+	if _cell != null:
+		_cell.queue_free()
+	_cell = DYNO_CELL_SCRIPT.new()
+	add_child(_cell)
+	var rear_z := _drivetrain.rear_axle.z
+	_cell.build(Ground.Y, rear_z, rear_z + Drivetrain.WHEELBASE)
+	_cell.set_drum(_cell_on)
+
+
+# Per frame: rollers and fan follow the drum speed, and the readouts and run status update
+func _update_cell(delta: float) -> void:
+	if _cell == null or not _cell_on:
+		return
+	# the brake comes on once the engine is past launch speed, so the pull-away is unloaded like a real cell
+	_sim.cell_load_n = CELL_MAX_LOAD_N * _cell_load if _sim.rpm > CELL_LOAD_RPM else 0.0
+	_cell.update(delta, _sim.speed / EngineSim.tire_radius_m(spec) * 60.0 / TAU)
+	_cell.show_readings(_sim, spec, _cell_load * 100.0)
+	_cell_status.text = _dyno.status_text() if _dyno.active() else "Idle: press Run dyno sweep"
+
+
+# Pushes the drum and brake settings into the sim; with the drum off the bike runs on the road as before
+func _apply_cell() -> void:
+	_sim.cell_mass_kg = DRUM_MASS_KG if _cell_on else 0.0
+	_sim.cell_load_n = CELL_MAX_LOAD_N * _cell_load if _cell_on else 0.0
+	if _cell != null:
+		_cell.set_drum(_cell_on)
+
+
 # The dyno test button: starts the automatic test, or stops it when it is already running.
 func _on_dyno_pressed() -> void:
 	if _dyno.active():
@@ -475,6 +621,12 @@ func _set_paused(on: bool) -> void:
 	_paused = on
 	_sound.stream_paused = on or not _sound_on
 	_pause.visible = on
+	if on: # a finger or key held when the game pauses must not keep driving the engine
+		_touch_throttle = 0.0
+		_touch_clutch = 0.0
+		_touch_brake = false
+		_touch_starter = false
+		_keyboard_starting = false
 
 
 # High: 4x anti-aliasing and shadows. Low: neither, for slower machines.
@@ -532,6 +684,7 @@ func _on_panel_changed() -> void:
 		_tank.place(_model.highest_y() + 0.4, (_model.crank_position().z + _model.throttle_position().z) * 0.5)
 		var frame_half_width := maxf(0.85, _model._span * 0.5 + spec.bore_mm * Units.MM_TO_SCENE * 0.65 + 0.12)
 		_drivetrain.build(Ground.Y, GearboxModel.countershaft_position(_model.crank_position(), spec), _tank.outlet_position(), frame_half_width)
+		_build_cell_equipment()
 		if spec.v3r_style:
 			_drivetrain.add_v3r_bodywork(_tank.outlet_position())
 		_clutch.build(_model.crank_position(), spec, _model.primary_gear_x())
