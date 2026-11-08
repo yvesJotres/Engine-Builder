@@ -62,7 +62,13 @@
     "lambda_target": null,
     "ignition_offset_deg": 0.0,
     "clutch_capacity_nm": 0,
-    "drag_area_m2": 1.2
+    "drag_area_m2": 1.2,
+    "compressor_map_id": "garrett_gtx3076r",
+    "compressor_inertia_kgm2": 0.00003,
+    "turbine_a_r": 0.55,
+    "turbine_efficiency": 0.75,
+    "wastegate_type": "internal",
+    "wastegate_pressure_ratio": 3.5
   },
   "ecu": {
     "binary_path": ""
