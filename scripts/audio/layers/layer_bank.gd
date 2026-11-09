@@ -9,6 +9,7 @@ const GAIN_MECHANICAL := 0.5
 const GAIN_DRIVELINE := 0.08
 const GAIN_TURBO := 0.4
 const GAIN_KNOCK := 0.4
+const GAIN_SUPERCHARGER := 1.0 # the layer's own amplitude already sets its level
 
 var enabled := true # false switches every layer off, for comparing against the plain engine sound
 var _layers: Array[SoundLayer] = []
@@ -26,6 +27,7 @@ static func standard(mobile: bool) -> LayerBank:
 	if not mobile:
 		bank.add(DrivelineLayer.new(), GAIN_DRIVELINE, "driveline")
 		bank.add(TurboLayer.new(), GAIN_TURBO, "turbo")
+		bank.add(SuperchargerLayer.new(), GAIN_SUPERCHARGER, "supercharger")
 	bank.add(KnockLayer.new(), GAIN_KNOCK, "knock")
 	return bank
 

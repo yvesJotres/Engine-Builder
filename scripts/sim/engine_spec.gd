@@ -26,6 +26,7 @@ extends Resource
 @export var drag_area_m2 := 0.4
 @export var max_boost_ratio := 1.0
 @export var electric_compressor := false # estimated electric compressor, controlled independently of engine speed
+@export var mechanical_blower := false # engine-driven supercharger: adds a speed-locked whine to the sound
 @export var v3r_style := false # V3R-inspired appearance, not a measured replica
 @export var compressor_battery_wh := 40.0 # estimated usable electrical energy
 @export var compressor_power_w := 2000.0 # estimated power at full boost

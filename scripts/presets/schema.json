@@ -91,6 +91,7 @@
         "slipper_clutch": { "type": "boolean" },
         "max_boost_ratio": { "type": "number", "minimum": 1 },
         "electric_compressor": { "type": "boolean" },
+        "mechanical_blower": { "type": "boolean" },
         "boost_spool_time": { "type": "number", "exclusiveMinimum": 0 },
         "compressor_battery_wh": { "type": "number", "exclusiveMinimum": 0 },
         "compressor_power_w": { "type": "number", "minimum": 0 },

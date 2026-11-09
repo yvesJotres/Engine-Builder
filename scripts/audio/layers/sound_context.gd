@@ -14,6 +14,7 @@ var clutch_engage := 1.0 # 0 clutch open, 1 clutch fully engaged
 var speed_ms := 0.0 # road speed
 var boost_ratio := 1.0 # intake pressure ratio, 1 means no boost
 var turbo := false # the bike has a turbocharger or supercharger
+var blower := false # the bike has an engine-driven supercharger
 var knock_count := 0 # counts up by one at every knock event
 var cylinders := 1
 var four_stroke := true
@@ -38,6 +39,7 @@ func update_from(sim: EngineSim, spec: EngineSpec, rider_throttle: float) -> voi
 	boost_ratio = sim.intake.boost_ratio
 	# a turbocharger or a mechanical blower whistles; the electric compressor has its own whine in the engine sound
 	turbo = spec.max_boost_ratio > 1.0 and not spec.electric_compressor
+	blower = spec.mechanical_blower
 	knock_count = sim.knock_count
 	cylinders = spec.cylinders
 	four_stroke = spec.stroke_type == "four_stroke"
