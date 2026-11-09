@@ -50,6 +50,8 @@ var _lp := 0.0
 var _dc := 0.0
 var _edge_mix := EDGE_MIX
 var _noise_mix := NOISE_MIX
+var _rasp_scale := 1.0 # from the panel: multiplies the rasp noise level
+var _intake_scale := 1.0 # from the panel: multiplies the intake noise level
 var _lambda := 1.0
 var _egt_c := 400.0
 var _back_pa := 101325.0
@@ -129,6 +131,7 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	_set_resonance_cut(_spec)
 	_layers = LayerBank.standard(OS.has_feature("mobile"))
 	_layers.configure(_spec)
+	apply_levels(_spec) # the bank exists now, so the panel levels can scale it
 	# The leveler sets the loudness. Volume flow already grows with displacement, and scaling by it
 	# again pushed a large engine past the clipper, which turned the firing ripple into a buzz.
 	_flow_scale = BASE_FLOW_SCALE
@@ -178,6 +181,18 @@ func set_cylinders(_cylinders: Array[Cylinder]) -> void:
 
 # Lambda, exhaust temperature and the pressure at the exhaust valve. They nudge rasp, brightness and edge.
 # A lambda of 99 means the cylinder has not burned yet, so it is ignored.
+# The sound levels from the panel. Called at setup and whenever the panel changes, so the sliders work while the engine runs.
+func apply_levels(spec: EngineSpec) -> void:
+	_rasp_scale = spec.sound_rasp
+	_intake_scale = spec.sound_intake
+	if _layers != null:
+		_layers.set_scale("valvetrain", spec.sound_valvetrain)
+		_layers.set_scale("mechanical", spec.sound_mechanical)
+		_layers.set_scale("driveline", spec.sound_driveline)
+		_layers.set_scale("turbo", spec.sound_turbo)
+		_layers.set_scale("knock", spec.sound_knock)
+
+
 func set_conditions(lambda: float, egt_c: float, backpressure_pa: float) -> void:
 	if lambda < 50.0:
 		_lambda = lerpf(_lambda, lambda, 0.2)
@@ -188,7 +203,7 @@ func set_conditions(lambda: float, egt_c: float, backpressure_pa: float) -> void
 	var lean := clampf((_lambda - 0.9) / 0.25, 0.0, 1.0)
 	_lp_a = _alpha(lerpf(1500.0, 2600.0, hot) * lerpf(1.0, 0.7, stuffed))
 	_edge_mix = lerpf(EDGE_MIX, EDGE_MIX * 0.6, stuffed)
-	_noise_mix = lerpf(0.14, 0.34, lean)
+	_noise_mix = lerpf(0.14, 0.34, lean) * _rasp_scale
 
 
 func render(frames: int) -> PackedVector2Array:
@@ -328,7 +343,7 @@ func _intake_sample() -> float:
 		_intake_q = 0.0
 	_intake_lp += _intake_a * (_intake_q - _intake_lp)
 	_intake_dc += _dc_a * (_intake_lp - _intake_dc)
-	var flow := _resonance_cut((_intake_lp - _intake_dc) * _flow_scale * INTAKE_MIX)
+	var flow := _resonance_cut((_intake_lp - _intake_dc) * _flow_scale * INTAKE_MIX * _intake_scale)
 	var air := _noise_mix * _nz + (1.0 - _noise_mix) if fresh else 1.0
 	return flow * air
 

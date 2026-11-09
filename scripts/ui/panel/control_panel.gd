@@ -61,8 +61,8 @@ var _builds: OptionButton
 var _build_status: Label
 
 # The seven categories, in the order of the tabs. Forced induction and Rider aids are shown only for bikes that have them.
-const CATEGORIES := ["Engine", "Intake and fuel", "Valvetrain", "Ignition", "Forced induction", "Rider aids", "Vehicle"]
-const CATEGORY_TABS := ["Engine", "Intake", "Valves", "Ignition", "Boost", "Aids", "Vehicle"]
+const CATEGORIES := ["Engine", "Intake and fuel", "Valvetrain", "Ignition", "Forced induction", "Rider aids", "Vehicle", "Sound"]
+const CATEGORY_TABS := ["Engine", "Intake", "Valves", "Ignition", "Boost", "Aids", "Vehicle", "Sound"]
 # The controls on each page: a category reset puts exactly these back to the preset's values.
 const CATEGORY_KEYS := {
 	"Engine": ["cyl", "bore", "stroke", "slant", "layout", "stroke_type", "bank_angle", "shared_pins", "twin", "custom_pin", "crank"],
@@ -72,6 +72,7 @@ const CATEGORY_KEYS := {
 	"Forced induction": ["boost_ratio", "boost_time", "compressor_battery", "compressor_power", "compressor_charge"],
 	"Rider aids": ["qs_enabled", "qs_sensitivity", "qs_cut_base", "qs_blip_time", "qs_blip_throttle", "qs_flat_shift", "launch_control", "slipper_clutch"],
 	"Vehicle": ["redline", "flywheel", "flywheel_r", "speed_limit_enabled", "speed_limit_kmh"],
+	"Sound": ["sound_valvetrain", "sound_mechanical", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"],
 }
 # Values the preset sets that are not on screen: another category's reset must not touch them.
 const PLAIN_VARS := ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]
@@ -260,6 +261,7 @@ func _ready() -> void:
 	var boost := _page(pages, "Forced induction")
 	var aids := _page(pages, "Rider aids")
 	var vehicle := _page(pages, "Vehicle")
+	var sound := _page(pages, "Sound")
 	_controls["cyl"] = _spin(engine, "Cylinders", 1, 16, 1, 1)
 	_controls["bore"] = _spin(engine, "Bore (mm)", 30, 150, 0.1, 57.3)
 	_controls["stroke"] = _spin(engine, "Stroke (mm)", 20, 150, 0.1, 57.8)
@@ -391,6 +393,19 @@ func _ready() -> void:
 	_controls["speed_limit_enabled"].tooltip_text = "The voluntary 300 km/h limit most makers fit. On: the ECU closes the throttle at the limit and the bike holds it"
 	_controls["speed_limit_kmh"] = _spin(vehicle, "Speed limit (km/h)", 100, 400, 1, 300)
 	_controls["speed_limit_kmh"].tooltip_text = "The speed the limiter holds, km/h"
+	# sound levels: multipliers on the tuned sound, for taste. A preset does not set them, so they stay as the rider left them
+	var sound_levels := [
+		["sound_valvetrain", "Valve ticks", "Valve ticks and cam chain rattle"],
+		["sound_mechanical", "Bottom end", "Bearing rumble and primary gear whine"],
+		["sound_driveline", "Driveline", "Gear whine, clutch rattle at idle, gear change clunk and chain hum"],
+		["sound_turbo", "Turbo", "Turbine whistle, wastegate flutter and blow-off"],
+		["sound_knock", "Knock pings", "Detonation pings"],
+		["sound_rasp", "Rasp", "The rasp noise on the exhaust pulses"],
+		["sound_intake", "Intake noise", "The intake noise level"],
+	]
+	for entry in sound_levels:
+		_controls[entry[0]] = _spin(sound, entry[1], 0.0, 2.0, 0.05, 1.0)
+		_controls[entry[0]].tooltip_text = entry[2]
 	_controls["idle"] = _spin(timing_page, "Idle speed (rpm)", 400, 6000, 10, 1200)
 	_controls["idle"].tooltip_text = "The rpm the ECU holds at idle with the throttle closed, like the idle screw on a real bike"
 	_controls["flywheel"] = _spin(vehicle, "Flywheel (kg)", 0.5, 10.0, 0.01, 2.5)

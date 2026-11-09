@@ -13,24 +13,35 @@ const GAIN_KNOCK := 0.4
 var enabled := true # false switches every layer off, for comparing against the plain engine sound
 var _layers: Array[SoundLayer] = []
 var _gains: Array[float] = []
+var _names: Array[String] = []
+var _tuned: Array[float] = [] # the gain each layer was tuned to, so a level scales it
 var _mix := PackedFloat32Array()
 
 
 # The standard set. The driveline and turbo layers cost the most CPU, so phones skip them.
 static func standard(mobile: bool) -> LayerBank:
 	var bank := LayerBank.new()
-	bank.add(ValvetrainLayer.new(), GAIN_VALVETRAIN)
-	bank.add(MechanicalLayer.new(), GAIN_MECHANICAL)
+	bank.add(ValvetrainLayer.new(), GAIN_VALVETRAIN, "valvetrain")
+	bank.add(MechanicalLayer.new(), GAIN_MECHANICAL, "mechanical")
 	if not mobile:
-		bank.add(DrivelineLayer.new(), GAIN_DRIVELINE)
-		bank.add(TurboLayer.new(), GAIN_TURBO)
-	bank.add(KnockLayer.new(), GAIN_KNOCK)
+		bank.add(DrivelineLayer.new(), GAIN_DRIVELINE, "driveline")
+		bank.add(TurboLayer.new(), GAIN_TURBO, "turbo")
+	bank.add(KnockLayer.new(), GAIN_KNOCK, "knock")
 	return bank
 
 
-func add(layer: SoundLayer, gain: float) -> void:
+func add(layer: SoundLayer, gain: float, layer_name: String) -> void:
 	_layers.append(layer)
 	_gains.append(gain)
+	_names.append(layer_name)
+	_tuned.append(gain)
+
+
+# Scales a layer by name against its tuned gain. A scale of 0 silences it; a missing name does nothing (the phone set has no driveline).
+func set_scale(layer_name: String, scale: float) -> void:
+	var index := _names.find(layer_name)
+	if index >= 0:
+		_gains[index] = _tuned[index] * scale
 
 
 func configure(spec: EngineSpec) -> void:

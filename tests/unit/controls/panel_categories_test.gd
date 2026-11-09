@@ -23,8 +23,8 @@ func _init() -> void:
 	root.add_child(panel)
 	await process_frame
 
-	check(panel._tabs.size() == 7, "seven category tabs, got %d" % panel._tabs.size())
-	check(panel._pages_root.get_child_count() == 7, "seven pages, got %d" % panel._pages_root.get_child_count())
+	check(panel._tabs.size() == 8, "eight category tabs, got %d" % panel._tabs.size())
+	check(panel._pages_root.get_child_count() == 8, "eight pages, got %d" % panel._pages_root.get_child_count())
 	check(panel._pages_root.get_child(1).name == "Intake and fuel" and panel._pages_root.get_child(4).name == "Forced induction", "pages follow the tab order")
 
 	# a plain bike sees neither optional category; a quickshifter bike sees Rider aids; a compressor bike sees Forced induction

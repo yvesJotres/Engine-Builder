@@ -115,6 +115,14 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 # Speed limiter: the voluntary 300 km/h limit most makers fit. The ECU closes the throttle at the limit and the bike holds it.
 @export var speed_limit_enabled := false # fit the limiter
 @export var speed_limit_kmh := 300.0 # the limit, km/h
+# Sound levels from the panel: multipliers on the tuned sound, 1.0 leaves it as it was
+@export_range(0.0, 2.0) var sound_valvetrain := 1.0 # valve ticks and cam chain
+@export_range(0.0, 2.0) var sound_mechanical := 1.0 # bearing rumble and primary gear whine
+@export_range(0.0, 2.0) var sound_driveline := 1.0 # gear whine, clutch rattle, clunk, chain
+@export_range(0.0, 2.0) var sound_turbo := 1.0 # whistle, wastegate, blow-off
+@export_range(0.0, 2.0) var sound_knock := 1.0 # detonation pings
+@export_range(0.0, 2.0) var sound_rasp := 1.0 # rasp noise on the exhaust pulses
+@export_range(0.0, 2.0) var sound_intake := 1.0 # intake noise level
 @export var abs_enabled := false # rider switch, only valid when has_abs
 @export var traction_control_enabled := false # rider switch, only valid when has_traction_control
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric

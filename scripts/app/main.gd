@@ -678,6 +678,7 @@ func _on_sound_toggled(on: bool) -> void:
 # Rebuilds the engine and its neighbours after any setting changes.
 func _on_panel_changed() -> void:
 	_panel.apply_to(spec)
+	_sound.apply_levels(spec)
 	_sim.exhaust_solver = spec.live_exhaust_physics
 	_shift_sensor.upshift_threshold = spec.quickshifter_sensitivity
 	_shift_sensor.downshift_threshold = spec.quickshifter_sensitivity
