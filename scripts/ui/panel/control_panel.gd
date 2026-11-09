@@ -53,8 +53,8 @@ var _bank_label: Label
 var _shared_pins_label: Label
 var _firing_order: LineEdit
 var _firing_message: Label
+var _firing_rows: Array[Control] = [] # the firing-order rows: only a multi-cylinder engine has a firing order
 var _warning: Label
-var _summary: Label
 var builds_path := "user://engine_builds.cfg"
 var _build_name: LineEdit
 var _builds: OptionButton
@@ -133,10 +133,6 @@ func _ready() -> void:
 	_populate_preset_dropdown(Presets.PRESETS)
 	_preset_button.item_selected.connect(_on_preset_selected)
 	box.add_child(_preset_button)
-	_summary = Label.new()
-	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_summary.add_theme_font_size_override("font_size", 15)
-	box.add_child(_summary)
 
 	# the action bar: the dyno test runs the whole sequence by itself, the render writes the exhaust sound to a WAV file at the
 	# highest simulation refresh, and Reset puts the whole bike back to the preset
@@ -161,20 +157,6 @@ func _ready() -> void:
 	_style_button(render_btn)
 	render_btn.pressed.connect(func() -> void: render_pressed.emit())
 	actions.add_child(render_btn)
-	var reset := Button.new()
-	reset.text = "Reset"
-	reset.focus_mode = Control.FOCUS_NONE
-	reset.custom_minimum_size = Vector2(0, CONTROL_HEIGHT)
-	reset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	reset.tooltip_text = "Put the whole bike back to the selected preset"
-	_style_button(reset)
-	actions.add_child(reset)
-	var reset_confirm := ConfirmationDialog.new()
-	reset_confirm.title = "Reset engine build?"
-	reset_confirm.dialog_text = "Replace the current engine settings with the selected preset? Save your build first if you want to keep it."
-	add_child(reset_confirm)
-	reset.pressed.connect(func() -> void: reset_confirm.popup_centered())
-	reset_confirm.confirmed.connect(func() -> void: _on_preset_selected(_preset_button.selected))
 
 	# views, and the builds drawer: save and load a build by name
 	var views := HBoxContainer.new()
@@ -328,14 +310,17 @@ func _ready() -> void:
 	_firing_order = LineEdit.new()
 	_firing_order.placeholder_text = "e.g. 1-3-4-2"
 	_firing_order.tooltip_text = "Cylinder numbers in firing order. Applying reassigns the selected firing angles to those cylinders."
-	_row(engine, "Firing order", _firing_order)
+	_firing_rows.append(_row(engine, "Firing order", _firing_order))
+	_firing_rows.append(_firing_order)
 	var apply_order := Button.new()
 	apply_order.text = "Apply firing order"
 	apply_order.pressed.connect(_apply_firing_order)
-	_row(engine, "", apply_order)
+	_firing_rows.append(_row(engine, "", apply_order))
+	_firing_rows.append(apply_order)
 	_firing_message = Label.new()
 	_firing_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_row(engine, "", _firing_message)
+	_firing_rows.append(_row(engine, "", _firing_message))
+	_firing_rows.append(_firing_message)
 	_controls["cyl"].value_changed.connect(func(_v: float) -> void:
 		fire_deg = []
 		crossplane = false
@@ -479,13 +464,11 @@ func set_warning(text: String) -> void:
 	_warning.text = text
 
 
-func set_build_summary(spec: EngineSpec) -> void:
-	_summary.text = "%.1f cc · %s · %d cyl\n%.1f × %.1f mm · %.1f:1" % [spec.displacement_cc, spec.layout, spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio]
-
-
 func _refresh_twin() -> void:
 	var layout: OptionButton = _controls["layout"]
 	var count := int(_controls["cyl"].value)
+	for node in _firing_rows:
+		node.visible = count > 1
 	var inline := layout.get_item_text(layout.selected) == "inline"
 	_bank_label.visible = not inline
 	_controls["bank_angle"].visible = not inline

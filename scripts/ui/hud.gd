@@ -40,7 +40,7 @@ func update(sim: EngineSim, spec: EngineSpec, clutch_held: bool, throttle: float
 	var economy := "%.1f km/L" % minf(kml, 999.0) if kmh > 3.0 and kml > 0.0 and sim.fuel_flow > 0.05 else "-- km/L"
 	var hint := "CLUTCH IN" if clutch_held else ("BRAKE" if sim.brake > 0.0 else "")
 	var state := "RUNNING" if sim.running else ("CRANKING" if sim.rpm > 1.0 else "STOPPED")
-	var info := "Throttle %.0f%%   O2 λ %.2f   Knocks %d" % [throttle * 100.0, sim.o2_lambda(), sim.knock_count] if mode == 1 else "%s   Fuel %.0f%%   %s" % [economy, sim.fuel.fraction() * 100.0, hint]
+	var info := "Throttle %.0f%%   O2 λ %.2f   Knocks %d" % [throttle * 100.0, sim.o2_lambda(), sim.knock_count] if mode == 1 else "%s   %s" % [economy, hint]
 	_panel.set_values(sim.rpm, spec.redline_rpm, kmh, sim.gear.label(), info, state)
 
 

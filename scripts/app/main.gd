@@ -337,7 +337,6 @@ func _process(delta: float) -> void:
 			_sound.backfire(_sim.last_backfire_j)
 
 	var clutch_state := "open" if _sim.clutch_engage < 0.01 else ("engaged" if _sim.clutch_engage > 0.99 else "slipping")
-	var state := "RUNNING" if _sim.running else ("CRANKING" if _sim.rpm > 0.0 else "STOPPED")
 	var stopped := _sim.rpm < 1.0
 	var torque := 0.0 if stopped else _sim.torque
 	var power_hp := 0.0 if stopped else Units.w_to_hp(Units.power_w(_sim.torque, _sim.rpm))
@@ -345,8 +344,8 @@ func _process(delta: float) -> void:
 	var imep_bar := 0.0 if stopped else _sim.imep_pa() / 1.0e5
 	var ca50 := _sim.ca50_deg()
 	var ca50_text := "—" if ca50 < 0.0 else "%.0f°" % ca50
-	_stats.set_engine_data("%s  |  %d RPM\nInstant crank torque %.1f N·m\nInstant power %.1f hp\nBMEP %.1f bar   IMEP %.1f bar   ηm %.0f%%\nVE %.0f%%   BSFC %.0f g/kWh   ηb %.0f%%\nPmax %.0f bar   CA50 %s   10–90 %.0f°\nIntake %.1f psi   Air %.0f °C\nThrottle %d%%   Clutch %s (%d%%)\nFuel %.1f kg (%d%%)   %.2f g/s\nMixture target λ %.2f   Timing %+.1f°\nKnocks %d   Audio %s (%s)" % [
-		state, roundi(_sim.rpm), torque, power_hp,
+	_stats.set_engine_data("Instant crank torque %.1f N·m\nInstant power %.1f hp\nBMEP %.1f bar   IMEP %.1f bar   ηm %.0f%%\nVE %.0f%%   BSFC %.0f g/kWh   ηb %.0f%%\nPmax %.0f bar   CA50 %s   10–90 %.0f°\nIntake %.1f psi   Air %.0f °C\nThrottle %d%%   Clutch %s (%d%%)\nFuel %.1f kg (%d%%)   %.2f g/s\nMixture target λ %.2f   Timing %+.1f°\nKnocks %d   Audio %s (%s)" % [
+		torque, power_hp,
 		bmep_bar, imep_bar, _sim.mechanical_efficiency() * 100.0,
 		_sim.volumetric_efficiency() * 100.0, _sim.bsfc_g_kwh(), _sim.brake_thermal_efficiency() * 100.0,
 		_sim.peak_pressure_pa() / 1.0e5, ca50_text, _sim.burn_10_90_deg(),
@@ -681,7 +680,6 @@ func _on_panel_changed() -> void:
 	_sim.exhaust_solver = spec.live_exhaust_physics
 	_shift_sensor.upshift_threshold = spec.quickshifter_sensitivity
 	_shift_sensor.downshift_threshold = spec.quickshifter_sensitivity
-	_panel.set_build_summary(spec)
 	_sim.fuel.set_capacity(spec.fuel_capacity_l)
 	_sim.fuel.set_kind(spec.fuel)
 	_sim.gear.gear_ratios = spec.gear_ratios
