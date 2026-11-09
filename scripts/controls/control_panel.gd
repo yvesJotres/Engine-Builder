@@ -471,105 +471,6 @@ func _ready() -> void:
 
 
 
-# Copies the panel's values into the engine spec.
-func apply_to(spec: EngineSpec) -> void:
-	var layout: OptionButton = _controls["layout"]
-	var header: OptionButton = _controls["header"]
-	var fuel: OptionButton = _controls["fuel"]
-	spec.cylinders = int(_controls["cyl"].value)
-	spec.bore_mm = _controls["bore"].value
-	spec.stroke_mm = _controls["stroke"].value
-	spec.slant_deg = _controls["slant"].value
-	# displacement is not an input: it follows from bore, stroke and cylinder count
-	spec.displacement_cc = Units.displacement_cc(spec.bore_mm, spec.stroke_mm, spec.cylinders)
-	spec.layout = layout.get_item_text(layout.selected)
-	spec.stroke_type = _controls["stroke_type"].get_item_text(_controls["stroke_type"].selected)
-	spec.induction = str(_vehicle_settings.get("induction", "injection"))
-	spec.intake_display = "velocity_stack" if _controls["intake_display"].selected == 1 and spec.induction == "injection" and spec.stroke_type == "four_stroke" else "stock"
-	spec.velocity_stack_length_mm = _controls["stack_length"].value
-	var twin: OptionButton = _controls["twin"]
-	spec.twin_pin_deg = _controls["custom_pin"].value if twin.get_item_text(twin.selected) == "Custom" else float(twin.get_item_text(twin.selected))
-	spec.header = header.get_item_text(header.selected)
-	spec.muffler_style = _controls["muffler_style"].get_item_text(_controls["muffler_style"].selected)
-	spec.live_exhaust_physics = _controls["live_exhaust_physics"].selected == 1
-	spec.fuel = FuelTank.KINDS[fuel.selected]
-	spec.rod_ratio = rod_ratio
-	spec.compression_ratio = compression_ratio
-	spec.crossplane = crossplane
-	spec.fire_deg = fire_deg
-	spec.bank_angle = _controls["bank_angle"].value
-	spec.shared_v_crankpins = spec.layout == "V" and _controls["shared_pins"].selected == 1
-	spec.vehicle_kg = vehicle_kg
-	spec.primary_ratio = primary_ratio
-	spec.final_drive = final_drive
-	spec.gear_ratios = gear_ratios
-	var default_spec := EngineSpec.new()
-	for key in ["vehicle_type", "transmission_type", "wheelbase_mm", "wheel_radius_m", "vehicle_length_mm", "vehicle_width_mm", "vehicle_height_mm", "front_track_mm", "rear_track_mm", "front_wheel_radius_m", "front_tire_width_mm", "rear_tire_width_mm", "front_tire_aspect", "rear_tire_aspect", "front_rim_in", "rear_rim_in", "fuel_capacity_l", "drag_area_m2", "max_boost_ratio", "electric_compressor", "boost_spool_time", "intake_area_scale", "manifold_volume_scale", "clutch_capacity_nm", "ecu_binary", "has_quickshifter", "has_launch_control", "has_abs", "has_traction_control"]:
-		spec.set(key, _vehicle_settings.get(key, default_spec.get(key)))
-	for key in ["throttle_bore_mm", "throttle_count", "runner_bore_mm", "rider_kg", "vehicle_mass_includes_rider"]:
-		spec.set(key, _vehicle_settings.get(key, default_spec.get(key)))
-	spec.v3r_style = bool(_vehicle_settings.get("v3r_style", false))
-	spec.max_boost_ratio = _controls["boost_ratio"].value
-	spec.boost_spool_time = _controls["boost_time"].value
-	spec.compressor_battery_wh = _controls["compressor_battery"].value
-	spec.compressor_power_w = _controls["compressor_power"].value
-	spec.compressor_charge_w = _controls["compressor_charge"].value
-	spec.redline_rpm = _controls["redline"].value
-	spec.speed_limit_enabled = _controls["speed_limit_enabled"].selected == 1
-	spec.speed_limit_kmh = _controls["speed_limit_kmh"].value
-	spec.idle_target_rpm = _controls["idle"].value
-	spec.flywheel_kg = _controls["flywheel"].value
-	spec.flywheel_radius_mm = _controls["flywheel_r"].value
-	# Valve timing only applies to four-stroke engines
-	var panel_stroke_type: String = _controls["stroke_type"].get_item_text(_controls["stroke_type"].selected)
-	if panel_stroke_type == "four_stroke":
-		spec.intake_duration_deg = _controls["in_dur"].value
-		spec.intake_lift_mm = _controls["in_lift"].value
-		spec.intake_valve_mm = intake_valve_mm
-		spec.exhaust_valve_mm = exhaust_valve_mm
-		spec.runner_length_m = runner_length_m
-		spec.wall_heat_scale = wall_heat_scale
-		spec.valve_cd = valve_cd
-		spec.intake_centre_deg = _controls["in_centre"].value
-		spec.exhaust_duration_deg = _controls["ex_dur"].value
-		spec.exhaust_lift_mm = _controls["ex_lift"].value
-		spec.exhaust_centre_deg = _controls["ex_centre"].value
-		spec.cam_lobe_profile = int(_vehicle_settings.get("cam_lobe_profile", spec.cam_lobe_profile))
-		spec.intake_lobe_profile = int(_vehicle_settings.get("intake_lobe_profile", spec.cam_lobe_profile))
-		spec.exhaust_lobe_profile = int(_vehicle_settings.get("exhaust_lobe_profile", spec.cam_lobe_profile))
-		spec.intake_open_ramp_deg = float(_vehicle_settings.get("intake_open_ramp_deg", 0.0))
-		spec.intake_close_ramp_deg = float(_vehicle_settings.get("intake_close_ramp_deg", 0.0))
-		spec.exhaust_open_ramp_deg = float(_vehicle_settings.get("exhaust_open_ramp_deg", 0.0))
-		spec.exhaust_close_ramp_deg = float(_vehicle_settings.get("exhaust_close_ramp_deg", 0.0))
-		spec.intake_duration_050_deg = float(_vehicle_settings.get("intake_duration_050_deg", 0.0))
-		spec.exhaust_duration_050_deg = float(_vehicle_settings.get("exhaust_duration_050_deg", 0.0))
-		spec.intake_lift_curve = _vehicle_settings.get("intake_lift_curve", [])
-		spec.exhaust_lift_curve = _vehicle_settings.get("exhaust_lift_curve", [])
-	# Feature switches are only applied when fitted to this preset.
-	spec.power_mode = _controls["power_mode"].get_item_text(_controls["power_mode"].selected)
-	# Quickshifter detailed controls
-	spec.quickshifter = spec.has_quickshifter and _controls["qs_enabled"].selected == 1
-	spec.quickshifter_cut_time = _controls["qs_cut_base"].value / 1000.0
-	spec.quickshifter_blip_time = _controls["qs_blip_time"].value / 1000.0
-	spec.quickshifter_blip_throttle = _controls["qs_blip_throttle"].value
-	spec.quickshifter_sensitivity = _controls["qs_sensitivity"].value
-	spec.quickshifter_flat_shift = _controls["qs_flat_shift"].selected == 1
-	# Build cut profile from base (simplified: scale by gear)
-	spec.quickshifter_cut_profile = []
-	for g in range(6):
-		var base = _controls["qs_cut_base"].value
-		var profile = [[3000, base + 10], [6000, base], [10000, base - 10]]
-		# Adjust per gear
-		for p in profile:
-			p[1] = p[1] * (1.0 - g * 0.05)  # shorter cut in higher gears
-		spec.quickshifter_cut_profile.append(profile)
-	spec.launch_control = spec.has_launch_control and _controls["launch_control"].selected == 1
-	spec.abs_enabled = spec.has_abs and _controls["abs_enabled"].selected == 1
-	spec.traction_control_enabled = spec.has_traction_control and _controls["traction_control_enabled"].selected == 1
-	spec.slipper_clutch = _controls["slipper_clutch"].selected == 1
-	spec.slipper_ramp = 0.5 # fixed for now, could add a spin box later
-
-
 func lambda() -> float:
 	return _controls["lambda"].value
 
@@ -580,105 +481,6 @@ func set_warning(text: String) -> void:
 
 func set_build_summary(spec: EngineSpec) -> void:
 	_summary.text = "%.1f cc · %s · %d cyl\n%.1f × %.1f mm · %.1f:1" % [spec.displacement_cc, spec.layout, spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio]
-
-
-func _refresh_builds(selected := "") -> void:
-	var config := ConfigFile.new()
-	config.load(builds_path)
-	_builds.clear()
-	var names := config.get_sections()
-	names.sort()
-	for build_name in names:
-		_builds.add_item(build_name)
-	if not selected.is_empty() and names.has(selected):
-		_builds.select(names.find(selected))
-	_builds.disabled = names.is_empty()
-
-
-func _save_build() -> void:
-	var build_name := _build_name.text.strip_edges()
-	if build_name.is_empty() or build_name.contains("]") or build_name.contains("[") or build_name.contains("\n"):
-		_build_status.text = "Enter a build name without brackets."
-		return
-	var values := {}
-	for key in _controls:
-		var control: Control = _controls[key]
-		if control is SpinBox:
-			values[key] = control.value
-		elif control is OptionButton:
-			values[key] = control.get_item_text(control.selected)
-	var config := ConfigFile.new()
-	config.load(builds_path)
-	config.set_value(build_name, "controls", values)
-	config.set_value(build_name, "preset_data", _vehicle_settings)
-	config.set_value(build_name, "preset_id", _preset_ids[_preset_button.selected] if _preset_button.selected >= 0 else "")
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
-		config.set_value(build_name, key, get(key))
-	var err := config.save(builds_path)
-	_build_status.text = "Saved: " + build_name if err == OK else "Could not save build (error %d)." % err
-	if err == OK:
-		_refresh_builds(build_name)
-
-
-func _load_build() -> void:
-	if _builds.selected < 0:
-		return
-	var build_name := _builds.get_item_text(_builds.selected)
-	var config := ConfigFile.new()
-	if config.load(builds_path) != OK:
-		_build_status.text = "Could not load builds."
-		return
-	var values: Variant = config.get_value(build_name, "controls", {})
-	var preset_data: Variant = config.get_value(build_name, "preset_data", {})
-	if not values is Dictionary or not preset_data is Dictionary:
-		_build_status.text = "Build data is invalid."
-		return
-	# Reset from the saved bike before restoring overrides, not the bike currently
-	# on screen. Older saves may omit newer controls and capability declarations.
-	var saved_id := str(config.get_value(build_name, "preset_id", ""))
-	var saved_index := _preset_ids.find(saved_id)
-	if saved_index >= 0:
-		_on_preset_selected(saved_index)
-	var reference: Dictionary = ENGINE_LIBRARY.get_instance().get_library().get(saved_id, {})
-	_vehicle_settings = preset_data.duplicate(true)
-	for key in ["throttle_bore_mm", "throttle_count", "runner_bore_mm", "rider_kg", "vehicle_mass_includes_rider"]:
-		if not _vehicle_settings.has(key) and reference.has(key):
-			_vehicle_settings[key] = reference[key]
-	for key in ["wheelbase_mm", "front_tire_width_mm", "rear_tire_width_mm", "front_tire_aspect", "rear_tire_aspect", "front_rim_in", "rear_rim_in"]:
-		if not _vehicle_settings.has(key) and reference.has(key):
-			_vehicle_settings[key] = reference[key]
-	for capability in ["has_quickshifter", "has_launch_control", "has_abs", "has_traction_control"]:
-		_vehicle_settings[capability] = bool(preset_data.get(capability, reference.get(capability, false)))
-	# Historical builds used a different control key for the quickshifter switch.
-	if not values.has("qs_enabled") and values.has("quickshifter"):
-		values["qs_enabled"] = values["quickshifter"]
-	for key in ["qs_enabled", "launch_control", "abs_enabled", "traction_control_enabled"]:
-		_controls[key].select(0)
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
-		var value: Variant = config.get_value(build_name, key, get(key))
-		if typeof(value) == typeof(get(key)):
-			set(key, value)
-	_set_quiet(_controls["bank_angle"], bank_angle)
-	_controls["shared_pins"].select(0)
-	for key in _controls:
-		if not values.has(key):
-			continue
-		if key == "crank":
-			_refresh_twin()
-		var control: Control = _controls[key]
-		if control is SpinBox and (values[key] is float or values[key] is int):
-			_set_quiet(control, values[key])
-		elif control is OptionButton and values[key] is String:
-			_select_text(control, values[key])
-	bank_angle = _controls["bank_angle"].value
-	var preset_index := _preset_ids.find(str(config.get_value(build_name, "preset_id", "")))
-	if preset_index >= 0:
-		_preset_button.select(preset_index)
-	_refresh_feature_switches()
-	_refresh_twin()
-	_build_name.text = build_name
-	_build_status.text = "Loaded: " + build_name
-	changed.emit()
 
 
 func _refresh_twin() -> void:
@@ -834,83 +636,6 @@ func _style_kill(killed: bool) -> void:
 	for state in ["normal", "pressed", "hover", "focus"]:
 		_kill_button.add_theme_stylebox_override(state, _box(fill.lightened(0.1) if state == "hover" else fill, 8, 8))
 
-
-func _on_preset_selected(index: int) -> void:
-	if index >= _preset_ids.size():
-		return
-	var id: String = _preset_ids[index]
-	var library: Dictionary = ENGINE_LIBRARY.get_instance().get_library()
-	if library.is_empty() or not library.has(id):
-		return
-	var p: Dictionary = library[id]
-	_preset_button.select(index) # the dropdown shows the preset that is applied, however it was chosen
-	_vehicle_settings = p
-	_preset_button.tooltip_text = str(p.get("display_name", id))
-	_set_quiet(_controls["cyl"], p.cylinders)
-	_set_quiet(_controls["bore"], p.bore_mm)
-	_set_quiet(_controls["stroke"], p.stroke_mm)
-	_set_quiet(_controls["slant"], p.get("slant_deg", 20.0))
-	_select_text(_controls["layout"], p.layout)
-	_select_text(_controls["stroke_type"], p.get("stroke_type", "four_stroke"))
-	_select_text(_controls["header"], p.header)
-	_select_text(_controls["muffler_style"], p.get("muffler_style", "stock"))
-	_controls["live_exhaust_physics"].select(1 if p.get("live_exhaust_physics", false) else 0)
-	_select_text(_controls["intake_display"], "Velocity stack" if p.get("intake_display", "stock") == "velocity_stack" else "Stock")
-	_set_quiet(_controls["stack_length"], p.get("velocity_stack_length_mm", 70.0))
-	_controls["fuel"].select(FuelTank.KINDS.find(p.fuel))
-	var pin := float(p.get("twin_pin_deg", 360.0))
-	if pin in [180.0, 270.0, 360.0]:
-		_select_text(_controls["twin"], str(int(pin)))
-	else:
-		_set_quiet(_controls["custom_pin"], pin)
-		_select_text(_controls["twin"], "Custom")
-	_set_quiet(_controls["boost_ratio"], p.get("max_boost_ratio", 1.0))
-	_set_quiet(_controls["boost_time"], p.get("boost_spool_time", 0.6))
-	_set_quiet(_controls["compressor_battery"], p.get("compressor_battery_wh", 40.0))
-	_set_quiet(_controls["compressor_power"], p.get("compressor_power_w", 2000.0))
-	_set_quiet(_controls["compressor_charge"], p.get("compressor_charge_w", 1000.0))
-	_set_quiet(_controls["redline"], p.redline_rpm)
-	_controls["speed_limit_enabled"].select(1 if p.get("speed_limit_enabled", false) else 0)
-	_set_quiet(_controls["speed_limit_kmh"], p.get("speed_limit_kmh", 300.0))
-	_set_quiet(_controls["flywheel"], p.flywheel_kg)
-	_set_quiet(_controls["flywheel_r"], p.flywheel_radius_mm)
-	# the cams and timing go back to the stock values (or the preset's own) when a preset is picked
-	_set_quiet(_controls["in_dur"], p.get("intake_duration_deg", 240.0))
-	_set_quiet(_controls["in_lift"], p.get("intake_lift_mm", 6.0))
-	_set_quiet(_controls["in_centre"], p.get("intake_centre_deg", 470.0))
-	_set_quiet(_controls["ex_dur"], p.get("exhaust_duration_deg", 230.0))
-	_set_quiet(_controls["ex_lift"], p.get("exhaust_lift_mm", 5.0))
-	_set_quiet(_controls["ex_centre"], p.get("exhaust_centre_deg", 255.0))
-	_set_quiet(_controls["timing"], 0.0)
-	_set_quiet(_controls["idle"], p.get("idle_target_rpm", 1200.0))
-	rod_ratio = p.rod_ratio
-	compression_ratio = p.get("compression_ratio", 11.3)
-	crossplane = p.get("crossplane", false)
-	fire_deg = p.get("fire_deg", [])
-	_controls["crank"].select(0)
-	bank_angle = p.get("bank_angle", 90.0)
-	_set_quiet(_controls["bank_angle"], bank_angle)
-	_controls["shared_pins"].select(1 if p.get("shared_v_crankpins", false) else 0)
-	vehicle_kg = p.get("vehicle_kg", 215.0)
-	# gearbox: K45R values unless the preset gives its own
-	primary_ratio = p.get("primary_ratio", 3.26)
-	intake_valve_mm = p.get("intake_valve_mm", 20.0)
-	exhaust_valve_mm = p.get("exhaust_valve_mm", 17.0)
-	runner_length_m = p.get("runner_length_m", 0.25)
-	wall_heat_scale = p.get("wall_heat_scale", 1.0)
-	valve_cd = p.get("valve_cd", 0.7)
-	final_drive = p.get("final_drive", 3.0)
-	gear_ratios = p.get("gear_ratios", Gearbox.ratios())
-	# Feature switches reflect fitted hardware, never stale controls from another bike.
-	_select_text(_controls["power_mode"], p.get("power_mode", "F"))
-	_controls["qs_enabled"].select(1 if p.get("quickshifter", false) else 0)
-	_controls["launch_control"].select(1 if p.get("launch_control", false) else 0)
-	_controls["abs_enabled"].select(1 if p.get("abs_enabled", false) else 0)
-	_controls["traction_control_enabled"].select(1 if p.get("traction_control_enabled", false) else 0)
-	_controls["slipper_clutch"].select(1 if p.get("slipper_clutch", false) else 0)
-	_refresh_feature_switches()
-	_refresh_twin() # set_quiet does not signal, so update the crank-pin row here
-	changed.emit()
 
 func _feature_switch(grid: GridContainer, key: String, label_text: String, tooltip: String) -> void:
 	var option := OptionButton.new()
@@ -1133,3 +858,23 @@ func _select_text(option: OptionButton, text: String) -> void:
 	for i in option.item_count:
 		if option.get_item_text(i) == text:
 			option.select(i)
+
+
+func _refresh_builds(selected := "") -> void:
+	PanelBuilds.refresh(self, selected)
+
+
+func _save_build() -> void:
+	PanelBuilds.save_build(self)
+
+
+func _load_build() -> void:
+	PanelBuilds.load_build(self)
+
+
+func apply_to(spec: EngineSpec) -> void:
+	PanelSpec.apply(self, spec)
+
+
+func _on_preset_selected(index: int) -> void:
+	PanelPresets.select_preset(self, index)
