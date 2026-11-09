@@ -55,6 +55,7 @@ var _bucket_n := 0
 var _since := 0.0
 var _mix_prev := 0.0
 var _mix_curr := 0.0
+var _fire_frames := 0.0 # audio frames since the engine started firing
 var _flow_scale := ExhaustSound.BASE_FLOW_SCALE
 var _delay := PackedFloat32Array()
 var _dp := 0
@@ -136,6 +137,7 @@ func apply_levels(spec: EngineSpec) -> void:
 	if _layers != null:
 		_layers.set_scale("valvetrain", spec.sound_valvetrain)
 		_layers.set_scale("mechanical", spec.sound_mechanical)
+		drive.gear_whine = spec.sound_gear_whine
 		_layers.set_scale("driveline", spec.sound_driveline)
 		_layers.set_scale("turbo", spec.sound_turbo)
 		_layers.set_scale("knock", spec.sound_knock)
@@ -152,6 +154,9 @@ func render(frames: int) -> PackedVector2Array:
 		return out
 	var step := RATE / BODY_RATE
 	var ir := _ir
+	# time since the engine started firing: the rpm-locked layers fade in over it, so a catch does not sweep like a spaceship
+	_fire_frames = _fire_frames + frames if drive.running else 0.0
+	drive.fire_time = _fire_frames / RATE
 	var layer_mix := _layers.render(frames, drive)
 	var hist := _hist
 	var taps := ir.size()
@@ -183,7 +188,7 @@ func render(frames: int) -> PackedVector2Array:
 		if compressor_load > 0.0:
 			_compressor_phase = fposmod(_compressor_phase + TAU * (900.0 + 2600.0 * compressor_load) / RATE, TAU)
 			whine = sin(_compressor_phase) * compressor_load * 0.012
-		var sample := exh.shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine + layer_mix[i])
+		var sample := exh.shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine + layer_mix[i], drive.running)
 		_delay[_dp] = sample
 		var side := _delay[(_dp + 18) % 32]
 		_dp = (_dp + 1) % 32

@@ -23,6 +23,7 @@ func _ctx(rpm: float, load: float = 0.5, running: bool = true) -> Variant:
 	c.rpm = rpm
 	c.load = load
 	c.running = running
+	c.fire_time = 10.0 # long past the fade-in, so the tests hear the settled whine
 	c.primary_ratio = 1.0
 	return c
 

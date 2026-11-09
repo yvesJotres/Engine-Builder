@@ -72,7 +72,7 @@ const CATEGORY_KEYS := {
 	"Forced induction": ["boost_ratio", "boost_time", "compressor_battery", "compressor_power", "compressor_charge"],
 	"Rider aids": ["qs_enabled", "qs_sensitivity", "qs_cut_base", "qs_blip_time", "qs_blip_throttle", "qs_flat_shift", "launch_control", "slipper_clutch"],
 	"Vehicle": ["redline", "flywheel", "flywheel_r", "speed_limit_enabled", "speed_limit_kmh"],
-	"Sound": ["sound_valvetrain", "sound_mechanical", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"],
+	"Sound": ["sound_valvetrain", "sound_mechanical", "sound_gear_whine", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"],
 }
 # Values the preset sets that are not on screen: another category's reset must not touch them.
 const PLAIN_VARS := ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]
@@ -396,7 +396,8 @@ func _ready() -> void:
 	# sound levels: multipliers on the tuned sound, for taste. A preset does not set them, so they stay as the rider left them
 	var sound_levels := [
 		["sound_valvetrain", "Valve ticks", "Valve ticks and cam chain rattle"],
-		["sound_mechanical", "Bottom end", "Bearing rumble and primary gear whine"],
+		["sound_mechanical", "Bottom end", "Bearing rumble"],
+		["sound_gear_whine", "Gear whine", "Primary gear mesh whine, which rises with rpm"],
 		["sound_driveline", "Driveline", "Gear whine, clutch rattle at idle, gear change clunk and chain hum"],
 		["sound_turbo", "Turbo", "Turbine whistle, wastegate flutter and blow-off"],
 		["sound_knock", "Knock pings", "Detonation pings"],

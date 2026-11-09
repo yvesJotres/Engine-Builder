@@ -49,7 +49,7 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 	spec.redline_rpm = panel._controls["redline"].value
 	spec.speed_limit_enabled = panel._controls["speed_limit_enabled"].selected == 1
 	spec.speed_limit_kmh = panel._controls["speed_limit_kmh"].value
-	for key in ["sound_valvetrain", "sound_mechanical", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"]:
+	for key in ["sound_valvetrain", "sound_mechanical", "sound_gear_whine", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"]:
 		spec.set(key, panel._controls[key].value)
 	spec.idle_target_rpm = panel._controls["idle"].value
 	spec.flywheel_kg = panel._controls["flywheel"].value

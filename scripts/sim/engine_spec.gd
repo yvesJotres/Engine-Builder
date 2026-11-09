@@ -118,7 +118,8 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var speed_limit_kmh := 300.0 # the limit, km/h
 # Sound levels from the panel: multipliers on the tuned sound, 1.0 leaves it as it was
 @export_range(0.0, 2.0) var sound_valvetrain := 1.0 # valve ticks and cam chain
-@export_range(0.0, 2.0) var sound_mechanical := 1.0 # bearing rumble and primary gear whine
+@export_range(0.0, 2.0) var sound_mechanical := 1.0 # bearing rumble
+@export_range(0.0, 2.0) var sound_gear_whine := 1.0 # primary gear mesh whine
 @export_range(0.0, 2.0) var sound_driveline := 1.0 # gear whine, clutch rattle, clunk, chain
 @export_range(0.0, 2.0) var sound_turbo := 1.0 # whistle, wastegate, blow-off
 @export_range(0.0, 2.0) var sound_knock := 1.0 # detonation pings

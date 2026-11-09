@@ -16,7 +16,8 @@ const LEVEL_TARGET := 0.4
 const LEVEL_DECAY := 0.9996
 const LEVEL_FOLLOW := 0.04
 const LEVEL_MIN := 0.04
-const LEVEL_MAX := 5.0
+const LEVEL_MAX := 5.0 # gain cap while firing
+const LEVEL_MAX_UNFIRED := 1.0 # gain cap while not firing: weak motoring puffs must not be boosted to firing loudness
 
 var starved := false # set when the flow runs out mid-sound; EngineSound copies it out and clears it
 var noise_mix := NOISE_MIX
@@ -126,14 +127,14 @@ func air_factor(fresh: bool) -> float:
 
 
 # Soft clip with a leveler: keeps the pulse near LEVEL_TARGET without a hard edge.
-func shape(sample: float) -> float:
+func shape(sample: float, firing: bool) -> float:
 	_peak *= LEVEL_DECAY
 	var mag := absf(sample)
 	if mag > _peak:
 		_peak = mag
 	if _peak < 1e-8 or sample == 0.0:
 		return 0.0
-	var wanted := clampf(LEVEL_TARGET / _peak, LEVEL_MIN, LEVEL_MAX)
+	var wanted := clampf(LEVEL_TARGET / _peak, LEVEL_MIN, LEVEL_MAX if firing else LEVEL_MAX_UNFIRED)
 	_gain = lerpf(_gain, wanted, LEVEL_FOLLOW)
 	return tanh(sample * _gain)
 

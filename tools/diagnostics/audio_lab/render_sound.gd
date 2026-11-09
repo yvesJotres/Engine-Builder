@@ -4,7 +4,7 @@ extends SceneTree
 # Options (key=value after --):
 #   preset=<id>             preset id (assets/engines/<id>.json), default yamaha_yzf_r1m
 #   seconds=<s>             length, default 6
-#   profile=idle|decel|crank|crank_dry  idle: closed throttle. decel: 0.8 throttle for 2.5 s, then closed. crank_dry: cranking with no spark.
+#   profile=idle|decel|crank|crank_dry|rev  idle: closed throttle. decel: 0.8 throttle for 2.5 s, then closed. crank_dry: cranking with no spark. rev: wide open in neutral, from idle up to the limiter.
 #                           crank: starts from rest with the starter held, records the cranking itself
 #   solver=live|offline     live (default, what the game uses for four-strokes): blowdown pulses.
 #                           offline: the 1D pipe solver (the offline render path)
@@ -95,6 +95,8 @@ func _init() -> void:
 		var throttle := 0.0
 		if profile == "decel" and clock < 2.5:
 			throttle = 0.8
+		elif profile == "rev":
+			throttle = 1.0
 		# crank_dry: the starter turns the engine but the spark stays off, so it cranks without firing
 		sim.step(sim.physics_dt, spec, throttle, profile != "crank_dry", profile.begins_with("crank"), false, false, 1.0)
 		clock += sim.physics_dt

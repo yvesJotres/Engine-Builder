@@ -18,6 +18,7 @@ const MAX_STEPS_PER_FRAME := 120 # one 60 Hz frame at the finest pause-menu rate
 var _accumulator := 0.0 # real time not yet simulated, s
 const STARTER_TORQUE := 20.0 # N·m per 150 cc at zero speed, fades to zero at CRANK_RPM; scaled from the CBR150R calibration, estimate
 const CRANK_RPM := 900.0 # the starter's help fades to zero here, about the speed where the engine holds itself up
+var last_starter_held := false # the starter input from the last step, for the sound
 const FIRE_RPM := 400.0 # ignition catches the mixture above this speed
 const STALL_RPM := 200.0 # below this the mixture no longer ignites
 const LIMITER_CUT_TIME := 0.08 # s, spark held off per limiter hit, from engine-sim's ignition module
@@ -135,6 +136,7 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 		clutch_held: bool, brake_held: bool, lambda: float) -> void:
 	if delta <= 0.0:
 		return
+	last_starter_held = starter_held # the sound reads this: the starter motor is turning
 	_sync_ecu_calibration(spec)
 	_build_cylinders(spec)
 	if omega == 0.0 and rpm == 0.0 and speed == 0.0 and not running and not starter_held and absf(_gas_torque) < 0.0001 and absf(intake.pressure - Cylinder.P0) <= Cylinder.P0 * 0.01:

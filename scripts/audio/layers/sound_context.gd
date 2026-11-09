@@ -15,6 +15,9 @@ var speed_ms := 0.0 # road speed
 var boost_ratio := 1.0 # intake pressure ratio, 1 means no boost
 var turbo := false # the bike has a turbocharger or supercharger
 var blower := false # the bike has an engine-driven supercharger
+var starter := 0.0 # 1 while the starter motor is held, else 0
+var gear_whine := 1.0 # the panel level of the primary gear mesh whine
+var fire_time := 0.0 # seconds since the engine started firing, 0 while stopped: rpm layers fade in over it
 var knock_count := 0 # counts up by one at every knock event
 var cylinders := 1
 var four_stroke := true
@@ -40,6 +43,7 @@ func update_from(sim: EngineSim, spec: EngineSpec, rider_throttle: float) -> voi
 	# a turbocharger or a mechanical blower whistles; the electric compressor has its own whine in the engine sound
 	turbo = spec.max_boost_ratio > 1.0 and not spec.electric_compressor
 	blower = spec.mechanical_blower
+	starter = 1.0 if sim.last_starter_held else 0.0
 	knock_count = sim.knock_count
 	cylinders = spec.cylinders
 	four_stroke = spec.stroke_type == "four_stroke"
