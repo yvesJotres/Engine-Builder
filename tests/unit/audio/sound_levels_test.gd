@@ -37,5 +37,12 @@ func _init() -> void:
 	check(is_equal_approx(gains[knock], tuned[knock] * 1.5), "a live knock level of 1.5 scales the tuned gain")
 
 	sound.free()
+	# the sound context takes the valve count and the load from the spec and the sim
+	var sim := EngineSim.new()
+	var context := SoundContext.new()
+	spec.valves_per_cylinder = 2
+	context.update_from(sim, spec, 0.5)
+	check(context.valves_per_cylinder == 2, "the valve count comes from the spec, got %d" % context.valves_per_cylinder)
+	check(context.load >= 0.0 and context.load <= 1.0, "load is 0 to 1, got %s" % str(context.load))
 	print("sound_levels_test: %s" % ("PASSED" if _fails == 0 else "FAILED"))
 	quit(0 if _fails == 0 else 1)

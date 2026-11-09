@@ -23,11 +23,13 @@ var final_drive := 3.0 # gearbox output to wheel
 
 
 # Fills the context from the simulator and the spec. The game, the offline renderer and the audio lab all call this, so the
-# layers see the same thing everywhere. The load is the rider's throttle: the simulator has no separate load figure.
+# layers see the same thing everywhere.
 func update_from(sim: EngineSim, spec: EngineSpec, rider_throttle: float) -> void:
 	rpm = sim.rpm
 	throttle = rider_throttle
-	load = clampf(rider_throttle, 0.0, 1.0)
+	# engine load from the manifold: near vacuum at idle, atmospheric wide open. The throttle alone is not load: a closed
+	# throttle on a fast engine still moves air, and the sim has no separate load figure.
+	load = clampf((sim.intake.pressure - 35000.0) / 66325.0, 0.0, 1.0)
 	running = sim.running
 	gear = sim.gear.gear
 	gear_ratio = sim.gear.ratio()
@@ -39,5 +41,6 @@ func update_from(sim: EngineSim, spec: EngineSpec, rider_throttle: float) -> voi
 	knock_count = sim.knock_count
 	cylinders = spec.cylinders
 	four_stroke = spec.stroke_type == "four_stroke"
+	valves_per_cylinder = spec.valves_per_cylinder
 	primary_ratio = spec.primary_ratio
 	final_drive = spec.final_drive

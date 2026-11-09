@@ -149,6 +149,9 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var intake_lift_mm := 6.0 # intake peak lift
 @export var intake_valve_mm := 20.0 # one intake valve head, two valves. 20 mm is the small-single estimate; a published head size replaces it
 @export var exhaust_valve_mm := 17.0 # one exhaust valve head, two valves
+# The drawing and cam model give every four-stroke two intake and two exhaust valves per cylinder. The sound reads this for
+# the valve tick rate; change it only together with the valve model, or the tick and the drawing disagree.
+@export var valves_per_cylinder := 4
 @export var runner_length_m := 0.25 # throttle body to the valve. 0.25 m is the small-single estimate; a shorter runner holds its fill to a higher rpm
 @export var runner_bore_mm := 0.0 # 0 preserves the legacy 6.6 cm² runner; equivalent bore, not butterfly diameter
 @export var intake_display := "stock" # visual option; stock stack dimensions are not verified
