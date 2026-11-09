@@ -19,7 +19,7 @@ if not exist "%GODOT_PATH%" (
 )
 
 echo Checking for updates...
-"%GODOT_PATH%" --headless --script "res://scripts/updates/standalone_updater.gd" --path "%PROJECT_ROOT%"
+"%GODOT_PATH%" --headless --script "res://scripts/platform/updates/standalone_updater.gd" --path "%PROJECT_ROOT%"
 
 set EXIT_CODE=%errorlevel%
 

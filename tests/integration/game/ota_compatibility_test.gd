@@ -5,7 +5,7 @@ var _fails := 0
 func _init() -> void:
 	var arguments := OS.get_cmdline_user_args()
 	if arguments.size() == 3 and arguments[0] == "--verify-signature":
-		var updater_script = load("res://scripts/updates/patcher.gd")
+		var updater_script = load("res://scripts/platform/updates/patcher.gd")
 		var verified: bool = updater_script.signature_ok(arguments[1], arguments[2])
 		print("LEGACY_SIGNATURE_VALID=", verified)
 		quit(0 if verified else 1)
@@ -19,7 +19,7 @@ func _init() -> void:
 		quit()
 		return
 	if arguments.size() == 1 and arguments[0] == "--legacy-updater":
-		var updater_script = load("res://scripts/updates/patcher.gd")
+		var updater_script = load("res://scripts/platform/updates/patcher.gd")
 		if updater_script == null:
 			print("FAIL could not load installed updater")
 			quit(1)
@@ -43,8 +43,8 @@ func _init() -> void:
 			quit(1)
 			return
 	await process_frame
-	var engine_library = load("res://scripts/engine/engine_library.gd")
-	var presets = load("res://scripts/engine/presets.gd")
+	var engine_library = load("res://scripts/presets/engine_library.gd")
+	var presets = load("res://scripts/presets/presets.gd")
 	var library = engine_library.get_instance()
 	library._library = presets.PRESETS
 	library._ready = true

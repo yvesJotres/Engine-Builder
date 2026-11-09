@@ -25,7 +25,7 @@ const STATE_FILE := "user://patch/state.json"  # {version, sha256, engine, delta
 const DELTA_FILE := "user://patch/delta.pck"  # a small patch on top of the base: only the changed files
 const DELTA_PARTIAL := "user://patch/delta.pck.part"
 const CHECK_SECONDS := 30.0  # how often the app asks the server for a new patch while it runs
-const SERVER_SETTINGS := preload("res://scripts/user/server_settings.gd")
+const SERVER_SETTINGS := preload("res://scripts/platform/user/server_settings.gd")
 # The update key's public half (server/make_signing_key.py). Only patches signed with the private key are loaded.
 const PUBLIC_KEY := """-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxSd7mHNZeGw/awip9yZJ

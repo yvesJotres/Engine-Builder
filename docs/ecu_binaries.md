@@ -1,6 +1,6 @@
 # ECU binaries
 
-A preset can point at an ECU calibration dump with `ecu.binary_path`. The path is a `res://` path, usually under `ecu_bins/`. `scripts/engine/engine_sim.gd` (`_sync_ecu_calibration`) loads the file when the preset is applied. The simulation uses only the **verified primary rev limiter** from it, as a cap on the preset's redline. The other decoded maps are diagnostic only and do not affect the physics.
+A preset can point at an ECU calibration dump with `ecu.binary_path`. The path is a `res://` path, usually under `ecu_bins/`. `scripts/sim/engine_sim.gd` (`_sync_ecu_calibration`) loads the file when the preset is applied. The simulation uses only the **verified primary rev limiter** from it, as a cap on the preset's redline. The other decoded maps are diagnostic only and do not affect the physics.
 
 ## What is parsed
 

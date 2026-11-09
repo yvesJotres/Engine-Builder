@@ -4,7 +4,7 @@
 These exhaust impulse responses are from engine-sim, copyright 2022 Ange Yaghi (AngeTheGreat),
 released under the MIT licence. The licence text is in the engine-sim project's LICENSE file.
 
-- `assets/ir/mild_exhaust.wav` (`es/sound-library/new/mild_exhaust.wav`) colors a muffled tailpipe in `scripts/engine/engine_sound.gd`.
+- `assets/ir/mild_exhaust.wav` (`es/sound-library/new/mild_exhaust.wav`) colors a muffled tailpipe in `scripts/audio/engine_sound.gd`.
 - `assets/ir/sharp_01.wav` (`es/sound-library/sharp/sharp_01.wav`) colors an open pipe.
 - `assets/ir/minimal_muffling_03.wav` (`es/sound-library/new/minimal_muffling_03.wav`) is an alternate response kept in the tree.
 

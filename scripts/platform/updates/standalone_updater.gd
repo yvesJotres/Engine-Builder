@@ -1,6 +1,6 @@
 extends Node
 ## Standalone patch updater for already-installed Engine Builder
-## Can be run separately: godot --headless --script res://scripts/updates/standalone_updater.gd
+## Can be run separately: godot --headless --script res://scripts/platform/updates/standalone_updater.gd
 
 const PATCH_DIR := "user://patch"
 const STATE_FILE := "user://patch/state.json"

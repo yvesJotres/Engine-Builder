@@ -19,7 +19,7 @@ const DEFAULT_DURATION := 10.0 # seconds
 const DEFAULT_SAMPLE_RATE := 44100 # Hz
 const DEFAULT_BIT_DEPTH := 16 # bits per sample
 const DEFAULT_THROTTLE := 1.0 # 0..1, wide open
-const WAV_WRITER_SCRIPT := preload("res://scripts/render/wav_writer.gd")
+const WAV_WRITER_SCRIPT := preload("res://scripts/audio/wav_writer.gd")
 
 # Renders `duration` seconds of exhaust audio to a WAV file.
 # Runs at physics_dt = 1/3600 (highest accuracy), ignoring MAX_FRAME_TIME caps.

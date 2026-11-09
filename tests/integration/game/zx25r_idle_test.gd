@@ -1,8 +1,8 @@
 extends SceneTree
 
-const ENGINE_SIM := preload("res://scripts/engine/engine_sim.gd")
-const ENGINE_SPEC := preload("res://scripts/engine/engine_spec.gd")
-const PRESETS := preload("res://scripts/engine/presets.gd")
+const ENGINE_SIM := preload("res://scripts/sim/engine_sim.gd")
+const ENGINE_SPEC := preload("res://scripts/sim/engine_spec.gd")
+const PRESETS := preload("res://scripts/presets/presets.gd")
 
 func test_zx25r_idle():
     var presets = PRESETS.PRESETS

@@ -1,7 +1,7 @@
 """Shared helpers for the patch publish scripts: file hashes and the signature the phones check.
 
 The signing key stays on this PC in server/signing/private.pem (not in Git). The phones carry only the
-public key, in scripts/updates/patcher.gd, so a copy of the server cannot publish a patch the phones accept.
+public key, in scripts/platform/updates/patcher.gd, so a copy of the server cannot publish a patch the phones accept.
 """
 import base64
 import hashlib

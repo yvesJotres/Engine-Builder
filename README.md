@@ -224,14 +224,14 @@ See [THIRD_PARTY.md](THIRD_PARTY.md) for details.
 ### Key Files to Understand
 | File | Role |
 |------|------|
-| `scripts/main.gd` | Frame loop, input, coord all systems |
-| `scripts/engine/engine_sim.gd` | Physics step, cylinder array, clutch, drivetrain |
+| `scripts/app/main.gd` | Frame loop, input, coord all systems |
+| `scripts/sim/engine_sim.gd` | Physics step, cylinder array, clutch, drivetrain |
 | `scripts/engine/cylinder.gd` | Per-cylinder gas dynamics |
 | `scripts/drawing/engine_model.gd` | 3D engine built from spec |
-| `scripts/controls/control_panel.gd` | Full parameter UI |
+| `scripts/ui/panel/control_panel.gd` | Full parameter UI |
 | `scripts/dyno/dyno_test.gd` | Automatic dyno state machine |
-| `scripts/render/audio_renderer.gd` | Offline WAV export |
-| `scripts/updates/patcher.gd` | OTA patch client |
+| `scripts/audio/audio_renderer.gd` | Offline WAV export |
+| `scripts/platform/updates/patcher.gd` | OTA patch client |
 
 ### Adding a Preset
 1. Create `assets/engines/my_bike.json` (see existing files for schema)

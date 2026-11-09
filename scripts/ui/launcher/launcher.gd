@@ -1,12 +1,12 @@
 extends Control
 ## The main menu and the first screen of the app. It checks the server for an update, asks first when the connection is
 ## mobile or metered, downloads the update with a progress bar, and ends with a PLAY button.
-## The update itself is the Patcher's job (scripts/updates/patcher.gd); this scene only shows it.
+## The update itself is the Patcher's job (scripts/platform/updates/patcher.gd); this scene only shows it.
 ## After a download PLAY restarts the exe ("-- --play") so every script loads from the new patch.
 
 const GAME_SCENE := "res://scenes/main.tscn"
-const PatchInfo := preload("res://scripts/updates/patch_info.gd")
-const ServerSettings := preload("res://scripts/user/server_settings.gd")
+const PatchInfo := preload("res://scripts/platform/updates/patch_info.gd")
+const ServerSettings := preload("res://scripts/platform/user/server_settings.gd")
 const SingleInstance := preload("res://scripts/app/single_instance.gd")
 const ACCENT := Color(1, 0.42, 0.208)
 const GOLD := Color(1, 0.843, 0.541)

@@ -22,7 +22,7 @@ const ACCENT := Color(0.25, 0.55, 0.9)
 const BUTTON := Color(0.16, 0.17, 0.21)
 const HEADING := Color(0.55, 0.75, 1.0)
 const LABEL_WIDTH := 132.0
-const ENGINE_LIBRARY := preload("res://scripts/engine/engine_library.gd")
+const ENGINE_LIBRARY := preload("res://scripts/presets/engine_library.gd")
 
 var rod_ratio := 1.6 # not on screen, set by the preset
 var compression_ratio := 11.3 # not on screen, set by the preset

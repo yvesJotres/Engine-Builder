@@ -1,7 +1,7 @@
 """Makes the key pair that signs game patches. Run it once.
 
 It writes the private key to signing/private.pem (keep it on this PC, back it up, never commit it) and
-prints the public key. Paste the printed public key into PUBLIC_KEY in scripts/updates/patcher.gd and
+prints the public key. Paste the printed public key into PUBLIC_KEY in scripts/platform/updates/patcher.gd and
 publish a new APK, because the phones only trust the key they were built with.
 
 If the private key is lost, no patch can be published that the phones accept until a new key and a new APK are made.
@@ -25,7 +25,7 @@ def main() -> None:
     public = key.public_key().public_bytes(serialization.Encoding.PEM,
                                            serialization.PublicFormat.SubjectPublicKeyInfo)
     print("Private key written to %s (keep it secret)." % PRIVATE_KEY)
-    print("Public key for scripts/updates/patcher.gd:")
+    print("Public key for scripts/platform/updates/patcher.gd:")
     print(public.decode())
 
 

@@ -3,7 +3,7 @@ extends RefCounted
 
 # Engine presets loader. Each vehicle preset lives in its own JSON file under assets/engines/.
 # Add a new .json file there with the preset data to register a preset.
-# Schema: scripts/engine/presets/schema.json
+# Schema: scripts/presets/schema.json
 
 const ENGINES_DIR := "res://assets/engines/"
 

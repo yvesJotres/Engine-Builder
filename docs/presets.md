@@ -1,6 +1,6 @@
 # Adding an engine preset
 
-Each engine is one JSON file in `assets/engines/`. `scripts/engine/presets.gd` loads every `.json` in that folder at startup, so a new file is enough to register a new engine. The file name without `.json` becomes the preset's ID.
+Each engine is one JSON file in `assets/engines/`. `scripts/presets/presets.gd` loads every `.json` in that folder at startup, so a new file is enough to register a new engine. The file name without `.json` becomes the preset's ID.
 
 ## Required sections
 

@@ -1,7 +1,7 @@
 """Engine Builder patch server, run on your PC or a VPS.
 
 Hands the game's patches to the app. It serves only what publish_update.py and publish_patch.py put in patches/.
-The app checks each patch's signature against the public key in scripts/updates/patcher.gd, so a copy of this
+The app checks each patch's signature against the public key in scripts/platform/updates/patcher.gd, so a copy of this
 server cannot publish a patch the app accepts. Drafts are never served.
 
 Start it with:  python patch_server.py --port 8799 --secret YOUR_SECRET   (8799 is its own port; Flatframe uses 8787 and 8788)

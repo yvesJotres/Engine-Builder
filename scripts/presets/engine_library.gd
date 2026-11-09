@@ -7,7 +7,7 @@ extends RefCounted
 # v2 caches only the server's data. The old file also stored bundled presets, which went stale when they changed.
 const CACHE_FILE := "user://engine_library_v2.json"
 const FETCH_TIMEOUT := 10.0 # seconds
-const SERVER_SETTINGS := preload("res://scripts/user/server_settings.gd")
+const SERVER_SETTINGS := preload("res://scripts/platform/user/server_settings.gd")
 
 var _http: HTTPRequest
 var _library: Dictionary = {}
@@ -21,7 +21,7 @@ static var _instance
 
 static func get_instance():
 	if _instance == null:
-		_instance = load("res://scripts/engine/engine_library.gd").new()
+		_instance = load("res://scripts/presets/engine_library.gd").new()
 	return _instance
 
 func _init() -> void:

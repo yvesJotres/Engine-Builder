@@ -1,7 +1,7 @@
 extends SceneTree
 
 const ENGINE_AIR := preload("res://scripts/intake/engine_air.gd")
-const ENGINE_SPEC := preload("res://scripts/engine/engine_spec.gd")
+const ENGINE_SPEC := preload("res://scripts/sim/engine_spec.gd")
 
 func test_electric_compressor_spool():
     var spec = ENGINE_SPEC.new()

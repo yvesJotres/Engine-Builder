@@ -21,7 +21,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]
 
-Patcher="*res://scripts/updates/patcher.gd"
+Patcher="*res://scripts/platform/updates/patcher.gd"
 
 [display]
 
