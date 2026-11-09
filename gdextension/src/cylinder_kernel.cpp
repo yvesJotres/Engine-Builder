@@ -38,6 +38,8 @@ constexpr double OVERLAP_RETURN_BELOW = 0.9;
 constexpr double AUTO_IGNITE_K = 900.0;
 constexpr double BACKFIRE_BURN = 0.5;
 constexpr int EXHAUST_FLOW_BINS = 90;
+constexpr double FILM_DEPOSIT = 0.3; // share of the sprayed fuel that lands on the port wall, estimate
+constexpr double FILM_EVAP_CYCLES = 3.0; // cycles for the port-wall film to evaporate, estimate
 constexpr double CHECK_LIFT_M = 0.00127;
 constexpr double LARGE_RUNNER_STEP_DEG = 1.0;
 constexpr int PROFILE_HALF_SINE = 0;
@@ -91,7 +93,7 @@ struct Cyl {
 	double fuel_unburnt_kg, port_heat, backfire_j, residual_kg, overlap_out, burnt, wall_loss_j, u, enthalpy_in_j,
 			enthalpy_out_j, exhaust_mdot, exhaust_power, cycle_work, cycle_deg, cycle_peak_p, cycle_max_dp, cycle_p, ca10,
 			ca50, ca90, last_imep, last_peak_pressure, last_dp_dtheta, last_ca10, last_ca50, last_ca90, last_burn_10_90,
-			last_fresh_kg, last_ivc_temp, last_residual_fraction, tank_mass;
+			last_fresh_kg, last_ivc_temp, last_residual_fraction, tank_mass, film_kg;
 };
 
 double curve_lift(const double *curve, int pairs, double deg) {
@@ -300,8 +302,11 @@ void fuel_charge(const Cfg &c, Cyl &y, double lambda, bool spark, bool limiter_c
 	}
 	double fresh = y.last_fresh_kg;
 	double wanted = fresh / (c.tank_afr * lambda);
-	double supplied = minf(wanted, y.tank_mass);
-	y.tank_mass -= supplied;
+	double sprayed = minf(wanted, y.tank_mass);
+	y.tank_mass -= sprayed;
+	double evap = y.film_kg / FILM_EVAP_CYCLES;
+	y.film_kg += FILM_DEPOSIT * sprayed - evap;
+	double supplied = (1.0 - FILM_DEPOSIT) * sprayed + evap;
 	y.mass += supplied;
 	y.u += supplied * CV * y.temp;
 	if (!spark) {
@@ -336,6 +341,7 @@ void load(const double *s, Cyl &y) {
 	y.port_heat = s[CylinderKernel::S_PORT_HEAT];
 	y.backfire_j = s[CylinderKernel::S_BACKFIRE_J];
 	y.residual_kg = s[CylinderKernel::S_RESIDUAL_KG];
+	y.film_kg = s[CylinderKernel::S_FILM_KG];
 	y.overlap_out = s[CylinderKernel::S_OVERLAP_OUT];
 	y.burnt = s[CylinderKernel::S_BURNT];
 	y.wall_loss_j = s[CylinderKernel::S_WALL_LOSS_J];
@@ -383,6 +389,7 @@ void store(double *s, const Cyl &y) {
 	s[CylinderKernel::S_PORT_HEAT] = y.port_heat;
 	s[CylinderKernel::S_BACKFIRE_J] = y.backfire_j;
 	s[CylinderKernel::S_RESIDUAL_KG] = y.residual_kg;
+	s[CylinderKernel::S_FILM_KG] = y.film_kg;
 	s[CylinderKernel::S_OVERLAP_OUT] = y.overlap_out;
 	s[CylinderKernel::S_BURNT] = y.burnt;
 	s[CylinderKernel::S_WALL_LOSS_J] = y.wall_loss_j;

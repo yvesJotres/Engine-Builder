@@ -27,6 +27,7 @@ public:
 		S_TANK_MASS, // in and out: kg of fuel left in the tank
 		S_OUT_TORQUE, // out: average gas torque over dphi, N*m
 		S_OUT_DRAWN, // out: mass drawn from the manifold, kg
+		S_FILM_KG, // fuel on the port wall, kg (in and out)
 		S_BINS = 48, // 90 exhaust flow bins start here
 		S_SIZE = 48 + 90
 	};

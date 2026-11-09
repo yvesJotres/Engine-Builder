@@ -50,6 +50,8 @@ const MAX_FLOW_DT := 2.5e-4 # s, longest port step, the port volume is stiff aga
 const OVERLAP_RETURN_BELOW := 0.9 # fraction of atmosphere: below this the overlap push stays in the port and is drawn back in
 const AUTO_IGNITE_K := 900.0 # K, exhaust gas temperature above which unlit fuel leaving the cylinder can catch, estimate
 const BACKFIRE_BURN := 0.5 # share of the unlit charge that burns in the hot exhaust when it catches, estimate
+const FILM_DEPOSIT := 0.3 # share of the sprayed fuel that lands on the port wall, estimate
+const FILM_EVAP_CYCLES := 3.0 # cycles for the port-wall film to evaporate back into the charge, estimate
 const EXHAUST_FLOW_BINS := 90
 
 # Valve events of this cylinder's cams: crank degrees after firing top dead centre, and peak lift in metres.
@@ -102,6 +104,7 @@ var peak_temp := 300.0 # K, the hottest gas in the current cycle so far
 var last_peak_temp := 300.0 # K, the hottest gas in the last complete cycle: the chamber temperature sensor reads it
 var last_lambda := 1.0 # the mixture the O2 sensor reads, relative to stoichiometric: 1.0 is exact, above is lean
 var _fired := false # true when this cycle's charge was lit, so its exhaust is hot
+var film_kg := 0.0 # kg of fuel on the port wall, released into the charge over a few cycles
 var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: it leaves unburnt
 var _port_heat := T0 # K, the exhaust port's heat from the last firing; an unlit charge can catch from it, and it is spent once used
 var backfire_j := 0.0 # J released by backfires since the engine last read it
@@ -344,6 +347,7 @@ static var use_native := true # tests switch this to compare the two paths
 const S_TANK_MASS := 43
 const S_OUT_TORQUE := 44
 const S_OUT_DRAWN := 45
+const S_FILM_KG := 46 # fuel on the port wall, kg (in and out)
 const S_BINS := 48
 var _st := PackedFloat64Array()
 var _cfg := PackedFloat64Array()
@@ -425,9 +429,11 @@ func _advance_native(dphi: float, dt: float, pm: float, tm: float, ign_phi: floa
 	_st[41] = last_ivc_temp
 	_st[42] = last_residual_fraction
 	_st[S_TANK_MASS] = tank.mass_kg
+	_st[S_FILM_KG] = film_kg
 	_st = CylinderKernel.advance(_st, _cfg, _icurve, _ecurve, dphi, dt, pm, tm, ign_phi, firing, tank.afr, tank.lhv, lambda,
 		spark, limiter_cut, p_ex, t_ex, flow_step_deg)
 	phi = _st[0]
+	film_kg = _st[S_FILM_KG]
 	mass = _st[1]
 	temp = _st[2]
 	pressure = _st[3]
@@ -663,8 +669,12 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool 
 		return # too lean to light
 	var fresh := last_fresh_kg # the burnt gas left from the last cycle, including what overlap pushed into the port, takes no fuel
 	var wanted := fresh / (tank.afr * lambda)
-	var supplied := minf(wanted, tank.mass_kg)
-	tank.mass_kg -= supplied
+	var sprayed := minf(wanted, tank.mass_kg)
+	tank.mass_kg -= sprayed
+	# port injection: a share of the spray lands on the port wall, and that film evaporates back into the charge over a few cycles
+	var evap := film_kg / FILM_EVAP_CYCLES
+	film_kg += FILM_DEPOSIT * sprayed - evap
+	var supplied := (1.0 - FILM_DEPOSIT) * sprayed + evap
 	mass += supplied # the fuel joins the charge, so the gas carries the mass it releases energy from
 	_u += supplied * CV * temp # at the gas temperature, so the mix stays at the same temperature
 	if not spark:
