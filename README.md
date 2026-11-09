@@ -227,7 +227,7 @@ See [THIRD_PARTY.md](THIRD_PARTY.md) for details.
 | `scripts/main.gd` | Frame loop, input, coord all systems |
 | `scripts/engine/engine_sim.gd` | Physics step, cylinder array, clutch, drivetrain |
 | `scripts/engine/cylinder.gd` | Per-cylinder gas dynamics |
-| `scripts/engine/engine_model.gd` | 3D engine built from spec |
+| `scripts/drawing/engine_model.gd` | 3D engine built from spec |
 | `scripts/controls/control_panel.gd` | Full parameter UI |
 | `scripts/dyno/dyno_test.gd` | Automatic dyno state machine |
 | `scripts/render/audio_renderer.gd` | Offline WAV export |

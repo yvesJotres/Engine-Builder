@@ -8,7 +8,7 @@ Two read-only audits (physics and geometry; 3D attachment) and the fixes made fr
 |---|---|---|---|
 | Two-stroke chamber | One chamber shared by all cylinders, fed by all of them at once | Each cylinder has its own four-section chain, built as layout pipes and run on the same solver | `scripts/engine/expansion_chamber.gd`, `scripts/exhaust/exhaust_layout.gd` |
 | Two-stroke chamber | Energy terms in watts added to joules; no outlet; chamber advanced once per cylinder | Removed: the chamber is now part of the pipe solver, which conserves mass and energy | `scripts/engine/engine_sim.gd` |
-| Two-stroke drawing | Cones drawn in the engine model, separate from the solver's pipes | The chamber is drawn from the same layout the solver runs | `scripts/engine/engine_model.gd` |
+| Two-stroke drawing | Cones drawn in the engine model, separate from the solver's pipes | The chamber is drawn from the same layout the solver runs | `scripts/drawing/engine_model.gd` |
 | Solver damping | Attenuation used the gas speed (|u|) instead of the distance the wave travels | Uses the sound speed: loss per metre times c times dt | `scripts/exhaust/exhaust_gas.gd` |
 | Solver output | Audio samples held each step's end value (a zero-order hold) | Samples are linearly interpolated across each step | `scripts/exhaust/exhaust_gas.gd` |
 | Solver backflow | When gas flowed back from a pipe into a cylinder, the cylinder's enthalpy was removed from the pipe | Backflow removes the pipe cell's own enthalpy | `scripts/exhaust/exhaust_gas.gd` |

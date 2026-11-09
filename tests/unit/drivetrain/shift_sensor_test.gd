@@ -1,6 +1,6 @@
 extends SceneTree
 
-const SHIFT_SENSOR := preload("res://scripts/ignition/shift_sensor.gd")
+const SHIFT_SENSOR := preload("res://scripts/ecu/shift_sensor.gd")
 
 func _init():
 	var sensor = SHIFT_SENSOR.new()
