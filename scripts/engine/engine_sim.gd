@@ -571,198 +571,6 @@ func _emit_blowdown(volume_flow: float, dt: float) -> void:
 		_blowdown.append(volume_flow)
 
 
-# Exhaust gas temperature sensor, °C: the average of the cylinders' exhaust gas as their exhaust valves open.
-func exhaust_temp_c() -> float:
-	if cylinders.is_empty():
-		return 0.0
-	var sum := 0.0
-	for c in cylinders:
-		sum += c.exhaust_temp
-	return sum / cylinders.size() - 273.15
-
-
-# Chamber temperature sensor, °C: the hottest gas each cylinder reached in its last complete cycle, averaged over the cylinders.
-func chamber_peak_c() -> float:
-	if cylinders.is_empty():
-		return 0.0
-	var sum := 0.0
-	for c in cylinders:
-		sum += c.last_peak_temp
-	return sum / cylinders.size() - 273.15
-
-
-# Exhaust port temperatures, °C, one per cylinder: the gas each one last sent out (what each header runner carries).
-func port_temps_c() -> Array:
-	var out := []
-	for c in cylinders:
-		out.append(c.exhaust_temp - 273.15)
-	return out
-
-
-# O2 sensor, relative to stoichiometric: the average mixture the cylinders burned on their last cycle. 1.0 is exact.
-func o2_lambda() -> float:
-	if cylinders.is_empty():
-		return 0.0
-	var sum := 0.0
-	var n := 0
-	for c in cylinders:
-		if c.last_lambda < 50.0:
-			sum += c.last_lambda
-			n += 1
-	return sum / n if n > 0 else 99.0
-
-
-func swept_m3() -> float:
-	var volume := 0.0
-	for c in cylinders:
-		volume += c.swept
-	return volume
-
-
-# Net indicated mean effective pressure, Pa: the closed-cycle ∮P dV divided by swept volume, averaged over the cylinders.
-func imep_pa() -> float:
-	var sum := 0.0
-	var n := 0
-	for c in cylinders:
-		if c.last_imep != 0.0:
-			sum += c.last_imep
-			n += 1
-	return sum / n if n > 0 else 0.0
-
-
-# Brake mean effective pressure, Pa, from the mean shaft torque of the last closed cycle.
-func bmep_pa() -> float:
-	var volume := swept_m3()
-	if volume <= 0.0:
-		return 0.0
-	var shaft := cycle_brake_torque if cycle_brake_torque != 0.0 else torque
-	return shaft * 4.0 * PI / volume
-
-
-# Friction mean effective pressure, Pa: what the net indicated pressure loses before it reaches the shaft.
-func fmep_pa() -> float:
-	return imep_pa() - bmep_pa()
-
-
-func indicated_power_w() -> float:
-	if rpm <= 0.0:
-		return 0.0
-	return imep_pa() * swept_m3() * rpm / 120.0
-
-
-func brake_power_w() -> float:
-	var shaft := cycle_brake_torque if cycle_brake_torque != 0.0 else torque
-	return Units.power_w(shaft, rpm)
-
-
-# g/kWh. Zero when the shaft is not delivering power.
-func bsfc_g_kwh() -> float:
-	var power_kw := brake_power_w() / 1000.0
-	if power_kw <= 0.05:
-		return 0.0
-	return fuel_flow * 3600.0 / power_kw
-
-
-func isfc_g_kwh() -> float:
-	var power_kw := indicated_power_w() / 1000.0
-	if power_kw <= 0.05:
-		return 0.0
-	return fuel_flow * 3600.0 / power_kw
-
-
-func brake_thermal_efficiency() -> float:
-	return _thermal_efficiency(brake_power_w())
-
-
-func indicated_thermal_efficiency() -> float:
-	return _thermal_efficiency(indicated_power_w())
-
-
-func _thermal_efficiency(power_w: float) -> float:
-	var fuel_w := fuel_flow * 0.001 * fuel.lhv
-	if power_w <= 0.0 or fuel_w <= 0.0:
-		return 0.0
-	return power_w / fuel_w
-
-
-# Trapped fresh air at intake closing divided by the swept volume filled at ambient density.
-func volumetric_efficiency() -> float:
-	var rho := Cylinder.P0 / (Cylinder.R * Cylinder.T0)
-	var sum := 0.0
-	var n := 0
-	for c in cylinders:
-		if c.swept <= 0.0 or c.last_fresh_kg <= 0.0:
-			continue
-		sum += c.last_fresh_kg / (c.swept * rho)
-		n += 1
-	return sum / n if n > 0 else 0.0
-
-
-func mechanical_efficiency() -> float:
-	var indicated := imep_pa()
-	if indicated <= 0.0:
-		return 0.0
-	return bmep_pa() / indicated
-
-
-func peak_pressure_pa() -> float:
-	var peak := 0.0
-	for c in cylinders:
-		peak = maxf(peak, c.last_peak_pressure)
-	return peak
-
-
-# Steepest pressure rise of the last cycle, Pa per crank degree.
-func peak_dp_dtheta() -> float:
-	var peak := 0.0
-	for c in cylinders:
-		peak = maxf(peak, c.last_dp_dtheta)
-	return peak
-
-
-func ca50_deg() -> float:
-	return _mean_angle(func(c) -> float: return c.last_ca50) # both cylinder types have last_ca50
-
-
-func burn_10_90_deg() -> float:
-	var sum := 0.0
-	var n := 0
-	for c in cylinders:
-		if c.last_burn_10_90 > 0.0:
-			sum += c.last_burn_10_90
-			n += 1
-	return sum / n if n > 0 else 0.0
-
-
-func ivc_temp_c() -> float:
-	if cylinders.is_empty():
-		return 0.0
-	var sum := 0.0
-	for c in cylinders:
-		sum += c.last_ivc_temp
-	return sum / cylinders.size() - 273.15
-
-
-func residual_fraction() -> float:
-	if cylinders.is_empty():
-		return 0.0
-	var sum := 0.0
-	for c in cylinders:
-		sum += c.last_residual_fraction
-	return sum / cylinders.size()
-
-
-func _mean_angle(pick: Callable) -> float:
-	var sum := 0.0
-	var n := 0
-	for c in cylinders:
-		var angle: float = pick.call(c)
-		if angle >= 0.0:
-			sum += angle
-			n += 1
-	return sum / n if n > 0 else -1.0
-
-
 # The CBR250RR preset supplies its N04 flash through EngineSpec.  Only values
 # whose layout and meaning are verified are allowed to affect live physics.
 func _sync_ecu_calibration(spec: EngineSpec) -> void:
@@ -1111,3 +919,77 @@ static func tire_radius_m(spec: EngineSpec = null) -> float:
 	if spec != null and spec.vehicle_type != "car" and spec.rear_tire_width_mm > 0.0:
 		return (spec.rear_rim_in * 25.4 * 0.5 + spec.rear_tire_width_mm * spec.rear_tire_aspect) * 0.001
 	return spec.wheel_radius_m if spec != null and spec.wheel_radius_m > 0.0 else Drivetrain.tire_outer_radius() * 0.1
+
+
+# Figures from the EngineMetrics module, kept under the old names.
+func exhaust_temp_c() -> float:
+	return EngineMetrics.exhaust_temp_c(self)
+
+func chamber_peak_c() -> float:
+	return EngineMetrics.chamber_peak_c(self)
+
+func port_temps_c() -> Array:
+	return EngineMetrics.port_temps_c(self)
+
+func o2_lambda() -> float:
+	return EngineMetrics.o2_lambda(self)
+
+func swept_m3() -> float:
+	return EngineMetrics.swept_m3(self)
+
+func imep_pa() -> float:
+	return EngineMetrics.imep_pa(self)
+
+func bmep_pa() -> float:
+	return EngineMetrics.bmep_pa(self)
+
+func fmep_pa() -> float:
+	return EngineMetrics.fmep_pa(self)
+
+func indicated_power_w() -> float:
+	return EngineMetrics.indicated_power_w(self)
+
+func brake_power_w() -> float:
+	return EngineMetrics.brake_power_w(self)
+
+func bsfc_g_kwh() -> float:
+	return EngineMetrics.bsfc_g_kwh(self)
+
+func isfc_g_kwh() -> float:
+	return EngineMetrics.isfc_g_kwh(self)
+
+func brake_thermal_efficiency() -> float:
+	return EngineMetrics.brake_thermal_efficiency(self)
+
+func indicated_thermal_efficiency() -> float:
+	return EngineMetrics.indicated_thermal_efficiency(self)
+
+func _thermal_efficiency(power_w: float) -> float:
+	return EngineMetrics._thermal_efficiency(self, power_w)
+
+func volumetric_efficiency() -> float:
+	return EngineMetrics.volumetric_efficiency(self)
+
+func mechanical_efficiency() -> float:
+	return EngineMetrics.mechanical_efficiency(self)
+
+func peak_pressure_pa() -> float:
+	return EngineMetrics.peak_pressure_pa(self)
+
+func peak_dp_dtheta() -> float:
+	return EngineMetrics.peak_dp_dtheta(self)
+
+func ca50_deg() -> float:
+	return EngineMetrics.ca50_deg(self)
+
+func burn_10_90_deg() -> float:
+	return EngineMetrics.burn_10_90_deg(self)
+
+func ivc_temp_c() -> float:
+	return EngineMetrics.ivc_temp_c(self)
+
+func residual_fraction() -> float:
+	return EngineMetrics.residual_fraction(self)
+
+func _mean_angle(pick: Callable) -> float:
+	return EngineMetrics._mean_angle(self, pick)
