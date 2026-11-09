@@ -1,0 +1,27 @@
+{
+  "preset_id": "honda_cbr1000rrr_sp",
+  "title": "BSD / BikeSocial stock 2020 UK RR-R",
+  "source_url": "https://www.bennetts.co.uk/bikesocial/reviews/bikes/honda/honda-cbr1000rr-r-fireblade-sp-2020-review-price-spec",
+  "chart_url": "https://www.datocms-assets.com/119921/1714127118-dyno-2020-cbr1000rr_740.jpg",
+  "year": 2020,
+  "market": "UK",
+  "tested_trim": "base RR-R; same engine as SP, as stated by the tester",
+  "configuration": "stock, 1600 miles, fourth gear",
+  "basis": "rear_wheel",
+  "power_unit": "mechanical_hp",
+  "torque_unit": "lb_ft_engine_equivalent",
+  "correction": "DIN, as printed on chart; ambient conditions not published",
+  "peak_power_hp": 199.76,
+  "peak_power_rpm": 13900.0,
+  "peak_torque_lb_ft": 78.96,
+  "peak_torque_rpm": 12500.0,
+  "curve_method": "Approximate readings from the published power trace, not raw dyno data; engine-equivalent torque derived from power/RPM. Peak values above are the tester's exact reported figures.",
+  "curve_uncertainty_hp": 2.0,
+  "power_samples": [
+    [4000, 33], [4500, 46], [5000, 52], [5500, 59], [6000, 70],
+    [6500, 74], [7000, 80], [7500, 87], [8000, 98], [8500, 113],
+    [9000, 126], [9500, 142], [10000, 147], [10500, 151], [11000, 160],
+    [11500, 170], [12000, 180], [12500, 188], [13000, 194], [13500, 198], [13900, 199.76]
+  ],
+  "notes": "Wheel measurements must not be overlaid on crank output. The simulator's existing 0.93 drivetrain efficiency is an estimate, not a measured BSD coastdown. DIN/SAE correction and tyre/dyno differences remain uncertainty. US restricted-bike tests are not the reference for this European preset. The test reports speed-limiter intervention; no ECU map was supplied."
+}

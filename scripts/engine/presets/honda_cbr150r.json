@@ -1,0 +1,78 @@
+{
+  "display_name": "Honda CBR150R (K45N)",
+  "geometry": {
+    "cylinders": 1,
+    "displacement_cc": 149.2,
+    "bore_mm": 57.3,
+    "stroke_mm": 57.8,
+    "rod_ratio": 1.6,
+    "layout": "inline",
+    "compression_ratio": 11.3,
+    "twin_pin_deg": 360,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0
+    ],
+    "vehicle_kg": 215.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 2.5,
+    "flywheel_radius_mm": 75.0,
+    "wheel_radius_m": 0.3069
+  },
+  "valvetrain": {
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 240.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 230.0,
+    "exhaust_lift_mm": 5.0,
+    "cam_lobe_profile": 1,
+    "intake_lobe_profile": 1,
+    "exhaust_lobe_profile": 1,
+    "intake_flat_fraction": 0.35,
+    "exhaust_flat_fraction": 0.30,
+    "intake_open_ramp_deg": 15.0,
+    "intake_close_ramp_deg": 20.0,
+    "exhaust_open_ramp_deg": 10.0,
+    "exhaust_close_ramp_deg": 15.0,
+    "intake_lift_curve": [],
+    "exhaust_lift_curve": []
+  },
+  "drivetrain": {
+    "redline_rpm": 10600.0,
+    "primary_ratio": 3.26,
+    "final_drive": 3.0,
+    "gear_ratios": [
+      3.0833,
+      1.9412,
+      1.5,
+      1.2273,
+      1.0417,
+      0.9231
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1200.0,
+    "ve_scale": 1.0,
+    "lambda_target": null,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4
+  },
+  "ecu": {
+    "binary_path": "res://ecu_bins/38770-K64-N01.bin"
+  },
+  "metadata": {
+    "source": "Webike Japan spec + Otomotifnet dyno",
+    "year": 2017,
+    "region": "JP",
+    "notes": "Bore x stroke from Webike Japan spec. Redline from press dyno test (Otomotifnet, 2021). Flywheel, rod ratio, primary drive, final drive, gear ratios: estimates, no service manual source found."
+  }
+}

@@ -1,0 +1,18 @@
+import os
+
+env = SConscript("godot-cpp/SConstruct")
+
+# For Godot 4.3+
+env.Append(CPPPATH=["src/", "include/"])
+sources = [
+    "src/register_types.cpp",
+    "src/cylinder_kernel.cpp",
+]
+# Not built: src/cylinder.cpp and src/exhaust_gas.cpp are an older, unfinished port that no longer matches the GDScript.
+
+library = env.SharedLibrary(
+    "bin/libengine_sim" + env["suffix"] + env["SHLIBSUFFIX"],
+    source=sources,
+)
+
+Default(library)

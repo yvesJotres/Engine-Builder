@@ -5,6 +5,13 @@ extends CanvasLayer
 # big speed on the right, the gear in the dial, the rpm figure under the speed, and one line of readouts.
 
 var _panel: DashPanel
+var mode := 0
+
+
+func set_mode(index: int) -> void:
+	mode = index
+	_panel.visible = index != 2
+	_panel.engine_mode = index == 1
 
 
 func _ready() -> void:
@@ -25,16 +32,16 @@ func flash(text: String) -> void:
 	_panel.flash(text)
 
 
-func update(sim: EngineSim, spec: EngineSpec, clutch_held: bool) -> void:
+func update(sim: EngineSim, spec: EngineSpec, clutch_held: bool, throttle: float = 0.0) -> void:
 	var kmh := sim.speed * 3.6
 	var density: float = FuelTank.PROPERTIES[sim.fuel.kind].density
 	var kml := Units.km_per_litre(kmh, sim.fuel_flow, density)
-	var economy := "%.1f km/L" % kml if kmh > 3.0 and kml > 0.0 else "-- km/L"
-	var hint := "Clutch in" if clutch_held else ("Brake (B)" if sim.brake > 0.0 else "Shift+Q/E to shift")
-	var clock := Time.get_time_dict_from_system()
-	var air := "Air %.0f °C" % Units.k_to_c(EngineAir.T0)
-	_panel.set_values(sim.rpm, spec.redline_rpm, kmh, sim.gear.label(), "%s   %s" % [economy, hint],
-		"%02d:%02d   %s" % [clock.hour, clock.minute, air])
+	# below this fuel flow the ratio is just noise (it divides by almost nothing), so the readout shows no value
+	var economy := "%.1f km/L" % minf(kml, 999.0) if kmh > 3.0 and kml > 0.0 and sim.fuel_flow > 0.05 else "-- km/L"
+	var hint := "CLUTCH IN" if clutch_held else ("BRAKE" if sim.brake > 0.0 else "")
+	var state := "RUNNING" if sim.running else ("CRANKING" if sim.rpm > 1.0 else "STOPPED")
+	var info := "Throttle %.0f%%   O2 λ %.2f   Knocks %d" % [throttle * 100.0, sim.o2_lambda(), sim.knock_count] if mode == 1 else "%s   Fuel %.0f%%   %s" % [economy, sim.fuel.fraction() * 100.0, hint]
+	_panel.set_values(sim.rpm, spec.redline_rpm, kmh, sim.gear.label(), info, state)
 
 
 # The dashboard itself: everything is drawn here, so it stays crisp at any window size.
@@ -52,15 +59,17 @@ class DashPanel extends Control:
 	var top_info := ""
 	var flash_text := ""
 	var flash_time := 0.0 # seconds left to show the shift message
+	var engine_mode := false
 
 	func _init() -> void:
 		custom_minimum_size = Vector2(640, 240)
 		grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		grow_vertical = Control.GROW_DIRECTION_BEGIN
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func flash(text: String) -> void:
 		flash_text = text
-		flash_time = 0.9
+		flash_time = 2.0
 		queue_redraw()
 
 	func _process(delta: float) -> void:
@@ -77,59 +86,47 @@ class DashPanel extends Control:
 		top_info = new_top
 		queue_redraw()
 
+	func _fit_font_size(font: Font, text: String, width: float, font_size: int) -> int:
+		var text_width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+		return maxi(1, floori(font_size * minf(1.0, width / maxf(text_width, 1.0))))
+
 	func _draw() -> void:
 		var font := ThemeDB.fallback_font
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.04, 0.04, 0.05, 0.96))
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.25, 0.25, 0.3), false, 2.0)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.045, 0.055, 0.065, 0.97))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.24, 0.28, 0.3), false, 1.0)
+		draw_string(font, Vector2(20.0, 25.0), "ENGINE SPEED  /  x1000 RPM", HORIZONTAL_ALIGNMENT_LEFT, 240, 14, DIM)
+		var header := flash_text if flash_time > 0.0 else top_info
+		draw_string(font, Vector2(size.x - 320.0, 25.0), header, HORIZONTAL_ALIGNMENT_RIGHT, 300, _fit_font_size(font, header, 300.0, 16), Color(1.0, 0.72, 0.34) if flash_time > 0.0 else DIM)
 
-		# rev dial: a semicircle with ticks every 1,000 rpm and a red zone above the redline.
-		# Scale runs to the redline rounded up, plus a little more, and never below 12,000 rpm.
-		var max_rpm := maxf(12000.0, ceilf((redline + 1000.0) / 1000.0) * 1000.0)
-		var centre := Vector2(size.x * 0.5, size.y * 0.74)
-		var radius := size.y * 0.6
-		var arc_start := PI
-		var arc_end := TAU
-		draw_arc(centre, radius, arc_start, arc_end, 96, DIM, 3.0)
-		var redline_frac := clampf(redline / max_rpm, 0.0, 1.0)
-		draw_arc(centre, radius, arc_start + redline_frac * PI, arc_end, 48, RED, 8.0)
+		var max_rpm := maxf(3000.0, ceilf((redline + 1000.0) / 1000.0) * 1000.0)
+		var bar_width := size.x - 40.0
+		var bar := Rect2(20.0, 39.0, bar_width, 12.0)
+		draw_rect(bar, Color(0.16, 0.19, 0.2))
+		var red_start := clampf(redline / max_rpm, 0.0, 1.0) * bar_width
+		draw_rect(Rect2(20.0 + red_start, 39.0, bar_width - red_start, 12.0), Color(0.35, 0.15, 0.13))
+		var filled := clampf(rpm / max_rpm, 0.0, 1.0) * bar_width
+		if filled > 0.0:
+			draw_rect(Rect2(20.0, 39.0, minf(filled, red_start), 12.0), Color(0.48, 0.82, 0.72))
+			if filled > red_start:
+				draw_rect(Rect2(20.0 + red_start, 39.0, filled - red_start, 12.0), RED)
+		var tick_step := 2000.0 if max_rpm <= 16000.0 else 4000.0
 		var tick := 0.0
 		while tick <= max_rpm:
-			var a := arc_start + PI * tick / max_rpm
-			var dir := Vector2.from_angle(a)
-			draw_line(centre + dir * (radius - 12.0), centre + dir * radius, DIM, 2.0)
-			draw_string(font, centre + dir * (radius - 32.0) + Vector2(-20.0, 6.0), str(roundi(tick / 1000.0)), HORIZONTAL_ALIGNMENT_CENTER, 40, 18, DIM)
-			tick += 1000.0
-		var needle := Vector2.from_angle(arc_start + PI * clampf(rpm / max_rpm, 0.0, 1.0))
-		draw_line(centre, centre + needle * (radius - 8.0), RED, 5.0)
-		draw_circle(centre, 7.0, DIM)
+			var tick_x := 20.0 + tick / max_rpm * bar_width
+			draw_line(Vector2(tick_x, 54.0), Vector2(tick_x, 58.0), DIM, 1.0)
+			draw_string(font, Vector2(clampf(tick_x - 14.0, 20.0, size.x - 48.0), 73.0), str(roundi(tick / 1000.0)), HORIZONTAL_ALIGNMENT_CENTER, 28, 12, DIM)
+			tick += tick_step
 
-		# gear in a green ring at the centre of the dial
-		var ring_centre := centre + Vector2.from_angle(PI * 1.5) * radius * 0.4
-		draw_circle(ring_centre, size.y * 0.15, Color(0.08, 0.08, 0.1))
-		draw_arc(ring_centre, size.y * 0.15, 0.0, TAU, 48, GREEN, 3.0)
-		draw_string(font, ring_centre + Vector2(-size.y * 0.15, size.y * 0.12), gear, HORIZONTAL_ALIGNMENT_CENTER, size.y * 0.3, 56, GREEN)
-
-		# speed on the right, rpm figure under it
-		draw_string(font, Vector2(size.x - 226.0, size.y * 0.6), str(roundi(speed)), HORIZONTAL_ALIGNMENT_RIGHT, 210, 104, TEXT)
-		draw_string(font, Vector2(size.x - 226.0, size.y * 0.72), "km/h", HORIZONTAL_ALIGNMENT_RIGHT, 210, 22, DIM)
-		draw_string(font, Vector2(size.x - 226.0, size.y * 0.86), "%d rpm" % roundi(rpm), HORIZONTAL_ALIGNMENT_RIGHT, 210, 20, RED if rpm >= redline else DIM)
-
-		# gear column on the left: neutral lamp on top, the selected gear lit
-		var current := 0 if gear == "N" else gear.to_int()
-		draw_circle(Vector2(30.0, 30.0), 9.0, GREEN if current == 0 else Color(0.15, 0.3, 0.18))
-		for g in range(1, 7):
-			var box := Rect2(14.0, 46.0 + (g - 1) * 26.0, 40.0, 22.0)
-			draw_rect(box, TEXT if g == current else Color(0.15, 0.15, 0.18))
-			draw_string(font, box.position + Vector2(0.0, 16.0), str(g), HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 16, Color(0.05, 0.05, 0.06) if g == current else DIM)
-
-		# top-left: clock and air temperature
-		draw_string(font, Vector2(60.0, 32.0), top_info, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
-
-		# shift message, fading out over the last part of its time
-		if flash_time > 0.0:
-			var alpha := clampf(flash_time / 0.3, 0.0, 1.0)
-			draw_string(font, Vector2(size.x * 0.5 - 120.0, 32.0), flash_text, HORIZONTAL_ALIGNMENT_CENTER, 240, 22, Color(1.0, 0.8, 0.3, alpha))
-
-		# one line of readouts along the bottom
-		# starts right of the gear column so the two never overlap
-		draw_string(font, Vector2(66.0, size.y - 12.0), info, HORIZONTAL_ALIGNMENT_LEFT, size.x - 82.0, 18, DIM)
+		draw_string(font, Vector2(24.0, 102.0), "GEAR", HORIZONTAL_ALIGNMENT_LEFT, 100, 14, DIM)
+		draw_string(font, Vector2(24.0, 176.0), gear, HORIZONTAL_ALIGNMENT_LEFT, 100, 68, GREEN if gear == "N" else TEXT)
+		draw_line(Vector2(135.0, 90.0), Vector2(135.0, 182.0), Color(0.24, 0.28, 0.3), 1.0)
+		draw_string(font, Vector2(158.0, 102.0), "REDLINE" if engine_mode else "SPEED", HORIZONTAL_ALIGNMENT_LEFT, 160, 14, DIM)
+		var speed_text := str(roundi(redline if engine_mode else speed))
+		draw_string(font, Vector2(158.0, 176.0), speed_text, HORIZONTAL_ALIGNMENT_LEFT, 140, _fit_font_size(font, speed_text, 140.0, 68), TEXT)
+		draw_string(font, Vector2(310.0, 176.0), "rpm" if engine_mode else "km/h", HORIZONTAL_ALIGNMENT_LEFT, 70, 18, DIM)
+		draw_line(Vector2(390.0, 90.0), Vector2(390.0, 182.0), Color(0.24, 0.28, 0.3), 1.0)
+		draw_string(font, Vector2(414.0, 102.0), "RPM", HORIZONTAL_ALIGNMENT_LEFT, 160, 14, DIM)
+		var rpm_text := str(roundi(rpm))
+		draw_string(font, Vector2(414.0, 160.0), rpm_text, HORIZONTAL_ALIGNMENT_LEFT, size.x - 434.0, _fit_font_size(font, rpm_text, size.x - 434.0, 40), RED if rpm >= redline else TEXT)
+		draw_line(Vector2(20.0, size.y - 42.0), Vector2(size.x - 20.0, size.y - 42.0), Color(0.24, 0.28, 0.3), 1.0)
+		draw_string(font, Vector2(24.0, size.y - 15.0), info, HORIZONTAL_ALIGNMENT_LEFT, size.x - 48.0, 16, DIM)

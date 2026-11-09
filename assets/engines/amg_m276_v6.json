@@ -86,7 +86,7 @@
       "wastegate_pressure_ratio": 1.8
     },
   "ecu": {
-    "binary_path": "res://ecu_bins/amg_m276.bin"
+    "binary_path": ""
   },
   "metadata": {
     "source": "Wikipedia (M276 DE30LA) + AMG C43/E43 specs; estimates for compression, redline, boost, valve timing, rod ratio, weight",

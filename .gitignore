@@ -16,10 +16,15 @@ config/server.local.cfg
 *.log
 freeze_trace.log
 graphify-out/
-/screenshot.png*
-/capture_parts.png*
+__pycache__/
+*.pyc
+calibration/
+tools/diagnostics/out/*
+!tools/diagnostics/out/.gdignore
 
 # Tool state
 .omc/
 .claude/
-tools/diagnostics/samples/
+tools/diagnostics/samples/*
+!tools/diagnostics/samples/.gdignore
+sound/*.wav

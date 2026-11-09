@@ -61,8 +61,9 @@ func setup(spec: EngineSpec) -> void:
 
 # Moves the manifold for dt seconds: throttle and bypass inflow, drawn_kg_s out to the cylinders.
 func manifold_update(dt: float, throttle: float, drawn_kg_s: float, spec: EngineSpec = null, rpm: float = 0.0, engine_running: bool = true, bike_speed_ms: float = 0.0) -> void:
-	# Apply VE scale to drawn air mass (cylinder intake) to match real volumetric efficiency; 1.0 when no spec is given
-	var drawn_scaled := drawn_kg_s * (spec.ve_scale if spec != null else 1.0)
+	# The mass leaving the manifold must equal what entered the cylinder runners.
+	# Legacy ve_scale multipliers removed/created air without a matching flow.
+	var drawn_scaled := drawn_kg_s
 	var target_boost := 1.0
 	var volume_scale := 1.0
 	var area_scale := 1.0
@@ -74,7 +75,7 @@ func manifold_update(dt: float, throttle: float, drawn_kg_s: float, spec: Engine
 		
 		if spec.electric_compressor or spec.compressor_map_id != "":
 			# Map-based compressor model
-			_update_compressor_map(dt, spec, drawn_scaled, throttle, engine_running, rpm)
+			_update_compressor_map(dt, spec, drawn_scaled, throttle, engine_running)
 			target_boost = compressor_pr
 			speed_factor = 1.0 # map handles speed dependence
 		else:
@@ -106,12 +107,15 @@ func manifold_update(dt: float, throttle: float, drawn_kg_s: float, spec: Engine
 		ram_air_boost = 1.0
 	
 	supply_pressure = P0 * boost_ratio * ram_air_boost
-	var plate_area := THROTTLE_AREA * area_scale * (1.0 - cos(throttle * PI / 2.0))
+	var inlet_area := THROTTLE_AREA
+	if spec != null:
+		inlet_area = PI * pow(maxf(spec.throttle_bore_mm, 1.0) * 0.0005, 2.0) * maxi(spec.throttle_count, 1)
+	var plate_area := inlet_area * area_scale * (1.0 - cos(clampf(throttle, 0.0, 1.0) * PI / 2.0))
 	var inflow := _orifice(plate_area, supply_pressure) + _orifice(bypass_area, supply_pressure)
 	pressure = clampf(pressure + R_AIR * T0 / (MANIFOLD_VOLUME * volume_scale) * (inflow - drawn_scaled) * dt, MIN_PRESSURE, supply_pressure)
 
 
-func _update_compressor_map(dt: float, spec: EngineSpec, m_dot_engine: float, throttle: float, engine_running: bool, rpm: float) -> void:
+func _update_compressor_map(dt: float, spec: EngineSpec, m_dot_engine: float, throttle: float, engine_running: bool) -> void:
 	if compressor_map == null:
 		return
 	
@@ -143,7 +147,6 @@ func _update_compressor_map(dt: float, spec: EngineSpec, m_dot_engine: float, th
 		# Electric motor limited by battery & power rating
 		var batt_frac: float = compressor_charge
 		P_turbine = spec.compressor_power_w * batt_frac
-		var draw: float = P_turbine * dt
 		var charging: float = maxf(spec.compressor_charge_w, 0.0) if engine_running else 0.0
 		var battery_wh: float = maxf(spec.compressor_battery_wh, 0.1)
 		compressor_charge = clampf(compressor_charge + (charging - P_turbine) * dt / (battery_wh * 3600.0), 0.0, 1.0)

@@ -1,5 +1,5 @@
 extends Node
-const ServerSettings := preload("res://scripts/user/server_settings.gd")
+# Use the global ServerSettings class directly (class_name in server_settings.gd)
 ## Hot fixes: the app downloads a finished game patch (a Godot .pck of the game's scripts, scenes and data)
 ## from the server, and loads it the next time the app starts. The engine and the Android parts stay as
 ## they are, so a patch is a few megabytes instead of a new APK.
@@ -25,6 +25,7 @@ const STATE_FILE := "user://patch/state.json"  # {version, sha256, engine, delta
 const DELTA_FILE := "user://patch/delta.pck"  # a small patch on top of the base: only the changed files
 const DELTA_PARTIAL := "user://patch/delta.pck.part"
 const CHECK_SECONDS := 30.0  # how often the app asks the server for a new patch while it runs
+const SERVER_SETTINGS := preload("res://scripts/user/server_settings.gd")
 # The update key's public half (server/make_signing_key.py). Only patches signed with the private key are loaded.
 const PUBLIC_KEY := """-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxSd7mHNZeGw/awip9yZJ
@@ -42,6 +43,7 @@ var _installed := {}  # the patch on disk, if any
 var _busy := false  # a request to the server is in progress
 var _check_wait := 5.0  # seconds until the next check (the first one comes soon after start)
 var _panel: PanelContainer
+var _blocker: ColorRect # full-screen, stops taps behind the update notice
 var _title: Label
 var _body: Label
 var _bar: ProgressBar
@@ -88,7 +90,7 @@ func _ready() -> void:
 # data would replace them, and the app would download and restart for patches here. A test that needs the patch
 # flow passes "-- --use-patch".
 static func _skip_patches() -> bool:
-	return OS.has_feature("editor") and not OS.get_cmdline_user_args().has("--use-patch")
+	return OS.get_name() == "Linux" or (OS.has_feature("editor") and not OS.get_cmdline_user_args().has("--use-patch"))
 
 
 func _load_installed() -> void:
@@ -157,7 +159,7 @@ static func _megabytes(bytes: int) -> String:
 
 
 func _check_server() -> void:
-	var base := ServerSettings.url()
+	var base := SERVER_SETTINGS.url()
 	if base == "" or _busy or _skip_patches():
 		return  # no server: the built-in game only
 	_busy = true
@@ -167,7 +169,7 @@ func _check_server() -> void:
 		_http.request_completed.disconnect(_on_info)
 
 
-func _on_info(result: int, code: int, _headers: PackedStringArray, raw: PackedByteArray) -> void:
+func _on_info(result: int, code: int, _resp_headers: PackedStringArray, raw: PackedByteArray) -> void:
 	_busy = false
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		return  # offline or no patch published
@@ -220,7 +222,7 @@ func _mount_delta() -> void:
 # At start-up the game waits for this check (8 seconds at most). A newer version is downloaded with the
 # progress shown, then the game restarts by itself. With no server, or no newer version, the game starts.
 func _startup_check() -> void:
-	var base := ServerSettings.url()
+	var base := SERVER_SETTINGS.url()
 	if base == "":
 		return
 	_startup = true
@@ -234,7 +236,7 @@ func _startup_check() -> void:
 		_finish_startup()
 
 
-func _on_startup_info(result: int, code: int, _headers: PackedStringArray, raw: PackedByteArray) -> void:
+func _on_startup_info(result: int, code: int, _resp_headers: PackedStringArray, raw: PackedByteArray) -> void:
 	_busy = false
 	var info = null
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
@@ -254,11 +256,15 @@ func _finish_startup() -> void:
 	startup_busy = false
 	startup_text = ""
 	_panel.visible = false
+	_set_blocker(false)
 
 
 # The launcher's check: finds out whether a newer patch exists and how big it is, without downloading it
 func launcher_check() -> void:
-	var base := ServerSettings.url()
+	if OS.get_name() == "Linux":
+		launcher_offline.emit.call_deferred()
+		return
+	var base := SERVER_SETTINGS.url()
 	if base == "":
 		launcher_offline.emit.call_deferred()
 		return
@@ -271,10 +277,16 @@ func launcher_check() -> void:
 		launcher_offline.emit.call_deferred()
 
 
-func _on_launcher_info(result: int, code: int, _headers: PackedStringArray, raw: PackedByteArray) -> void:
+func _on_launcher_info(result: int, code: int, _resp_headers: PackedStringArray, raw: PackedByteArray) -> void:
 	_busy = false
-	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+	if result != HTTPRequest.RESULT_SUCCESS:
 		launcher_offline.emit()  # no answer: this is not the same as "up to date"
+		return
+	if code == 404:
+		launcher_no_update.emit()  # the server answered: this platform has no patch yet
+		return
+	if code != 200:
+		launcher_offline.emit()
 		return
 	var info = JSON.parse_string(raw.get_string_from_utf8())
 	var offer := choose_offer(info, _installed, _engine_version())
@@ -293,7 +305,7 @@ func launcher_download() -> void:
 
 
 func _download() -> void:
-	var base := ServerSettings.url()
+	var base := SERVER_SETTINGS.url()
 	var is_delta := str(_offered.get("kind", "full")) == "delta"
 	_http.timeout = 120.0
 	_busy = true
@@ -305,6 +317,7 @@ func _download() -> void:
 	_restart_button.visible = false
 	_ignore_button.visible = false
 	_panel.visible = not _startup  # a start-up download shows on the loading bar instead
+	_set_blocker(not _startup)
 	_http.download_file = ProjectSettings.globalize_path(DELTA_PARTIAL if is_delta else PARTIAL_FILE)
 	_http.request_completed.connect(_on_downloaded, CONNECT_ONE_SHOT)
 	if _http.request(base + _channel_path("delta.pck" if is_delta else "game.pck"), _headers(), HTTPClient.METHOD_GET) != OK:
@@ -312,7 +325,7 @@ func _download() -> void:
 		_fail_download()
 
 
-func _on_downloaded(result: int, code: int, _headers: PackedStringArray, _raw: PackedByteArray) -> void:
+func _on_downloaded(result: int, code: int, _response_headers: PackedStringArray, _raw: PackedByteArray) -> void:
 	_busy = false
 	_http.download_file = ""
 	var is_delta := str(_offered.get("kind", "full")) == "delta"
@@ -364,6 +377,7 @@ func _on_downloaded(result: int, code: int, _headers: PackedStringArray, _raw: P
 # A download that failed: the game carries on with the version it has
 func _fail_download() -> void:
 	_panel.visible = false
+	_set_blocker(false)
 	if _startup:
 		_finish_startup()
 		if launcher_mode:
@@ -371,27 +385,44 @@ func _fail_download() -> void:
 
 
 func _show_ready() -> void:
-	_bar.value = 100.0
 	_title.text = "Update ready"
-	_body.text = "Patch %d is ready. Go to the main menu to apply it." % int(_offered.get("version", 0))
-	_restart_button.visible = false
-	_ignore_button.visible = false
+	_body.text = "Patch %d is ready. Restart now to use it, or keep playing and it applies next time." % int(_offered.get("version", 0))
+	_bar.visible = false
+	_restart_button.visible = true
+	_ignore_button.visible = true
+	_ignore_button.text = "Later"
 	_panel.visible = true
+	_set_blocker(true)
 
 
 func _build_panel() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 100
 	add_child(layer)
+	# Blocks taps to everything below (game, pads, pause menu) while the update notice is up
+	var blocker := ColorRect.new()
+	blocker.color = Color(0.0, 0.0, 0.0, 0.55)
+	blocker.set_anchors_preset(Control.PRESET_FULL_RECT)
+	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+	blocker.visible = false
+	layer.add_child(blocker)
 	_panel = PanelContainer.new()
 	_panel.visible = false
+	_set_blocker(false)
 	# In the middle of the screen, so the download is clearly in view
 	_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_panel.custom_minimum_size = Vector2(520 * _ui_scale(), 0)
+	_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_panel.custom_minimum_size = Vector2(minf(520 * _ui_scale(), get_viewport().get_visible_rect().size.x - 48.0), 0)
+	_panel.add_theme_stylebox_override("panel", _panel_style())
 	layer.add_child(_panel)
+	var padding := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		padding.add_theme_constant_override(side, int(24 * _ui_scale() / 2.0))
+	_panel.add_child(padding)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	_panel.add_child(box)
+	box.add_theme_constant_override("separation", 12)
+	padding.add_child(box)
 	_title = Label.new()
 	_title.add_theme_font_size_override("font_size", int(22 * _ui_scale()))
 	box.add_child(_title)
@@ -410,7 +441,7 @@ func _build_panel() -> void:
 	box.add_child(buttons)
 	_ignore_button = Button.new()
 	_ignore_button.text = "Ignore"
-	_ignore_button.pressed.connect(func() -> void: _panel.visible = false)
+	_ignore_button.pressed.connect(_hide_notice)
 	buttons.add_child(_ignore_button)
 	_restart_button = Button.new()
 	_restart_button.text = "Restart now"
@@ -421,11 +452,33 @@ func _build_panel() -> void:
 	for button in [_ignore_button, _restart_button]:
 		button.add_theme_font_size_override("font_size", int(18 * _ui_scale()))
 		button.custom_minimum_size = Vector2(120.0 * _ui_scale(), 56.0 * _ui_scale())
+	_blocker = blocker
+
+
+# The notice's blocker only exists once the panel is built; updates can run before that
+func _set_blocker(on: bool) -> void:
+	if _blocker != null:
+		_blocker.visible = on
+
+
+# Closes the update notice and lets the player back to the game
+func _hide_notice() -> void:
+	_panel.visible = false
+	_set_blocker(false)
 
 
 # Phones have a small screen for the game's size, so the update panel is drawn larger there
 func _ui_scale() -> float:
-	return 2.2 if OS.has_feature("mobile") else 1.0
+	return 1.6 if OS.has_feature("mobile") else 1.0
+
+
+func _panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.094, 0.118, 0.173, 0.98)
+	style.set_corner_radius_all(12)
+	style.set_border_width_all(2)
+	style.border_color = Color(1, 0.42, 0.208)
+	return style
 
 
 # Restarts the game without the player pressing its icon. On Android, a new start of the app is requested
@@ -446,6 +499,7 @@ func _reload_game() -> bool:
 	_busy = false
 	get_tree().paused = false
 	_panel.visible = false
+	_set_blocker(false)
 	print("[restart] game reloaded in place with patch %d" % int(_installed.get("version", 0)))
 	get_tree().change_scene_to_packed.call_deferred(scene)
 	return true
@@ -534,8 +588,8 @@ func _engine_version() -> String:
 
 func _headers() -> PackedStringArray:
 	var headers := PackedStringArray()
-	if ServerSettings.secret() != "":
-		headers.append("X-Engine-Builder-Secret: " + ServerSettings.secret())
+	if SERVER_SETTINGS.secret() != "":
+		headers.append("X-Engine-Builder-Secret: " + SERVER_SETTINGS.secret())
 	return headers
 
 

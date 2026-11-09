@@ -67,7 +67,23 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		var pitch := spec.bore_mm * Units.MM_TO_SCENE * EngineModel.PITCH_FACTOR
 		for i in n:
 			ports.append(Vector3(-(n - 1) * pitch * 0.5 + i * pitch, crank.y + 1.5, 0.55))
+	# a two-stroke has an expansion chamber per cylinder in place of the four-stroke headers, catalyst and muffler
+	if spec.stroke_type == "two_stroke":
+		var chambers := ExhaustLayout.new()
+		var chamber_m := spec.expansion_chamber_length_m if spec.expansion_chamber else 0.6 # without a chamber, a plain tube
+		for i in ports.size():
+			ExpansionChamber.add_to(chambers, ports[i], i, chamber_m)
+		return chambers
 	var layout := ExhaustLayout.new()
+	# Aftermarket canister proportions are illustrative, not OEM measurements.
+	var muffler_len := MUFFLER_LEN
+	var muffler_radius := MUFFLER_R
+	if spec.muffler_style == "sport":
+		muffler_len = 3.0
+		muffler_radius = 0.46
+	elif spec.muffler_style == "short":
+		muffler_len = 1.9
+		muffler_radius = 0.42
 	var low_y := ground_y + GROUND_CLEARANCE + CAT_R # the pipes run under the engine, their lowest point at the ground clearance
 	var centre_x := 0.0
 	for p in ports:
@@ -118,8 +134,8 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		var secondaries: Array[int] = []
 		for gi in groups.size():
 			var a: Vector3 = group_ends[gi]
-			var mid := a.lerp(collector, 0.5) + Vector3(0.0, -0.03, 0.0)
-			var pipe := _pipe("secondary %d" % (gi + 1), "secondary", _spline([a, mid, collector]), SECONDARY_R)
+			var secondary_mid := a.lerp(collector, 0.5) + Vector3(0.0, -0.03, 0.0)
+			var pipe := _pipe("secondary %d" % (gi + 1), "secondary", _spline([a, secondary_mid, collector]), SECONDARY_R)
 			for i in layout.pipes.size():
 				if layout.pipes[i].kind == "primary" and layout.pipes[i].pts[-1].is_equal_approx(a):
 					pipe.feeders.append(i)
@@ -157,13 +173,13 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 	mid.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(mid)
 
-	var muffler := _axial("muffler", "muffler", m0, dir, [0.0, 0.4, 0.42, MUFFLER_LEN - 0.42, MUFFLER_LEN - 0.4, MUFFLER_LEN],
-			[COLLECTOR_R, MUFFLER_R, MUFFLER_R, MUFFLER_R, MUFFLER_R, 0.3])
+	var muffler := _axial("muffler", "muffler", m0, dir, [0.0, 0.4, 0.42, muffler_len - 0.42, muffler_len - 0.4, muffler_len],
+			[COLLECTOR_R, muffler_radius, muffler_radius, muffler_radius, muffler_radius, 0.3])
 	muffler.loss = MUFFLER_LOSS
 	muffler.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(muffler)
 
-	var tail := _axial("tailpipe", "tail", m0 + dir * MUFFLER_LEN, dir, [0.0, TAIL_LEN], [TAIL_R, TAIL_R])
+	var tail := _axial("tailpipe", "tail", m0 + dir * muffler_len, dir, [0.0, TAIL_LEN], [TAIL_R, TAIL_R])
 	tail.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(tail)
 	return layout

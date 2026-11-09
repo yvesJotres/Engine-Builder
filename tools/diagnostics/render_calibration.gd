@@ -1,48 +1,22 @@
 extends SceneTree
 
-# Renders the exhaust sound on one preset, driven by the real engine simulation, with a grid of filter settings.
-# A start, then a throttle sweep from idle to redline in neutral. Output goes to calibration/ as WAV files.
+# Renders the exhaust sound on one preset, driven by the real engine simulation.
+# A start, then a throttle sweep from idle to redline in neutral. Output goes to calibration/ as a WAV file.
 # Run with: godot --headless --path . -s tools/diagnostics/render_calibration.gd
 
 const PRESET := "Honda CBR250RR (2017, MC51)"
 const DT := 1.0 / 60.0
-const BASS := [0.0, 1.0, 2.0] # extra low band, below about 140 Hz
-const HIGH := [0.0, 0.5, 1.0] # extra band above about 1 kHz
 
 
 func _init() -> void:
 	DirAccess.make_dir_recursive_absolute("res://calibration")
 	var spec := _spec(PRESET)
-	var frames := _drive(spec)
-	for bass in BASS:
-		for high in HIGH:
-			var snd := EngineSound.new()
-			snd.setup(spec)
-			snd.bass_gain = bass
-			snd.high_gain = high
-			var mono := PackedFloat32Array()
-			for fr in frames:
-				snd.rpm = fr.rpm
-				snd.firing = fr.firing
-				snd.energy = fr.energy
-				for f in snd.render(int(EngineSound.RATE * DT)):
-					mono.append(f.x)
-			var name := "sim_cbr250_bass%02d_high%02d" % [roundi(bass * 10), roundi(high * 10)]
-			_write_wav("res://calibration/%s.wav" % name, mono)
-			print("wrote calibration/%s.wav" % name)
-			snd.free()
-	quit()
-
-
-# Runs the simulation: starter until running, idle, then a throttle sweep to 1.0 in neutral.
-# Returns one dictionary per frame with the rpm, whether the mixture is burning, and the exhaust energy.
-func _drive(spec: EngineSpec) -> Array:
+	var snd := EngineSound.new()
+	snd.setup(spec)
 	var sim := EngineSim.new()
+	sim.exhaust_solver = true
 	sim.fuel.set_kind(spec.fuel)
-	var afr: float = FuelTank.PROPERTIES[spec.fuel].afr
-	var max_air := Units.AIR_DENSITY * spec.displacement_cc * 1e-6 * (spec.redline_rpm / 120.0)
-	var max_fuel_g_s := max_air / afr * 1000.0
-	var frames: Array = []
+	var mono := PackedFloat32Array()
 	var t := 0.0
 	while t < 14.0:
 		var throttle := 0.0
@@ -50,13 +24,16 @@ func _drive(spec: EngineSpec) -> Array:
 		if t >= 6.0:
 			throttle = clampf((t - 6.0) / 6.0, 0.0, 1.0)
 		sim.step(DT, spec, throttle, true, starter, false, false, 1.0)
-		frames.append({
-			"rpm": sim.rpm,
-			"firing": sim.running and not sim.limiter_active,
-			"energy": sqrt(clampf(sim.fuel_flow / max_fuel_g_s, 0.0, 1.0)),
-		})
+		snd.rpm = sim.rpm
+		if sim.exhaust != null:
+			snd.push_flow(sim.exhaust.take_flow())
+		for f in snd.render(int(EngineSound.RATE * DT)):
+			mono.append(f.x)
 		t += DT
-	return frames
+	_write_wav("res://calibration/sim_cbr250.wav", mono)
+	print("wrote calibration/sim_cbr250.wav")
+	snd.free()
+	quit()
 
 
 # Builds the spec the same way the sim does, so the sound uses the preset's cylinders and firing.

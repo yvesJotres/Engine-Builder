@@ -106,6 +106,7 @@ func _ready() -> void:
 	_model = EngineModel.new()
 	add_child(_model)
 	_drivetrain = Drivetrain.new()
+	_dyno.shift_pedal_requested.connect(_drivetrain.animate_shift)
 	add_child(_drivetrain)
 	_car.visible = false
 	add_child(_car)
@@ -131,6 +132,7 @@ func _ready() -> void:
 	_panel.kill_switch_changed.connect(func(killed: bool) -> void: _ignition = not killed)
 	_panel.starter_changed.connect(func(held: bool) -> void: _panel_starter = held)
 	_panel.camera_requested.connect(_on_camera_requested)
+	_panel.engine_cover_changed.connect(func(assembled: bool) -> void: _model.set_assembled_view(assembled))
 	_panel.dyno_pressed.connect(_on_dyno_pressed)
 	_panel.render_pressed.connect(_on_render_pressed)
 	_stats = ENGINE_STATS_SCRIPT.new()
@@ -286,9 +288,7 @@ func _process(delta: float) -> void:
 			_hud.flash("KILL SWITCH IS ON: SET IT TO RUN TO START")
 		# only the Shift key pulls the clutch fully apart; the lever's own pull sets the friction zone through clutch_pull
 		# Get throttle override from ECU (quickshifter cut/blip)
-		var ecu_throttle_override = _sim.ecu.update(delta, _sim.rpm, _throttle, _sim.running, spec, _sim.speed, _sim.clutch_pull, _sim.gear.gear)
-		if ecu_throttle_override >= 0.0:
-			_throttle = ecu_throttle_override
+		# ECU timers advance only in the fixed physics loop.
 		
 		_sim.step(delta, spec, _throttle, _ignition, wants_start and in_neutral_or_pulled, Input.is_physical_key_pressed(KEY_SHIFT), _brake_held, _panel.lambda())
 		_update_shift_request(delta)
@@ -307,7 +307,7 @@ func _process(delta: float) -> void:
 	_sound.position = _tail_tip
 	if _sound_on:
 		_sound.set_conditions(_sim.o2_lambda(), _sim.exhaust_temp_c(), _sim.backpressure_pa())
-		if _sim.exhaust_solver and _sim.exhaust != null:
+		if _sim.uses_pipe_sound():
 			_sound.push_flow(_sim.exhaust.take_flow())
 		else:
 			_sound.push_flow(_sim.take_blowdown())
@@ -394,6 +394,8 @@ func _shift(up: bool) -> void:
 	if _dyno.active():
 		_hud.flash("DYNO TEST IS RUNNING")
 		return
+	if spec.vehicle_type != "car":
+		_drivetrain.animate_shift(up)
 	if spec.transmission_type == "dual_clutch":
 		_shift_dual_clutch(up)
 		return
@@ -410,7 +412,7 @@ func _update_vehicle_wheels(delta: float) -> void:
 	if spec.vehicle_type == "car":
 		_car.update(wheel_rpm, delta)
 	else:
-		_drivetrain.update(_crank, wheel_rpm, delta)
+		_drivetrain.update(_crank, wheel_rpm, delta, _sim.brake)
 	_update_cell(delta)
 
 
@@ -461,6 +463,19 @@ func _update_shift_request(delta: float) -> void:
 		_pending_shift = 0
 		_hud.flash("TOP GEAR" if up else "BOTTOM GEAR")
 		return
+	# Quickshifter: shift with the clutch engaged and under load. Upshifts cut the ignition; downshifts rely on the blip.
+	if spec.quickshifter and before > 0 and target > 0:
+		var qs_ratio: float = spec.primary_ratio * float(_sim.gear.gear_ratios[target - 1]) * spec.final_drive
+		var qs_rpm := _sim.speed / EngineSim.tire_radius_m(spec) * qs_ratio * 60.0 / TAU
+		var quick_up := up and _throttle > 0.5 and _sim.rpm >= spec.quickshifter_min_rpm
+		var quick_down := not up and target < before and qs_rpm <= spec.redline_rpm * 1.03
+		if quick_up or quick_down:
+			_sim.gear.gear = target
+			_pending_shift = 0
+			if quick_up:
+				_sim.ecu.trigger_quickshifter(spec)
+			_hud.flash("QUICKSHIFT UP" if quick_up else "QUICKSHIFT DOWN")
+			return
 	var clutch_open := _sim.clutch_engage <= 0.1
 	var unloaded := absf(_sim.gearbox_load) <= maxf(0.5, _sim.clutch_capacity(spec) * 0.08)
 	var speed_matched := true
@@ -508,16 +523,10 @@ func _close_if_still_background() -> void:
 
 # The dyno cell controls: the drum on or off, and how hard its brake loads the engine
 func _build_cell_panel() -> void:
-	var layer := CanvasLayer.new()
-	layer.layer = 1
-	add_child(layer)
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	panel.offset_left = -320.0
-	panel.offset_right = -16.0
-	panel.offset_top = 132.0
-	layer.add_child(panel)
+	_stats.add_controls(panel)
 	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 	var title := Label.new()
 	title.text = "DYNO CELL"
@@ -532,7 +541,7 @@ func _build_cell_panel() -> void:
 	slider.min_value = 0.0
 	slider.max_value = 100.0
 	slider.value = _cell_load * 100.0
-	slider.custom_minimum_size.x = 260.0
+	slider.custom_minimum_size = Vector2(0, 40)
 	box.add_child(slider)
 	var show_load := func(percent: float) -> void:
 		load_label.text = "Brake load %d%%" % int(percent)
@@ -548,6 +557,7 @@ func _build_cell_panel() -> void:
 	run.pressed.connect(_on_dyno_pressed)
 	box.add_child(run)
 	_cell_status = Label.new()
+	_cell_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_cell_status)
 
 
@@ -563,7 +573,8 @@ func _build_cell_equipment() -> void:
 	_cell = DYNO_CELL_SCRIPT.new()
 	add_child(_cell)
 	var rear_z := _drivetrain.rear_axle.z
-	_cell.build(Ground.Y, rear_z, rear_z + Drivetrain.WHEELBASE)
+	# The shared stats panel already displays the sensor values.
+	_cell.build(Ground.Y, rear_z, _drivetrain.front_axle.z, false)
 	_cell.set_drum(_cell_on)
 
 
@@ -595,6 +606,8 @@ func _on_dyno_pressed() -> void:
 		_hud.flash("KILL SWITCH IS ON: SET IT TO RUN FOR THE DYNO TEST")
 		return
 	_pending_shift = 0
+	var selected_preset: int = _panel._preset_button.selected
+	_dyno.reference_id = str(_panel._preset_ids[selected_preset]) if selected_preset >= 0 else ""
 	_dyno.start(spec, _sim)
 	_dyno_view.open()
 	_dyno_view.refresh(_dyno)
@@ -665,6 +678,9 @@ func _on_sound_toggled(on: bool) -> void:
 # Rebuilds the engine and its neighbours after any setting changes.
 func _on_panel_changed() -> void:
 	_panel.apply_to(spec)
+	_sim.exhaust_solver = spec.live_exhaust_physics
+	_shift_sensor.upshift_threshold = spec.quickshifter_sensitivity
+	_shift_sensor.downshift_threshold = spec.quickshifter_sensitivity
 	_panel.set_build_summary(spec)
 	_sim.fuel.set_capacity(spec.fuel_capacity_l)
 	_sim.fuel.set_kind(spec.fuel)
@@ -681,15 +697,17 @@ func _on_panel_changed() -> void:
 	if is_car:
 		_car.build(spec, Ground.Y)
 	else:
+		_tank.set_capacity(spec.fuel_capacity_l)
 		_tank.place(_model.highest_y() + 0.4, (_model.crank_position().z + _model.throttle_position().z) * 0.5)
-		var frame_half_width := maxf(0.85, _model._span * 0.5 + spec.bore_mm * Units.MM_TO_SCENE * 0.65 + 0.12)
-		_drivetrain.build(Ground.Y, GearboxModel.countershaft_position(_model.crank_position(), spec), _tank.outlet_position(), frame_half_width)
+		var engine_bounds := _model.chassis_envelope()
+		var frame_half_width := maxf(0.85, maxf(absf(engine_bounds.position.x), absf(engine_bounds.end.x)) + 0.25)
+		_drivetrain.build(Ground.Y, GearboxModel.countershaft_position(_model.crank_position(), spec), _tank.outlet_position(), frame_half_width, spec.has_abs, engine_bounds, spec)
 		_build_cell_equipment()
 		if spec.v3r_style:
 			_drivetrain.add_v3r_bodywork(_tank.outlet_position())
 		_clutch.build(_model.crank_position(), spec, _model.primary_gear_x())
 		_gearbox.build(_model.crank_position(), spec, _model.primary_gear_x())
-		_fuel_line.build(_tank.outlet_position(), _model.injector_position())
+		_fuel_line.build(_tank.outlet_position(), _model.fuel_feed_positions(), spec.induction)
 	if is_car != _car_mode:
 		if is_car:
 			_bike_camera_target = _orbit.target

@@ -129,7 +129,13 @@ def promote() -> int:
     return 0
 
 
-GATE_TESTS = ["test_engine", "clutch_stability_test", "touch_controls_test", "spark_check", "ir_check", "ecu_test", "fuel_flow_test", "sensors_test", "v_geometry_test", "engine_geometry_test", "firing_reference_test", "clutch_bite_test", "backfire_test", "cam_test", "ignition_offset_test", "fuel_effect_test", "fuel_chemistry_test", "panel_defaults_test", "game_idle_test"]
+GATE_TESTS = ["unit/test_engine", "unit/drivetrain/clutch_stability_test", "visual/ui/touch_controls_test", "unit/ecu/spark_check", "unit/ecu/ir_check", "unit/ecu/ecu_test", "unit/ecu/ecu_binary_parser_test", "unit/ecu/ecu_runtime_calibration_test", "unit/fuel/fuel_flow_test", "unit/controls/sensors_test", "unit/engine/v_geometry_test", "unit/engine/engine_geometry_test", "unit/engine/firing_reference_test", "unit/drivetrain/clutch_bite_test", "unit/ecu/backfire_test", "unit/engine/cam_test", "unit/ecu/ignition_offset_test", "unit/fuel/fuel_effect_test", "unit/fuel/fuel_chemistry_test", "unit/controls/panel_defaults_test", "integration/game/game_idle_test"]
+
+
+GATE_TESTS.extend(["integration/dyno/dyno_measurement_test", "integration/dyno/dyno_test", "integration/dyno/dyno_cell_test", "integration/dyno/dyno_view_test"])
+GATE_TESTS.extend(["unit/engine/r1_runner_test", "unit/engine/engine_library_test", "unit/engine/build_save_test"])
+GATE_TESTS.extend(["unit/engine/cbr1000rrr_test", "integration/dyno/online_dyno_test"])
+GATE_TESTS.append("unit/drivetrain/vehicle_dimensions_test")
 
 
 def run_tests() -> bool:

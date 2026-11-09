@@ -23,14 +23,14 @@ func build(layout: ExhaustLayout) -> void:
 				mat = muffler
 			"tail":
 				mat = chrome
-		_add_mesh(_tube(pipe.pts, pipe.radii, pipe.kind == "muffler" or pipe.kind == "tail"), mat)
+		_add_mesh(_tube(pipe.pts, pipe.radii, pipe.kind == "muffler"), mat)
 		# band clamps where one part meets the next, and two straps round the canister
 		if pipe.kind in ["catalyst", "mid", "muffler"]:
 			_clamp(pipe.pts[0], pipe.pts[1], pipe.radii[0], clamp_mat)
 		if pipe.kind == "muffler":
 			var axis: Vector3 = (pipe.pts[-1] - pipe.pts[0]).normalized()
 			for s in [0.3, 0.72]:
-				_clamp(pipe.pts[0].lerp(pipe.pts[-1], s), pipe.pts[0].lerp(pipe.pts[-1], s) + axis, ExhaustLayout.MUFFLER_R * 1.04, clamp_mat, 0.14)
+				_clamp(pipe.pts[0].lerp(pipe.pts[-1], s), pipe.pts[0].lerp(pipe.pts[-1], s) + axis, pipe.radii[2] * 1.04, clamp_mat, 0.14)
 
 
 func _add_mesh(mesh: Mesh, mat: Material) -> void:

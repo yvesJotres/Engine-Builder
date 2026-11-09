@@ -15,7 +15,7 @@ func reset() -> void:
 	_last_shift_time = 0.0
 	_shift_state = 0
 
-func update(force: float, dt: float) -> int:
+func update(force: float, _dt: float) -> int:
 	var now = Time.get_ticks_msec() / 1000.0
 	
 	if now - _last_shift_time < debounce_ms / 1000.0:

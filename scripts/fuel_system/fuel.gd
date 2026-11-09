@@ -15,11 +15,12 @@ const PROPERTIES := {
 	"ron92": {"afr": 14.7, "lhv": 44e6, "density": 745.0, "latent": 350e3, "octane": 92.0},
 	"ron95": {"afr": 14.7, "lhv": 44e6, "density": 745.0, "latent": 350e3, "octane": 95.0},
 	"ron98": {"afr": 14.7, "lhv": 44e6, "density": 745.0, "latent": 350e3, "octane": 98.0},
+	"ron100": {"afr": 14.7, "lhv": 44e6, "density": 745.0, "latent": 350e3, "octane": 100.0},
 	"e85": {"afr": 9.76, "lhv": 30.2e6, "density": 780.0, "latent": 742e3, "octane": 105.0},
 }
 # The fuel choices in the order the panel lists them, with the labels it shows.
-const KINDS := ["ron90", "ron92", "ron95", "ron98", "e85"]
-const LABELS := ["RON 90", "RON 92", "RON 95", "RON 98", "E85"]
+const KINDS := ["ron90", "ron92", "ron95", "ron98", "ron100", "e85"]
+const LABELS := ["RON 90", "RON 92", "RON 95", "RON 98", "RON 100", "E85"]
 
 var kind := "ron95"
 var afr: float
@@ -27,6 +28,7 @@ var lhv: float
 var latent: float
 var octane: float
 var mass_kg: float
+var capacity_litres := TANK_LITRES
 
 
 func _init() -> void:
@@ -42,11 +44,17 @@ func set_kind(new_kind: String) -> void:
 
 
 func refill() -> void:
-	mass_kg = TANK_LITRES * PROPERTIES[kind].density / 1000.0
+	mass_kg = capacity_litres * PROPERTIES[kind].density / 1000.0
 
 
 func fraction() -> float:
-	return mass_kg / (TANK_LITRES * PROPERTIES[kind].density / 1000.0)
+	return mass_kg / (capacity_litres * PROPERTIES[kind].density / 1000.0)
+
+
+func set_capacity(litres: float) -> void:
+	var level := clampf(fraction(), 0.0, 1.0)
+	capacity_litres = maxf(litres, 0.1)
+	mass_kg = level * capacity_litres * PROPERTIES[kind].density / 1000.0
 
 
 func _apply_kind(new_kind: String) -> void:

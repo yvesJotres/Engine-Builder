@@ -3,9 +3,9 @@ extends SceneTree
 # Saves a PNG of the full main scene, so the layout can be checked without a person at the screen.
 # Run windowed (not --headless):
 #   godot --path "<project>" -s res://tools/diagnostics/screenshot.gd
-# Output: screenshot.png in the project folder.
+# Output: tools/diagnostics/out/screenshot.png
 
-const OUT := "res://screenshot.png"
+const OUT := "res://tools/diagnostics/out/screenshot.png"
 const FRAMES_TO_WAIT := 30 # lets the first frames build the scene and settle
 
 func _init() -> void:
@@ -19,6 +19,7 @@ func _capture(frames: int) -> void:
 		await process_frame
 	var image := get_root().get_texture().get_image()
 	var path := ProjectSettings.globalize_path(OUT)
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	image.save_png(path)
 	print("saved ", path)
 	quit(0)

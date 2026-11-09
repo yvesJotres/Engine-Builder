@@ -3,7 +3,7 @@ extends SceneTree
 # Renders only the piston, connecting rod and crankshaft of the single-cylinder model to a PNG.
 # Run windowed (not --headless): godot --path <project> -s res://tools/diagnostics/capture_parts.gd
 
-const OUT := "res://capture_parts.png"
+const OUT := "res://tools/diagnostics/out/capture_parts.png"
 
 func _init() -> void:
 	var spec := EngineSpec.new()
@@ -30,6 +30,8 @@ func _init() -> void:
 	for i in 5:
 		await process_frame
 	var image := get_root().get_texture().get_image()
-	image.save_png(ProjectSettings.globalize_path(OUT))
-	print("saved ", ProjectSettings.globalize_path(OUT))
+	var path := ProjectSettings.globalize_path(OUT)
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	image.save_png(path)
+	print("saved ", path)
 	quit(0)

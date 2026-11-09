@@ -105,6 +105,7 @@ func _parse_args() -> void:
 
 func _render_dyno(spec: EngineSpec, preset_name: String, output_path: String) -> PackedFloat32Array:
 	var sim := EngineSim.new()
+	sim.exhaust_solver = true
 	sim.physics_dt = _physics_dt
 	
 	var sound := EngineSound.new()
@@ -113,9 +114,6 @@ func _render_dyno(spec: EngineSpec, preset_name: String, output_path: String) ->
 	
 	var dyno := DynoTest.new()
 	dyno.start(spec, sim)
-	
-	var max_air := Units.AIR_DENSITY * spec.displacement_cc * 1.0e-6 * (spec.redline_rpm / 120.0)
-	var max_fuel := max_air / float(FuelTank.PROPERTIES[sim.fuel.kind].afr) * 1000.0
 	
 	var out := PackedFloat32Array()
 	var gate := 0.0
@@ -140,8 +138,8 @@ func _render_dyno(spec: EngineSpec, preset_name: String, output_path: String) ->
 		# Update sound inputs for this frame
 		gate = move_toward(gate, 1.0 if sim.running else 0.0, FRAME_DT / 0.05)
 		sound.rpm = sim.rpm
-		sound.firing = sim.running and not sim.limiter_active
-		sound.energy = sqrt(clampf(sim.fuel_flow / max_fuel, 0.0, 1.0))
+		if sim.exhaust != null:
+			sound.push_flow(sim.exhaust.take_flow())
 		
 		# Render audio for this frame
 		var frame_samples := int(_sample_rate * FRAME_DT)

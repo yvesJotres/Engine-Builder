@@ -1,0 +1,12 @@
+{
+  "tolerances": {"power_fraction": 0.03, "torque_fraction": 0.05, "road_fraction": 0.05, "power_peak_rpm": 600},
+  "baseline": {"rider_kg": 75, "vehicle": "stock", "fuel": "manufacturer recommended", "tank": "full", "road": "level, dry, still air", "engine": "warm"},
+  "references": {
+    "honda_cbr1000rrr_sp": {"variant": "2020 Europe CBR1000RR-R Fireblade SP", "power_kw": 160.0, "power_rpm": 14500, "torque_nm": 113.0, "torque_rpm": 12500, "source": "https://global.honda/en/newsroom/news/2019/2191105aeng.html"},
+    "honda_cbr250rr": {"variant": "2017 Japan 2BK-MC51", "power_kw": 28.0, "power_rpm": 12500, "torque_nm": 23.0, "torque_rpm": 11000, "source": "https://global.honda/jp/news/2017/2170418-cbr250rr.html"},
+    "yamaha_mt07": {"variant": "2014 Japan MT-07", "power_kw": 54.0, "power_rpm": 9000, "torque_nm": 68.0, "torque_rpm": 6500, "source": "https://global.yamaha-motor.com/jp/news/2014/0707/mt-07.html"},
+    "yamaha_yzf_r1m": {"variant": "2015 Europe YZF-R1M", "power_kw": 147.1, "power_rpm": 13500, "torque_nm": 112.4, "torque_rpm": 11500, "source": "https://global.yamaha-motor.com/news/2014/1104/yzf-r1.html"}
+  },
+  "deferred": ["honda_v3r900", "amg_v6_w17"],
+  "notes": "Manufacturer values are crankshaft measurements. Road speed at an imposed RPM is only a gearing result. Road validation requires comparable measured runs, rider/vehicle mass, tyres, drag and driveline losses. Missing curve/transient/road references are unverified. Variant selection must not mix markets."
+}

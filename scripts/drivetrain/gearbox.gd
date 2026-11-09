@@ -28,7 +28,7 @@ func ratio() -> float:
 # Like a real motorcycle drum: 1st, neutral, 2nd, 3rd, ... so neutral is the half click between 1st and 2nd, and there is
 # nothing below 1st. Starting in neutral, down gives 1st and up gives 2nd.
 func shift_up() -> void:
-	gear = 2 if gear == 0 else (0 if gear == 1 else mini(gear + 1, TOP_GEAR))
+	gear = mini(2, gear_ratios.size()) if gear == 0 else (0 if gear == 1 else mini(gear + 1, gear_ratios.size()))
 
 
 func shift_down() -> void:

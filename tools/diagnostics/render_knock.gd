@@ -15,11 +15,10 @@ func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var spec := EngineSpec.new()
 	var sim := EngineSim.new()
+	sim.exhaust_solver = true
 	var sound := EngineSound.new()
 	root.add_child(sound)
 	sound.setup(spec)
-	var max_air := Units.AIR_DENSITY * spec.displacement_cc * 1.0e-6 * (spec.redline_rpm / 120.0)
-	var max_fuel := max_air / float(FuelTank.PROPERTIES[sim.fuel.kind].afr) * 1000.0
 	var out := PackedFloat32Array()
 	var t := 0.0
 	# seconds, throttle, timing offset, starter held
@@ -32,10 +31,8 @@ func _init() -> void:
 		while t < end_t:
 			sim.step(DT, spec, throttle, true, stage[3], false, false, 1.0)
 			sound.rpm = sim.rpm
-			sound.firing = sim.running and not sim.limiter_active
-			sound.energy = sqrt(clampf(sim.fuel_flow / max_fuel, 0.0, 1.0))
-			sound.knock = clampf(sim.knock_excess / 5.0, 0.0, 1.0)
-			sound._ignition_offset = spec.ignition_offset_deg
+			if sim.exhaust != null:
+				sound.push_flow(sim.exhaust.take_flow())
 			for frame in sound.render(FRAME_SAMPLES):
 				out.append(frame.x)
 			t += DT

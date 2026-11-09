@@ -4,7 +4,11 @@ extends Resource
 @export var cylinders := 1
 @export var vehicle_type := "motorcycle"
 @export var transmission_type := "manual"
+@export var stroke_type := "four_stroke" # "four_stroke" | "two_stroke"
+@export var induction := "injection" # how the fuel gets in: "injection" (a nozzle per cylinder) | "carburettor" (a bell with a float bowl, two-strokes)
 @export var wheelbase_mm := 1310.0
+@export var rider_kg := 75.0
+@export var vehicle_mass_includes_rider := true # legacy presets used combined mass; explicit curb-mass presets set false
 @export var wheel_radius_m := 0.0
 @export var vehicle_length_mm := 0.0
 @export var vehicle_width_mm := 0.0
@@ -14,6 +18,10 @@ extends Resource
 @export var front_wheel_radius_m := 0.0
 @export var front_tire_width_mm := 0.0
 @export var rear_tire_width_mm := 0.0
+@export var front_tire_aspect := 0.80
+@export var rear_tire_aspect := 0.70
+@export var front_rim_in := 17.0
+@export var rear_rim_in := 17.0
 @export var fuel_capacity_l := 12.0
 @export var drag_area_m2 := 0.4
 @export var max_boost_ratio := 1.0
@@ -30,6 +38,8 @@ extends Resource
 @export var wastegate_pressure_ratio: float = 0.0 # PR at which wastegate opens (0 = spring pressure)
 @export var turbine_efficiency: float = 0.70 # adiabatic efficiency
 @export var intake_area_scale := 1.0
+@export var throttle_bore_mm := 30.0 # fallback estimate; override only with a source
+@export var throttle_count := 1 # physical butterfly count feeding the lumped manifold
 @export var manifold_volume_scale := 1.0
 @export var clutch_capacity_nm := 0.0
 @export var displacement_cc := 149.16 # Honda CBR150R (K45N) - exact bore x stroke
@@ -39,6 +49,8 @@ extends Resource
 @export var bank_angle := 90.0 # V layout only, degrees between banks
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
+@export var muffler_style := "stock" # stock | sport | short; approximate dimensions, four-stroke only
+@export var live_exhaust_physics := false # experimental 1D pipe solver; higher CPU cost
 @export var fuel := "ron95" # a FuelTank.KINDS entry: ron90, ron92, ron95, ron98 or e85
 @export var ecu_binary := "" # optional verified ECU flash; unsupported layouts are ignored safely
 @export var exhaust_ir_path := "" # custom muffler IR WAV (res://assets/ir/...); empty = auto by layout
@@ -90,6 +102,9 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 # Downshift blip
 @export var quickshifter_blip_time := 0.08 # s, throttle blip duration for clutchless downshift
 @export var quickshifter_blip_throttle := 0.3 # throttle fraction during downshift blip
+@export var quickshifter_sensitivity := 0.7 # force the shifter needs before it shifts: higher needs a firmer press
+@export var quickshifter_flat_shift := false # keep the throttle cracked during the upshift cut instead of closing it
+@export var flat_shift_throttle := 0.15 # throttle fraction held during a flat-shift cut
 # Power modes: F (Full), M (Mid), L (Low) - changes throttle response and ignition timing
 @export var power_mode := "F" # "F", "M", or "L"
 # Launch control: holds RPM at launch_rpm while clutch pulled + throttle > launch_throttle + speed < launch_speed
@@ -97,6 +112,9 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var launch_rpm := 8000.0 # target RPM for launch control
 @export var launch_throttle := 0.95 # throttle fraction to arm launch control
 @export var launch_speed_kmh := 30.0 # speed below which launch control is active (km/h)
+# Speed limiter: the voluntary 300 km/h limit most makers fit. The ECU closes the throttle at the limit and the bike holds it.
+@export var speed_limit_enabled := false # fit the limiter
+@export var speed_limit_kmh := 300.0 # the limit, km/h
 @export var abs_enabled := false # rider switch, only valid when has_abs
 @export var traction_control_enabled := false # rider switch, only valid when has_traction_control
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
@@ -124,6 +142,9 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var intake_valve_mm := 20.0 # one intake valve head, two valves. 20 mm is the small-single estimate; a published head size replaces it
 @export var exhaust_valve_mm := 17.0 # one exhaust valve head, two valves
 @export var runner_length_m := 0.25 # throttle body to the valve. 0.25 m is the small-single estimate; a shorter runner holds its fill to a higher rpm
+@export var runner_bore_mm := 0.0 # 0 preserves the legacy 6.6 cm² runner; equivalent bore, not butterfly diameter
+@export var intake_display := "stock" # visual option; stock stack dimensions are not verified
+@export var velocity_stack_length_mm := 70.0 # visual aftermarket stack length, not a factory dimension
 @export var wall_heat_scale := 1.0 # 1 keeps the generic wall-heat estimate. Lower keeps more of the burn as torque on an engine that publishes more than that estimate gives
 @export var valve_cd := 0.7 # discharge coefficient of the valve curtain. 0.7 is the small-single estimate
 @export var exhaust_centre_deg := 255.0 # centre of the exhaust event
@@ -132,6 +153,26 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var ignition_offset_deg := 0.0 # ignition advance (+) or retard (-) on top of the engine's timing map, degrees
 @export var flywheel_radius_mm := 75.0 # estimate, not a published figure: a light single needs this much inertia to hold idle and rev cleanly
 @export var compression_ratio := 11.3 # Honda CBR150R (K45N), dealer page
+# Two-stroke specific (ignored when stroke_type == "four_stroke")
+@export var crankcase_compression_ratio := 1.5 # crankcase volume / swept volume ratio
+@export var transfer_port_open_deg := 120.0 # degrees ATDC when transfer ports open
+@export var transfer_port_close_deg := 150.0 # degrees ATDC when transfer ports close (symmetrical)
+@export var exhaust_port_open_deg := 90.0 # degrees ATDC when exhaust port opens
+@export var exhaust_port_close_deg := 90.0 # degrees ATDC when exhaust port closes (symmetrical)
+@export var intake_port_type := "reed" # "reed" | "rotary" | "piston"
+@export var intake_port_open_deg := 60.0 # degrees ATDC when intake port opens (reed/rotary)
+@export var intake_port_close_deg := 60.0 # degrees ATDC when intake port closes
+@export var reed_stiffness := 50000.0 # N/m, reed valve stiffness
+@export var reed_damping := 0.5 # reed valve damping coefficient
+@export var expansion_chamber := false # enable expansion chamber model
+@export var expansion_chamber_length_m := 1.0 # total length of expansion chamber
+@export var expansion_chamber_volume_cc := 500.0 # total volume of expansion chamber
+@export var oil_injection_ratio := 50.0 # fuel:oil ratio (50 = 50:1)
+@export var oil_pump_type := "fixed" # "fixed" | "variable" | "none"
+@export var crankcase_volume_cc := 0.0 # auto-calculated if 0
+@export var transfer_port_area_mm2 := 0.0 # total transfer port area per cylinder
+@export var exhaust_port_area_mm2 := 0.0 # exhaust port area per cylinder
+@export var intake_port_area_mm2 := 0.0 # intake/reed area per cylinder
 @export var vehicle_kg := 215.0 # bike and rider, estimate; the CBR250RR preset uses engine-sim's 165 kg
 @export var tyre_kg := 8.0 # both tyres, estimate (about 4.5 kg rear, 3.5 kg front); wheel and tyre masses are not published for the K45R
 @export var rim_kg := 8.0 # both wheels with brake discs and the rear sprocket, estimate
@@ -176,6 +217,10 @@ const SHAFT_LENGTH := 0.10 # m
 # Crank throw, m. Half the stroke.
 func crank_throw_m() -> float:
 	return stroke_mm * 0.0005
+
+
+func road_mass_kg() -> float:
+	return maxf(vehicle_kg + (0.0 if vehicle_mass_includes_rider else maxf(rider_kg, 0.0)), 1.0)
 
 
 # Mass of the crankshaft alone, kg: two webs, the crank pin and the shaft.
@@ -275,6 +320,8 @@ func get_target_lambda(throttle: float, rpm: float) -> float:
 
 # The first problem with the spec, or "" when it is fine. Shown on the panel as a warning.
 func validation_warning() -> String:
+	if runner_bore_mm < 0.0 or runner_bore_mm > 100.0 or not is_finite(runner_bore_mm):
+		return "Runner bore must be 0 (legacy) or up to 100 mm"
 	if layout == "W" and cylinders % 4 != 0:
 		return "W layout needs a multiple of four cylinders"
 	if layout == "V" and cylinders < 2:

@@ -1,0 +1,82 @@
+{
+  "display_name": "Honda CBR250RR SP QS (2023, Indonesia)",
+  "geometry": {
+    "wheelbase_mm": 1385,
+    "front_tire_width_mm": 110,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 140,
+    "rear_tire_aspect": 0.7,
+    "rear_rim_in": 17,
+    "cylinders": 2,
+    "displacement_cc": 249.3,
+    "bore_mm": 62.0,
+    "stroke_mm": 41.3,
+    "rod_ratio": 2.0,
+    "layout": "inline",
+    "compression_ratio": 12.5,
+    "twin_pin_deg": 180.0,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      180.0
+    ],
+    "vehicle_kg": 165.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 3.6,
+    "flywheel_radius_mm": 103.2,
+    "wheel_radius_m": 0.3139
+  },
+  "valvetrain": {
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 255.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 245.0,
+    "exhaust_lift_mm": 5.0,
+    "intake_valve_mm": 24.5,
+    "exhaust_valve_mm": 21.0,
+    "valve_cd": 1.0,
+    "wall_heat_scale": 0.28
+  },
+  "drivetrain": {
+    "redline_rpm": 14000.0,
+    "primary_ratio": 2.781,
+    "final_drive": 2.928,
+    "gear_ratios": [
+      3.272,
+      2.187,
+      1.727,
+      1.421,
+      1.222,
+      1.068
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1400.0,
+    "ve_scale": 1.0,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4,
+    "has_quickshifter": true,
+    "quickshifter": true,
+    "quickshifter_cut_time": 0.05,
+    "quickshifter_min_rpm": 3000.0
+  },
+  "ecu": {
+    "binary_path": "res://ecu_bins/CBR250RR-38770-K64-N04_BIN.bin"
+  },
+  "metadata": {
+    "source": "2023 Honda CBR250RR SP launch (Indonesia): compression 12.5:1, 42 hp at 13,000 rpm, 25 Nm at 11,000 rpm, quickshifter standard (bikesrepublic.com, rideapart.com). Other values copied from the MC51 preset; ECU binary is the MC51 one (unverified for the SP).",
+    "year": 2023,
+    "region": "ID",
+    "notes": "Honda factbook April 2017, type 2BK-MC51: 62.0 x 41.3 mm, compression 11.5, 28 kW (38 PS) at 12,500 rpm, 23 N·m at 11,000 rpm. Idle 1,400 rpm. Gearbox 3.272/2.187/1.727/1.421/1.222/1.068, primary 2.781, final 2.928. Rear tyre 140/70-17. Intake valve 24.5 mm and exhaust valve 21.0 mm from the same factbook. Cam duration is not published; 255/245 degrees is what puts this model's power peak on 12,500 rpm. valve_cd 1.0 and wall_heat_scale 0.28 correct the small-single flow and heat estimates so the brake output meets the published 28 kW. Redline 14,000 rpm is the reported limiter. SP QS variant: quickshifter fitted, compression raised from 12.1 to 12.5."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "display_name": "Honda CBR250RR (2017, MC51)",
+  "geometry": {
+    "cylinders": 2,
+    "displacement_cc": 249.3,
+    "bore_mm": 62.0,
+    "stroke_mm": 41.3,
+    "rod_ratio": 2.0,
+    "layout": "inline",
+    "compression_ratio": 12.0,
+    "twin_pin_deg": 180.0,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      180.0
+    ],
+    "vehicle_kg": 165.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 3.6,
+    "flywheel_radius_mm": 103.2,
+    "wheel_radius_m": 0.3069
+  },
+  "valvetrain": {
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 240.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 230.0,
+    "exhaust_lift_mm": 5.0
+  },
+  "drivetrain": {
+    "redline_rpm": 14000.0,
+    "primary_ratio": 1.0,
+    "final_drive": 4.7,
+    "gear_ratios": [
+      6.362,
+      4.918,
+      3.934,
+      3.152,
+      2.53,
+      2.136
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1200.0,
+    "ve_scale": 1.0,
+    "lambda_target": null,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4
+  },
+  "ecu": {
+    "binary_path": "res://ecu_bins/CBR250RR-38770-K64-N04_BIN.bin"
+  },
+  "metadata": {
+    "source": "Webike Japan spec + engine-sim cbr250rr.mr (MIT, Copyright 2022 Ange Yaghi)",
+    "year": 2017,
+    "region": "JP",
+    "notes": "Bore x stroke from Webike Japan spec: 62.0 x 41.3 mm = 249.7 cc. Rod ratio, redline, flywheel, gears, final drive from engine-sim cbr250rr.mr. engine-sim has no separate primary drive: gear ratios are value * 2, diff_ratio 4.7. Primary = 1.0 so crank-to-wheel = gear * 2 * 4.7 (not Webike's 2.781 on top). Twin pin: 180 deg crank pin angle."
+  }
+}

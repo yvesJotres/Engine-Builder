@@ -1,6 +1,16 @@
 {
   "display_name": "Honda CBR250RR (2017, MC51)",
   "geometry": {
+    "vehicle_mass_includes_rider": false,
+    "throttle_bore_mm": 32.0,
+    "throttle_count": 2,
+    "wheelbase_mm": 1390,
+    "front_tire_width_mm": 110,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 140,
+    "rear_tire_aspect": 0.7,
+    "rear_rim_in": 17,
     "cylinders": 2,
     "displacement_cc": 249.3,
     "bore_mm": 62.0,
@@ -66,6 +76,6 @@
     "source": "Webike Japan spec + engine-sim cbr250rr.mr (MIT, Copyright 2022 Ange Yaghi)",
     "year": 2017,
     "region": "JP",
-    "notes": "Honda factbook April 2017, type 2BK-MC51: 62.0 x 41.3 mm, compression 11.5, 28 kW (38 PS) at 12,500 rpm, 23 N·m at 11,000 rpm. Idle 1,400 rpm. Gearbox 3.272/2.187/1.727/1.421/1.222/1.068, primary 2.781, final 2.928. Rear tyre 140/70-17. Intake valve 24.5 mm and exhaust valve 21.0 mm from the same factbook. Cam duration is not published; 255/245 degrees is what puts this model's power peak on 12,500 rpm. valve_cd 1.0 and wall_heat_scale 0.28 correct the small-single flow and heat estimates so the brake output meets the published 28 kW. Redline 14,000 rpm is the reported limiter."
+    "notes": "Honda April 2017 factbook, Japanese 2BK-MC51: 62.0 x 41.3 mm, compression 11.5, 28 kW at 12,500 rpm, 23 Nm at 11,000 rpm; 32 mm throttle bores; 24.5/21.0 mm valve heads; published gearing retained. Curb mass 165 kg, with rider added separately for road calculations. Valve timing/lift, runner geometry, valve_cd 1.0 and wall_heat_scale 0.28 are historical estimates/calibration inputs, not factory measurements. Current output exceeds the reference and is not validated; do not treat these estimates as proof of an accurate power curve. Limiter 14,000 rpm remains reported rather than factory verified."
   }
 }

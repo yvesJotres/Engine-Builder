@@ -26,7 +26,7 @@ func _ready() -> void:
 	if await SingleInstance.guard(get_tree()):
 		return
 	_build()
-	Patcher.launcher_no_update.connect(_show_play.bind("UP TO DATE"))
+	Patcher.launcher_no_update.connect(_on_up_to_date)
 	# Looked up by name: this launcher can arrive in a patch, and an installed app's Patcher may predate this signal
 	if Patcher.has_signal("launcher_offline"):
 		Patcher.connect("launcher_offline", _on_offline)
@@ -50,7 +50,17 @@ func _process(_delta: float) -> void:
 # No answer from the server: the next address is tried on the next start, and the player can play now
 func _on_offline() -> void:
 	ServerSettings.next_url()
-	_show_play("COULD NOT CHECK FOR UPDATES.\nPLAYING THE INSTALLED VERSION")
+	# A patch already on the phone still plays: only the check for a newer one failed
+	var installed := PatchInfo.label()
+	if installed == "BUILT-IN":
+		_show_play("NO CONNECTION TO THE UPDATE SERVER.\nPLAYING THE BUILT-IN VERSION")
+	else:
+		_show_play("NO CONNECTION TO THE UPDATE SERVER.\nUSING %s (LATEST KNOWN)" % installed)
+
+
+# The server answered and this platform has no newer patch: the player is up to date
+func _on_up_to_date() -> void:
+	_show_play("UP TO DATE\n%s" % PatchInfo.label())
 
 
 func _on_update_found(size_bytes: int) -> void:

@@ -53,12 +53,51 @@ func build(centre: Vector3, spec: EngineSpec, primary_x: float) -> void:
 	# the mainshaft runs out to the clutch on the left, the countershaft out to the front sprocket on the right
 	var left := primary_x - 0.25
 	_shaft(Vector3((left + 0.45) * 0.5, centre.y, main_z), 0.45 - left, steel)
-	var right := Drivetrain.CHAIN_X + 0.05
+	var right := maxf(Drivetrain.CHAIN_X, spec.rear_tire_width_mm * Units.MM_TO_SCENE * 0.5 + 0.25) + 0.05
 	_shaft(Vector3((-0.4 + right) * 0.5, centre.y, counter_z), right + 0.4, steel)
-	for i in Gearbox.MAIN_TEETH.size():
+	# Other vehicles do not necessarily use the K45R tooth counts. Use the
+	# known ratio to estimate a same-centre-distance pair for display only.
+	for i in spec.gear_ratios.size():
 		var x := -0.3 + i * PAIR_SPACING
-		_gear(Gearbox.MAIN_TEETH[i], Vector3(x, centre.y, main_z), gear_mat)
-		_gear(Gearbox.COUNTER_TEETH[i], Vector3(x, centre.y, counter_z), gear_mat)
+		var main_teeth := clampi(roundi(50.0 / (1.0 + float(spec.gear_ratios[i]))), 8, 42)
+		var counter_teeth := 50 - main_teeth
+		if i < Gearbox.MAIN_TEETH.size() and is_equal_approx(float(spec.gear_ratios[i]), float(Gearbox.COUNTER_TEETH[i]) / Gearbox.MAIN_TEETH[i]):
+			main_teeth = Gearbox.MAIN_TEETH[i]
+			counter_teeth = Gearbox.COUNTER_TEETH[i]
+		_gear(main_teeth, Vector3(x, centre.y, main_z), gear_mat)
+		_gear(counter_teeth, Vector3(x, centre.y, counter_z), gear_mat)
+	_build_selector(centre, main_z, counter_z, spec.gear_ratios.size(), steel, gear_mat)
+
+
+# Representative constant-mesh selector, based on the Honda parts catalogue:
+# a drum, a fork guide shaft and three forks. Dimensions and engagement are
+# illustrative; the simulator's gearbox remains the source of the ratio.
+func _build_selector(centre: Vector3, main_z: float, counter_z: float, gear_count: int, steel: Material, fork_mat: Material) -> void:
+	var span := maxf(float(gear_count - 1) * PAIR_SPACING + 0.25, 0.4)
+	var x := -0.3 + float(gear_count - 1) * PAIR_SPACING * 0.5
+	var drum_pos := Vector3(x, centre.y + 0.48, (main_z + counter_z) * 0.5)
+	_shaft_named("ShiftDrum", drum_pos, span, 0.11, steel)
+	_shaft_named("ForkGuide", drum_pos + Vector3(0, -0.16, 0.22), span, 0.025, fork_mat)
+	for i in 3:
+		var fork := Node3D.new()
+		fork.name = "ShiftFork%d" % (i + 1)
+		fork.position = Vector3(-0.3 + float(i) * maxf(float(gear_count - 1) * PAIR_SPACING / 2.0, 0.1), centre.y, main_z if i == 1 else counter_z)
+		add_child(fork)
+		var support := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.035, 0.39, 0.055)
+		support.mesh = mesh
+		support.position.y = 0.23
+		support.material_override = fork_mat
+		fork.add_child(support)
+		for side in [-1.0, 1.0]:
+			var prong := MeshInstance3D.new()
+			var prong_mesh := BoxMesh.new()
+			prong_mesh.size = Vector3(0.035, 0.06, 0.18)
+			prong.mesh = prong_mesh
+			prong.position = Vector3(0, 0.06, side * 0.15)
+			prong.material_override = fork_mat
+			fork.add_child(prong)
 
 
 # A gear with its axis along X. Teeth are cut from the pitch circle, module × teeth / 2.
@@ -84,11 +123,16 @@ func _gear(teeth: int, at: Vector3, mat: Material) -> void:
 
 
 func _shaft(at: Vector3, length: float, mat: Material) -> void:
+	_shaft_named("Shaft", at, length, SHAFT_RADIUS, mat)
+
+
+func _shaft_named(label: String, at: Vector3, length: float, radius: float, mat: Material) -> void:
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = SHAFT_RADIUS
-	mesh.bottom_radius = SHAFT_RADIUS
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
 	mesh.height = length
 	var mi := MeshInstance3D.new()
+	mi.name = label
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = at

@@ -1,0 +1,54 @@
+{
+  "display_name": "Harley-Davidson Sportster 883 (Evolution, estimated)",
+  "geometry": {
+    "cylinders": 2,
+    "displacement_cc": 883.0,
+    "bore_mm": 76.2,
+    "stroke_mm": 96.8,
+    "rod_ratio": 1.75,
+    "layout": "V",
+    "bank_angle": 45.0,
+    "compression_ratio": 9.0,
+    "twin_pin_deg": 315.0,
+    "fire_deg": [
+      0.0,
+      315.0
+    ],
+    "vehicle_kg": 230.0,
+    "slant_deg": 0.0,
+    "flywheel_kg": 3.6,
+    "flywheel_radius_mm": 100.0
+  },
+  "valvetrain": {
+    "intake_centre_deg": 460.0,
+    "intake_duration_deg": 230.0,
+    "intake_lift_mm": 8.0,
+    "exhaust_centre_deg": 250.0,
+    "exhaust_duration_deg": 230.0,
+    "exhaust_lift_mm": 7.0
+  },
+  "drivetrain": {
+    "redline_rpm": 6000.0,
+    "primary_ratio": 1.88,
+    "final_drive": 2.6,
+    "gear_ratios": [
+      2.57,
+      1.8,
+      1.42,
+      1.12,
+      0.94
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1000.0
+  },
+  "ecu": {
+    "binary_path": ""
+  },
+  "metadata": {
+    "source": "https://www.motodealers.co.uk/bikes/harley-davidson/sportster-iron-883/2018/specs (bore x stroke, compression 9.0:1, about 53 hp and 52 lb-ft)",
+    "year": 2018,
+    "region": "US",
+    "notes": "Bore 76.2 x 96.8 mm, about 883 cc, compression 9.0:1 and about 53 hp / 52 lb-ft are from the Iron 883 listing. Rod ratio, redline (estimate), valve timing and lift, gear ratios, primary and final drive, masses and flywheel are simulator estimates. 45 degree V-twin with one shared crank pin: firing at 0 and 315 degrees, so the pulses are uneven (315 and 405)."
+  }
+}

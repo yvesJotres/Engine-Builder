@@ -1,338 +1,472 @@
 class_name EngineSound
-extends AudioStreamPlayer
+extends AudioStreamPlayer3D
 
-# Exhaust sound from a waveguide of the drawn pipes (ExhaustLayout). Each cylinder's blowdown pulse enters its own primary
-# pipe; sound travels down and back along every pipe, scatters where pipes join or change width, reflects off the closed
-# port end and off the open tail, and what leaves the tail is what you hear. The pipe lengths set the pitch and the
-# resonances, so a longer header or a bigger muffler really sounds different.
+# Tail volume-flow from ExhaustGas is the source. Header length and backpressure are already in that flow.
+# The playback chain follows engine-sim's synthesizer: remove the standing flow, take the pulse and
+# its edge, add a little colored noise for rasp, then convolve a recorded muffler impulse response.
+# The convolution runs at 16 kHz on the first 32 ms of the recording, which is the canister, not the room.
+# Intake noise is mixed in at low level for realism at idle/part-throttle.
 
 const RATE := 44100.0
-const WG_RATE := 22050.0 # the pipes run at half the output rate (a 0.5 m pipe is still 22 samples), then are upsampled
-const SOUND_SPEED := 500.0 # m/s in the hot exhaust gas, estimate; the real speed rises with load and falls along the pipe
-const CLOSED_END := 0.85 # reflection at the port end while the exhaust valve is shut, estimate
-const OPEN_END := 0.97 # open tail end reflects with the sign flipped, the rest leaves as sound
-const OPEN_END_LP := 0.7 # tail-end low-pass per pipe sample: a narrow mouth lets less top end out
-const BLOWDOWN_DEG := 120.0 # crank angle over which the burnt gas rushes out when the valve opens
-const IR_PATH := "res://assets/ir/minimal_muffling_03.wav" # an engine-sim exhaust response, see THIRD_PARTY.md
-const IR_DECIMATION := 4 # the response runs at 11 kHz, a quarter of the output rate: the same 23 ms, a quarter of the work
-const IR_LEVEL := 0.65 # the response adds about 3.8 dB at unit energy, so this keeps the loudness of the dry sound
-const IR_TAPS_MAX := 256 # taps after decimation, about 98% of the response's energy
-const CLICK_SAMPLES := 88 # 2 ms, the length of the spark crack
-const CLICK_LEVEL := 0.02 # peak of the crack at full fuel burn; it happens inside the engine, so it stays quiet
-const CLICK_DECAY := 6.0 # how fast the crack dies away
-const POP_SAMPLES := 880 # 20 ms, the length of a backfire pop
-const POP_LEVEL := 0.12 # peak of a full backfire, quiet: a thump in the pipes, not a hiss
-const POP_FULL_J := 250.0 # J of unlit fuel burning in the exhaust for a full pop, estimate: about one cylinder's charge at idle
-const POP_DECAY := 5.0 # how fast the pop dies away
-const PING_HZ := 5500.0 # the metal rings at this frequency when the end gas detonates, in the 5 to 7 kHz knock band
-const PING_TAU := 0.0015 # s, how fast the ping dies away
-const PING_SAMPLES := 528 # 12 ms, the longest a ping is heard
-const PING_LEVEL := 0.12 # peak of a full knock ping, quiet next to the exhaust: it comes through the block, not the pipes
-const POP_LP := 0.08 # low-pass on the pop's noise, so it is a thump rather than white hiss
-const OUTPUT_GAIN := 75.0 # calibrated so the loudness matches the earlier single-resonator exhaust (0.30 rms at 6,000 rpm, one cylinder)
+const BODY_RATE := 16000.0
+const TAPS := 128 # direct pulse edge retains high-frequency detail; shorter tail keeps live playback smooth
+const BASE_FLOW_SCALE := 28.0 # calibrated for ~150 cc; scaled by displacement in setup()
+const EDGE_MIX := 0.55 # share of the sample-to-sample change; the rest is the flow
+const NOISE_MIX := 0.22 # rasp on the pulse. Most of the sample is the pulse itself
+const WET := 0.84
+const SMOOTH_HZ := 1900.0
+const DC_HZ := 10.0
+const NOISE_HZ := 2000.0
+const LEVEL_TARGET := 0.4
+const LEVEL_DECAY := 0.9996
+const LEVEL_FOLLOW := 0.04
+const LEVEL_MIN := 0.04
+const LEVEL_MAX := 5.0
+const BACKFIRE_DURATION := 0.02
+const IR_MUFFLER := "res://assets/ir/mild_exhaust.wav"
+const IR_OPEN := "res://assets/ir/sharp_01.wav"
+const INTAKE_MIX := 0.15 # intake noise level relative to exhaust
+const INTAKE_HZ := 1400.0 # the intake honk, brighter than the muffled exhaust body
+# The intake runner rings as a Helmholtz resonator. A real air filter and throttle body damp it; the model's runner is
+# too lightly damped, so the ring is a clear high tone. This cut is that missing damping, applied to the sound only.
+const RESONANCE_CUT_DB := 0.0 # dB removed at the runner resonance: 0 leaves the sound unchanged (a deeper cut made the firing pulses stand out as pings)
+const RESONANCE_Q := 1.5 # width of the cut: lower is broader
 
-var starved := false # true when the sound ran out of audio since the last frame
+static var _kernels := {}
+
+var starved := false
 var rpm := 900.0
-var firing := true # exhaust pulses only come from burning mixture, so the limiter cut is quiet
-var energy := 1.0 # 0 to 1: exhaust energy from the intake charge, so loudness follows the air
-var lowpass := 0.5 # exhaust low-pass per sample: higher lets more top end through
-var bass_gain := 0.0 # extra low band (below about 140 Hz) added on top of the exhaust
-var high_gain := 0.0 # extra band above about 1 kHz added on top of the exhaust
+var audio_enabled := true # the convolution runs only while something is listening
 
-var _cycle := 0.0 # unwrapped crank angle, deg
-var _fire: Array[float] = []
+var _flow := PackedFloat32Array()
+var _intake_flow := PackedFloat32Array()
+var _read := 0
+var _intake_read := 0
+var _q := 0.0
+var _intake_q := 0.0
+var _intake_lp := 0.0
+var _intake_dc := 0.0
 var _lp := 0.0
-var _bass_lp := 0.0
-var _mid_lp := 0.0
-var _smooth_energy := 1.0
-
-# Waveguide state. Pipe i owns _len[i] samples of delay in each direction, stored from _off[i] in the flat buffers.
-var _n := 0 # pipes
-var _off := PackedInt32Array()
-var _len := PackedInt32Array()
-var _pos := PackedInt32Array() # where each delay line reads and writes next
-var _buf_f := PackedFloat32Array() # waves travelling downstream (toward the tail)
-var _buf_b := PackedFloat32Array() # waves travelling back upstream
-var _admit := PackedFloat32Array() # cross-section, sets how waves split at a junction
-var _sum_admit := PackedFloat32Array() # this pipe plus everything joining at its upstream end
-var _gain := PackedFloat32Array() # amplitude kept after one trip along the pipe
-var _feeders: Array = [] # per pipe, PackedInt32Array of the pipes joining at its upstream end
-var _prim := PackedInt32Array() # pipe index of each cylinder's primary
-var _arr_f := PackedFloat32Array() # scratch: wave arriving at each pipe's downstream end
-var _arr_b := PackedFloat32Array() # scratch: wave arriving at each pipe's upstream end
-var _out_f := PackedFloat32Array()
-var _out_b := PackedFloat32Array()
-var _inject := PackedFloat32Array() # blowdown pressure entering each pipe this sample
-var _p_age := PackedFloat32Array() # per cylinder: samples into the current blowdown, -1 when idle
-var _p_len := PackedFloat32Array()
-var _p_amp := PackedFloat32Array()
-var _tail_lp := 0.0
-var _u_prev := 0.0 # tail flow one sample ago, the radiated sound follows its change
-var _wg_prev := 0.0
-var _wg_cur := 0.0
-var _odd := false
-
-
-var _click_left := 0 # samples left in the current spark crack
-var _click_level := 0.0
-var _pop_left := 0 # samples left in the current backfire pop
-var _pop_level := 0.0 # peak of the current backfire, from the energy that burned in the exhaust
-var _pop_lp := 0.0 # low-passed noise for the pop
-var _exhaust_open := Cylinder.EXHAUST_OPEN # crank degrees after firing that the exhaust valve opens, from the cam timing
-var _ignition_offset := 0.0 # ignition advance from the spec, so the spark crack moves with the timing
-var knock := 0.0 # 0 to 1: how hard the engine is knocking now (0 = not at all), set each frame by main.gd
-var _ping_left := 0 # samples left in the current detonation ping
-var _ping_amp := 0.0 # peak of the current ping
-var _click_prev := 0.0
-var _ir := PackedFloat32Array() # exhaust impulse response, decimated, scaled to unit energy
-var _hist := PackedFloat32Array() # the last few decimated exhaust samples, a ring buffer
-var _hist_pos := 0
-var _acc := 0.0 # sum of the output samples since the last decimated sample
-var _phase := 0
-var _wet := 0.0
-var _wet_prev := 0.0
+var _dc := 0.0
+var _edge_mix := EDGE_MIX
+var _noise_mix := NOISE_MIX
+var _lambda := 1.0
+var _egt_c := 400.0
+var _back_pa := 101325.0
+var _prev_f := 0.0
+var _nz := 0.0
+var _rng := 1
+var _lp_a := 0.2
+var _dc_a := 0.001
+var _nz_a := 0.2
+var _intake_a := 0.0
+# Peaking cut at the runner resonance (biquad coefficients and its two-sample history)
+var _nb0 := 1.0
+var _nb1 := 0.0
+var _nb2 := 0.0
+var _na1 := 0.0
+var _na2 := 0.0
+var _nx1 := 0.0
+var _nx2 := 0.0
+var _ny1 := 0.0
+var _ny2 := 0.0
+var _ir := PackedFloat32Array()
+var _hist := PackedFloat32Array()
+var _hp := 0
+var _bucket := 0.0
+var _bucket_n := 0
+var _since := 0.0
+var _mix_prev := 0.0
+var _mix_curr := 0.0
+var _peak := 0.2
+var _gain := 1.0
+var _delay := PackedFloat32Array()
+var _dp := 0
+var _flow_scale := BASE_FLOW_SCALE
+var _last_sample := 0.0
+var compressor_load := 0.0
+var _compressor_phase := 0.0
 
 
-# Loads the exhaust impulse response once. If the file is missing or not 16-bit 44.1 kHz, the sound stays dry.
-func _ready() -> void:
-	var wav := load(IR_PATH) as AudioStreamWAV
-	if wav == null or wav.format != AudioStreamWAV.FORMAT_16_BITS or wav.mix_rate != int(RATE):
-		return
-	var blocks := mini(IR_TAPS_MAX, wav.data.size() / 2 / IR_DECIMATION)
-	_ir.resize(blocks)
-	var energy := 0.0
-	for b in blocks:
-		# average each block of samples: a simple low-pass before the decimation
-		var sum := 0.0
-		for k in IR_DECIMATION:
-			sum += wav.data.decode_s16((b * IR_DECIMATION + k) * 2)
-		_ir[b] = sum / IR_DECIMATION / 32768.0
-		energy += _ir[b] * _ir[b]
-	if energy > 0.0:
-		var gain := IR_LEVEL / sqrt(energy)
-		for b in blocks:
-			_ir[b] *= gain
-	_hist.resize(blocks)
-	_hist.fill(0.0)
-
-
-# Runs the exhaust through the impulse response. Every IR_DECIMATION samples it does one multiply-add per tap, and the
-# result between those samples is interpolated. Returns the input unchanged when no response is loaded.
-func _convolve(x: float) -> float:
-	if _ir.is_empty():
-		return x
-	_acc += x
-	_phase += 1
-	if _phase == IR_DECIMATION:
-		_phase = 0
-		_hist[_hist_pos] = _acc / IR_DECIMATION
-		_acc = 0.0
-		var y := 0.0
-		var idx := _hist_pos
-		for k in _ir.size():
-			y += _ir[k] * _hist[idx]
-			idx = idx - 1 if idx > 0 else _hist.size() - 1
-		_hist_pos = (_hist_pos + 1) % _hist.size()
-		_wet_prev = _wet
-		_wet = y
-	return lerpf(_wet_prev, _wet, float(_phase) / IR_DECIMATION)
-
-
-func setup(spec: EngineSpec, layout: ExhaustLayout = null) -> void:
+func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	stop()
-	_cycle = 0.0
-	_fire = FiringOrders.for_spec(spec)
-	_exhaust_open = spec.exhaust_open_deg()
-	_ignition_offset = spec.ignition_offset_deg
-	if layout == null:
-		layout = ExhaustLayout.build(spec)
-	_build_pipes(layout)
+	_flow = PackedFloat32Array()
+	_intake_flow = PackedFloat32Array()
+	_read = 0
+	_intake_read = 0
+	_q = 0.0
+	_intake_q = 0.0
+	_intake_lp = 0.0
+	_intake_dc = 0.0
 	_lp = 0.0
-	_bass_lp = 0.0
-	_mid_lp = 0.0
-	_tail_lp = 0.0
-	_u_prev = 0.0
-	_wg_prev = 0.0
-	_wg_cur = 0.0
-	_odd = false
+	_dc = 0.0
+	_edge_mix = EDGE_MIX
+	_noise_mix = NOISE_MIX
+	_lambda = 1.0
+	_egt_c = 400.0
+	_back_pa = 101325.0
+	_prev_f = 0.0
+	_nz = 0.0
+	_rng = 1
+	_hp = 0
+	_bucket = 0.0
+	_bucket_n = 0
+	_since = 0.0
+	_mix_prev = 0.0
+	_mix_curr = 0.0
+	_peak = 0.2
+	_gain = 1.0
+	_dp = 0
+	_last_sample = 0.0
+	_compressor_phase = 0.0
+	starved = false
+	_lp_a = _alpha(SMOOTH_HZ)
+	_dc_a = _alpha(DC_HZ)
+	_nz_a = _alpha(NOISE_HZ)
+	_intake_a = _alpha(INTAKE_HZ)
+	_set_resonance_cut(_spec)
+	# The leveler sets the loudness. Volume flow already grows with displacement, and scaling by it
+	# again pushed a large engine past the clipper, which turned the firing ripple into a buzz.
+	_flow_scale = BASE_FLOW_SCALE
+	_ir = _kernel(_ir_path(_spec, layout))
+	_hist = PackedFloat32Array()
+	_hist.resize(TAPS)
+	_delay = PackedFloat32Array()
+	_delay.resize(32)
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
-	gen.buffer_length = 0.25 # a phone can take longer than 0.1 s to fill a frame, so a shorter buffer runs dry and goes silent
+	gen.buffer_length = 0.25
 	stream = gen
+	# The camera sits about 11 scene units off the engine (1 unit = 10 cm). unit_size keeps that seat loud
+	# and lets a longer camera pull the tailpipe away.
+	unit_size = 18.0
+	max_distance = 80.0
+	attenuation_filter_cutoff_hz = 5000.0
 
 
-func _build_pipes(layout: ExhaustLayout) -> void:
-	_n = layout.pipes.size()
-	_off.resize(_n)
-	_len.resize(_n)
-	_pos.resize(_n)
-	_admit.resize(_n)
-	_sum_admit.resize(_n)
-	_gain.resize(_n)
-	_arr_f.resize(_n)
-	_arr_b.resize(_n)
-	_out_f.resize(_n)
-	_out_b.resize(_n)
-	_inject.resize(_n)
-	_inject.fill(0.0)
-	_feeders.clear()
-	_prim.clear()
-	var total := 0
-	for i in _n:
-		var pipe := layout.pipes[i]
-		var d := maxi(2, roundi(pipe.length_m() / SOUND_SPEED * WG_RATE))
-		_off[i] = total
-		_len[i] = d
-		_pos[i] = 0
-		total += d
-		_admit[i] = pipe.area_m2() * 1.0e4 # cm², only the ratios matter
-		_gain[i] = exp(-pipe.loss * pipe.length_m())
-		_feeders.append(PackedInt32Array(pipe.feeders))
-		if pipe.cyl >= 0:
-			_prim.append(i)
-	for i in _n:
-		var s: float = _admit[i]
-		for f in _feeders[i]:
-			s += _admit[f]
-		_sum_admit[i] = s
-	_buf_f.resize(total)
-	_buf_f.fill(0.0)
-	_buf_b.resize(total)
-	_buf_b.fill(0.0)
-	var cyls := _prim.size()
-	_p_age.resize(cyls)
-	_p_age.fill(-1.0)
-	_p_len.resize(cyls)
-	_p_amp.resize(cyls)
-
-
-func _process(_delta: float) -> void:
-	if not playing:
+func push_flow(samples: PackedFloat32Array) -> void:
+	if samples.is_empty():
 		return
-	var pb := get_stream_playback() as AudioStreamGeneratorPlayback
-	# fill the player's free space; the synthesis runs here, on the main thread
-	var room := pb.get_frames_available()
-	# nearly empty buffer = the sound ran dry since last frame (shown on screen as "Sound: starved")
-	starved = room > int(stream.buffer_length * RATE * 0.9)
-	for frame in render(room):
-		pb.push_frame(frame)
+	if _read > 4096:
+		_flow = _flow.slice(_read)
+		_read = 0
+	var base := _flow.size()
+	_flow.resize(base + samples.size())
+	for i in samples.size():
+		_flow[base + i] = samples[i]
 
 
-# A backfire happened: pop the exhaust, louder with more unlit fuel burning in it.
-func backfire(energy_j: float) -> void:
-	_pop_level = POP_LEVEL * clampf(energy_j / POP_FULL_J, 0.0, 1.0)
-	_pop_left = POP_SAMPLES
+func push_intake_flow(samples: PackedFloat32Array) -> void:
+	if samples.is_empty():
+		return
+	if _intake_read > 4096:
+		_intake_flow = _intake_flow.slice(_intake_read)
+		_intake_read = 0
+	var base := _intake_flow.size()
+	_intake_flow.resize(base + samples.size())
+	for i in samples.size():
+		_intake_flow[base + i] = samples[i]
 
 
-# Makes the next `frames` samples of exhaust sound, as stereo frames.
+func set_cylinders(_cylinders: Array[Cylinder]) -> void:
+	pass
+
+
+# Lambda, exhaust temperature and the pressure at the exhaust valve. They nudge rasp, brightness and edge.
+# A lambda of 99 means the cylinder has not burned yet, so it is ignored.
+func set_conditions(lambda: float, egt_c: float, backpressure_pa: float) -> void:
+	if lambda < 50.0:
+		_lambda = lerpf(_lambda, lambda, 0.2)
+	_egt_c = lerpf(_egt_c, egt_c, 0.1)
+	_back_pa = lerpf(_back_pa, backpressure_pa, 0.2)
+	var hot := clampf((_egt_c - 250.0) / 550.0, 0.0, 1.0)
+	var stuffed := clampf((_back_pa - 101325.0) / 30000.0, 0.0, 1.0)
+	var lean := clampf((_lambda - 0.9) / 0.25, 0.0, 1.0)
+	_lp_a = _alpha(lerpf(1500.0, 2600.0, hot) * lerpf(1.0, 0.7, stuffed))
+	_edge_mix = lerpf(EDGE_MIX, EDGE_MIX * 0.6, stuffed)
+	_noise_mix = lerpf(0.14, 0.34, lean)
+
+
 func render(frames: int) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var step := rpm * 6.0 / RATE # crank deg per sample
-	var blow_len := BLOWDOWN_DEG / (6.0 * maxf(rpm, 1.0)) * WG_RATE # blowdown length in pipe samples
-	var cyls := _prim.size()
-	# energy comes from per-frame fuel flow, which jumps with each burn; smooth it or the note stutters
-	_smooth_energy = lerpf(_smooth_energy, energy, 0.1)
-	for _i in frames:
-		var prev := _cycle
-		_cycle += step
-		# the exhaust valve opens EXHAUST_OPEN degrees after the cylinder fires, and the burnt gas rushes into its primary
-		for c in cyls:
-			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] + _exhaust_open):
-				_p_age[c] = 0.0
-				_p_len[c] = blow_len
-				_p_amp[c] = _smooth_energy / sqrt(cyls)
-		# the spark jumps the plug gap a little before each firing: a short electrical crack, scaled by the fuel burned
-		for c in cyls:
-			if firing and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm, _ignition_offset)):
-				_click_left = CLICK_SAMPLES
-				_click_level = CLICK_LEVEL * _smooth_energy
-		# knock: a detonation near the end of each burn sends a ping through the block, scaled by how far past the limit it is
-		for c in cyls:
-			if firing and knock > 0.0 and FiringOrders.fired_between(prev, _cycle, _fire[c] - EngineAir.spark_advance_deg(rpm, _ignition_offset) + 0.8 * Cylinder.burn_duration_deg(rpm)):
-				_ping_left = PING_SAMPLES
-				_ping_amp = PING_LEVEL * knock
-		var ping := 0.0
-		if _ping_left > 0:
-			var age_p := float(PING_SAMPLES - _ping_left) / RATE
-			ping = _ping_amp * (sin(TAU * PING_HZ * age_p) + 0.3 * randf_range(-1.0, 1.0) * exp(-age_p / 0.0003)) * exp(-age_p / PING_TAU)
-			_ping_left -= 1
-		var click := 0.0
-		if _click_left > 0:
-			# noise differenced once to make it bright, decaying over the 2 ms
-			var noise := randf_range(-1.0, 1.0)
-			var age := float(CLICK_SAMPLES - _click_left) / CLICK_SAMPLES
-			click = _click_level * (noise - _click_prev) * exp(-age * CLICK_DECAY)
-			_click_prev = noise
-			_click_left -= 1
-		# a backfire: a noise burst into the exhaust, decaying over 25 ms, shaped by the pipes like the rest of the note
-		var pop := 0.0
-		_pop_lp += POP_LP * (randf_range(-1.0, 1.0) - _pop_lp) # the noise, low-passed for a thump
-		if _pop_left > 0:
-			var age_p := float(POP_SAMPLES - _pop_left) / POP_SAMPLES
-			pop = _pop_level * _pop_lp * exp(-age_p * POP_DECAY)
-			_pop_left -= 1
-		var s := clampf(_convolve(_sample() + pop) + click + ping, -1.0, 1.0)
-		out.append(Vector2(s, s))
+	out.resize(frames)
+	if not audio_enabled or frames <= 0:
+		return out
+	var step := RATE / BODY_RATE
+	var ir := _ir
+	var hist := _hist
+	var taps := ir.size()
+	for i in frames:
+		_bucket += _excite()
+		var intake := _intake_sample()
+		_bucket_n += 1
+		_since += 1.0
+		if _since >= step:
+			_since -= step
+			var body := _bucket / float(_bucket_n)
+			_bucket = 0.0
+			_bucket_n = 0
+			hist[_hp] = body
+			var wet := 0.0
+			for k in taps:
+				var at := _hp - k
+				if at < 0:
+					at += TAPS
+				wet += ir[k] * hist[at]
+			_hp += 1
+			if _hp >= TAPS:
+				_hp = 0
+			_mix_prev = _mix_curr
+			# Keep a small direct edge alongside the shorter live convolution tail.
+			_mix_curr = wet * WET + body * (1.0 - WET) + body * 0.40
+		# Estimated electric compressor whine, following load rather than crank speed.
+		var whine := 0.0
+		if compressor_load > 0.0:
+			_compressor_phase = fposmod(_compressor_phase + TAU * (900.0 + 2600.0 * compressor_load) / RATE, TAU)
+			whine = sin(_compressor_phase) * compressor_load * 0.012
+		var sample := _shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine)
+		_delay[_dp] = sample
+		var side := _delay[(_dp + 18) % 32]
+		_dp = (_dp + 1) % 32
+		out[i] = Vector2(sample, sample * 0.7 + side * 0.3)
+	_hist = hist
 	return out
 
 
-func _sample() -> float:
-	# the pipes run at half rate: a new pipe sample every second output sample, the one between is the average
-	_odd = not _odd
-	if _odd:
-		_wg_prev = _wg_cur
-		_wg_cur = _wg_step()
-	var out := _wg_prev if _odd else 0.5 * (_wg_prev + _wg_cur)
-	out *= OUTPUT_GAIN
-	# exhaust low-pass, then the extra bass and top bands
-	_bass_lp += 0.02 * (out - _bass_lp)
-	_mid_lp += 0.15 * (out - _mid_lp)
-	out += bass_gain * _bass_lp + high_gain * (out - _mid_lp)
-	# muffling eases off as rpm rises: full top end from 3,000 rpm up, half at idle
-	_lp += lowpass * clampf(rpm / 3000.0, 0.5, 1.0) * (out * 0.5 - _lp)
-	return clampf(_lp, -1.0, 1.0)
+# With no gas solver bound, a backfire is a short volume-flow pulse so the pop is still audible.
+# When ExhaustGas is running, the energy is already in the pipe and this does not add a second one.
+func backfire(energy_j: float, _cylinder_index: int = 0) -> void:
+	if energy_j <= 0.0:
+		return
+	var count := maxi(2, roundi(BACKFIRE_DURATION * RATE))
+	var amp := 0.016 * sqrt(energy_j)
+	var pulse := PackedFloat32Array()
+	pulse.resize(count)
+	for i in count:
+		pulse[i] = _q + amp * sin(PI * float(i) / float(count))
+	push_flow(pulse)
 
 
-# One step of every pipe. Reads what reaches each end, resolves the junctions, writes what leaves.
-func _wg_step() -> float:
-	# blowdown pulses: a half sine of pressure into the primary pipe
-	for c in _prim.size():
-		var age := _p_age[c]
-		if age >= 0.0:
-			if age < _p_len[c]:
-				_inject[_prim[c]] = _p_amp[c] * sin(PI * age / _p_len[c])
-				_p_age[c] = age + 1.0
-			else:
-				_p_age[c] = -1.0
-				_inject[_prim[c]] = 0.0
-	for i in _n:
-		var at := _off[i] + _pos[i]
-		_arr_f[i] = _buf_f[at]
-		_arr_b[i] = _buf_b[at]
-	for j in _n:
-		var feeders: PackedInt32Array = _feeders[j]
-		if feeders.is_empty():
-			# the port end: the shut valve reflects, and the blowdown adds to it
-			_out_f[j] = CLOSED_END * _arr_b[j] + _inject[j]
+func clear_pending() -> void:
+	stop()
+	_flow = PackedFloat32Array()
+	_intake_flow = PackedFloat32Array()
+	_read = 0
+	_intake_read = 0
+	_q = 0.0
+	_intake_q = 0.0
+	_intake_lp = 0.0
+	_intake_dc = 0.0
+	_lp = 0.0
+	_dc = 0.0
+	_prev_f = 0.0
+	_last_sample = 0.0
+	_hist.fill(0.0)
+	_delay.fill(0.0)
+	_hp = 0
+	_dp = 0
+	_bucket = 0.0
+	_bucket_n = 0
+	_since = 0.0
+	_nz = 0.0
+	_mix_prev = 0.0
+	_mix_curr = 0.0
+	starved = false
+
+
+func _process(_delta: float) -> void:
+	if not audio_enabled or stream == null or not playing or stream_paused:
+		return
+	var pb := get_stream_playback() as AudioStreamGeneratorPlayback
+	if pb == null:
+		return
+	var room := pb.get_frames_available()
+	starved = room > int(stream.buffer_length * RATE * 0.9)
+	if room > 0:
+		pb.push_buffer(render(room))
+
+
+func _excite() -> float:
+	var fresh := false
+	if _read < _flow.size():
+		fresh = true
+		_q = _flow[_read]
+		_read += 1
+		_nz += _nz_a * (_white() - _nz)
+	elif not _flow.is_empty():
+		starved = true
+		_q += (0.0 - _q) * 0.02
+	else:
+		_q = _last_sample * 0.999
+	_lp += _lp_a * (_q - _lp)
+	_dc += _dc_a * (_lp - _dc)
+	var flow := (_lp - _dc) * _flow_scale
+	var edge := flow - _prev_f
+	_prev_f = flow
+	# A repeated sample is not new turbulence. New noise there becomes a hiss with no exhaust pulse under it.
+	var air := _noise_mix * _nz + (1.0 - _noise_mix) if fresh else 1.0
+	_last_sample = edge * _edge_mix + flow * air * (1.0 - _edge_mix)
+	return _last_sample
+
+
+# The intake is not run through the muffler. It is the valve flow itself, duller than a raw pulse and quieter than the tail.
+func _intake_sample() -> float:
+	var fresh := false
+	if _intake_read < _intake_flow.size():
+		fresh = true
+		_intake_q = _intake_flow[_intake_read]
+		_intake_read += 1
+	elif not _intake_flow.is_empty():
+		_intake_q += (0.0 - _intake_q) * 0.02
+	else:
+		_intake_q = 0.0
+	_intake_lp += _intake_a * (_intake_q - _intake_lp)
+	_intake_dc += _dc_a * (_intake_lp - _intake_dc)
+	var flow := _resonance_cut((_intake_lp - _intake_dc) * _flow_scale * INTAKE_MIX)
+	var air := _noise_mix * _nz + (1.0 - _noise_mix) if fresh else 1.0
+	return flow * air
+
+
+func _shape(sample: float) -> float:
+	_peak *= LEVEL_DECAY
+	var mag := absf(sample)
+	if mag > _peak:
+		_peak = mag
+	if _peak < 1e-8 or sample == 0.0:
+		return 0.0
+	var wanted := clampf(LEVEL_TARGET / _peak, LEVEL_MIN, LEVEL_MAX)
+	_gain = lerpf(_gain, wanted, LEVEL_FOLLOW)
+	return tanh(sample * _gain)
+
+
+func _white() -> float:
+	_rng = (_rng * 1103515245 + 12345) & 0x7fffffff
+	return float(_rng) / 1073741823.5 - 1.0
+
+
+# Helmholtz frequency of the intake runner: f = c / (2 pi) * sqrt(A / (L V)), with the same runner and port values as the sim
+func _set_resonance_cut(spec: EngineSpec) -> void:
+	var length := spec.runner_length_m if spec != null and spec.runner_length_m > 0.0 else 0.25
+	var f0 := 343.0 / TAU * sqrt(Cylinder.RUNNER_AREA / (length * Cylinder.PORT_VOLUME))
+	var a := pow(10.0, RESONANCE_CUT_DB / 40.0)
+	var w0 := TAU * f0 / RATE
+	var alpha := sin(w0) / (2.0 * RESONANCE_Q)
+	var b0 := 1.0 + alpha * a
+	var b1 := -2.0 * cos(w0)
+	var b2 := 1.0 - alpha * a
+	var a0 := 1.0 + alpha / a
+	var a1 := -2.0 * cos(w0)
+	var a2 := 1.0 - alpha / a
+	_nb0 = b0 / a0
+	_nb1 = b1 / a0
+	_nb2 = b2 / a0
+	_na1 = a1 / a0
+	_na2 = a2 / a0
+	_nx1 = 0.0
+	_nx2 = 0.0
+	_ny1 = 0.0
+	_ny2 = 0.0
+
+
+func _resonance_cut(x: float) -> float:
+	var y := _nb0 * x + _nb1 * _nx1 + _nb2 * _nx2 - _na1 * _ny1 - _na2 * _ny2
+	_nx2 = _nx1
+	_nx1 = x
+	_ny2 = _ny1
+	_ny1 = y
+	return y
+
+
+func _alpha(cutoff: float) -> float:
+	var rc := 1.0 / (TAU * cutoff)
+	var dt := 1.0 / RATE
+	return dt / (rc + dt)
+
+
+func _ir_path(spec: EngineSpec, layout: ExhaustLayout) -> String:
+	# Per-preset IR override takes priority
+	if spec.exhaust_ir_path != "":
+		return spec.exhaust_ir_path
+	if layout == null:
+		return IR_MUFFLER
+	for pipe in layout.pipes:
+		if pipe.kind == "muffler":
+			return IR_MUFFLER
+	return IR_OPEN
+
+
+static func _kernel(path: String) -> PackedFloat32Array:
+	if _kernels.has(path):
+		return _kernels[path]
+	var pcm := _read_wav(path)
+	var kernel := PackedFloat32Array()
+	kernel.resize(TAPS)
+	if pcm.is_empty():
+		for i in TAPS:
+			var t := float(i) / BODY_RATE
+			kernel[i] = exp(-t * 90.0) * sin(TAU * 240.0 * t)
+	else:
+		var keep := mini(pcm.size(), int(0.032 * RATE))
+		keep = maxi(keep, 1)
+		for i in TAPS:
+			var start := float(i) * float(keep) / float(TAPS)
+			var span_end := float(i + 1) * float(keep) / float(TAPS)
+			var acc := 0.0
+			var n := 0
+			var last := mini(ceili(span_end), keep)
+			for j in range(int(start), maxi(last, int(start) + 1)):
+				acc += pcm[j]
+				n += 1
+			kernel[i] = acc / float(n)
+	var weight := 0.0
+	for i in TAPS:
+		weight += absf(kernel[i])
+	if weight > 0.0:
+		for i in TAPS:
+			kernel[i] /= weight
+	_kernels[path] = kernel
+	return kernel
+
+
+static func _read_wav(path: String) -> PackedFloat32Array:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return PackedFloat32Array()
+	file.get_buffer(12)
+	var pcm := PackedByteArray()
+	var bits := 16
+	while file.get_position() + 8 <= file.get_length():
+		var chunk := file.get_buffer(4).get_string_from_ascii()
+		var size := file.get_32()
+		if chunk == "fmt ":
+			file.get_16()
+			file.get_16()
+			file.get_32()
+			file.get_32()
+			file.get_16()
+			bits = file.get_16()
+			if size > 16:
+				file.seek(file.get_position() + size - 16)
+		elif chunk == "data":
+			pcm = file.get_buffer(size)
+			break
 		else:
-			# a junction: one shared pressure, every pipe takes its share of the incoming waves
-			var flow := _admit[j] * _arr_b[j]
-			for f in feeders:
-				flow += _admit[f] * _arr_f[f]
-			var p := 2.0 * flow / _sum_admit[j]
-			_out_f[j] = p - _arr_b[j]
-			for f in feeders:
-				_out_b[f] = p - _arr_f[f]
-	var last := _n - 1
-	# the open tail: the wave reflects with its sign flipped and a duller tone, the rest is sound
-	_tail_lp += OPEN_END_LP * (_arr_f[last] - _tail_lp)
-	_out_b[last] = -OPEN_END * _tail_lp
-	var u := _arr_f[last] - _out_b[last]
-	var sound := u - _u_prev
-	_u_prev = u
-	for i in _n:
-		var at := _off[i] + _pos[i]
-		_buf_f[at] = _out_f[i] * _gain[i]
-		_buf_b[at] = _out_b[i] * _gain[i]
-		_pos[i] = (_pos[i] + 1) % _len[i]
-	return sound
+			file.seek(file.get_position() + size)
+	file.close()
+	if bits != 16 or pcm.size() < 2:
+		return PackedFloat32Array()
+	var count := pcm.size() >> 1
+	var samples := PackedFloat32Array()
+	samples.resize(count)
+	var end := 0
+	for i in count:
+		var value := pcm[i * 2] | (pcm[i * 2 + 1] << 8)
+		if value >= 32768:
+			value -= 65536
+		samples[i] = float(value)
+		if abs(value) > 100:
+			end = i + 1
+	end = clampi(end, 0, mini(count, 10000))
+	if end == 0:
+		return PackedFloat32Array()
+	return samples.slice(0, end)

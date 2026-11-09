@@ -67,7 +67,7 @@ var torque := 0.0 # N·m at the crank, shaft torque averaged over the last step
 var gear := Gearbox.new()
 var intake := EngineAir.new()
 var fuel := FuelTank.new()
-var cylinders: Array[Cylinder] = []
+var cylinders: Array[RefCounted] = [] # Cylinder (four-stroke) or TwoStrokeCylinder: they share the fields the sim reads
 var exhaust: ExhaustGas # one column for every header; null until the cylinders are built
 var _cyl_key := ""
 var _limiter_time := 0.0
@@ -89,6 +89,9 @@ var _ecu_speed_limit_kmh := 0.0
 var _gas_torque := 0.0 # N·m, the gas torque from the last physics step, used in the next crank kick
 var _rev_deg := 0.0 # crank degrees gathered toward one four-stroke cycle
 var _rev_tq := 0.0 # shaft-torque × degrees over that gather
+var _rev_time := 0.0
+var cycle_index := 0 # increases only when a new complete cycle is available
+var cycle_mean_rpm := 0.0
 var cycle_brake_torque := 0.0 # N·m, mean shaft torque over the last closed cycle
 var cycle_ready := false # true once one full cycle of shaft torque has been averaged
 var oil_c := 100.0 # °C, warms toward the spec's operating temperature; cold oil raises friction
@@ -96,7 +99,14 @@ var coolant_c := 90.0 # °C, a hot coolant trims the knock margin
 var _fluids_set := false
 var _prev_power_mode := "F" # track power mode changes for ECU sync
 var audio_enabled := true # record intake and exhaust samples for the sound
-var exhaust_solver := false # the 1D pipe runs only for an offline render. Live play breathes atmosphere and uses the valve flow.
+# Transient fuel: a quick throttle opening richens the mixture, as the accelerator pump does on a carburettor and the
+# fuel map does on injection, and the richness fades back to the steady mixture.
+const ACCEL_ENRICH_PER_UNIT := 0.12 # richness added per unit of throttle opening: a full snap is about 12 percent
+const ACCEL_ENRICH_MAX := 0.1
+const ACCEL_ENRICH_TIME := 0.3 # s, how fast the extra fuel fades
+var _throttle_prev := 0.0
+var _accel_enrich := 0.0
+var exhaust_solver := false # the 1D pipe solver for the four-stroke live path. Off: its idle drops to ~45 kPa in the pipes, so it is for offline renders. The two-stroke always runs it (uses_pipe_sound).
 var _intake_flow := PackedFloat32Array()
 var _intake_audio_left := 0.0
 var _blowdown := PackedFloat32Array()
@@ -175,8 +185,24 @@ func _update_controls(delta: float, clutch_held: bool, brake_held: bool) -> void
 
 
 # One fixed physics step of delta seconds.
+# Lambda multiplier for this physics step: below 1 while the throttle is opening, back to 1 once it has settled.
+func _transient_lambda_mult(throttle: float, delta: float) -> float:
+	# the pump delivers fuel in proportion to how far the throttle moved, however fast it moved
+	var opened := throttle - _throttle_prev
+	_throttle_prev = throttle
+	if opened > 0.0:
+		_accel_enrich = minf(_accel_enrich + opened * ACCEL_ENRICH_PER_UNIT, ACCEL_ENRICH_MAX)
+	_accel_enrich *= exp(-delta / ACCEL_ENRICH_TIME)
+	return 1.0 - _accel_enrich
+
+
 func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, starter_held: bool,
 		clutch_held: bool, brake_held: bool, lambda: float) -> void:
+	var is_two_stroke := spec.stroke_type == "two_stroke"
+	if is_two_stroke:
+		_advance_two_stroke(delta, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
+		return
+	
 	_update_controls(delta, clutch_held, brake_held)
 
 	if not ignition or rpm < STALL_RPM:
@@ -187,7 +213,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var inertia := spec.rotating_inertia()
 	gear.gear_ratios = spec.gear_ratios
 	var ratio := spec.primary_ratio * gear.ratio() * spec.final_drive
-	var radius := tire_radius_m()
+	var radius := tire_radius_m(spec)
 	var h := delta / SUBSTEPS
 	var torque_sum := 0.0
 	# knock: the rider's advance past what the fuel and compression allow, which costs torque and counts as a knock
@@ -204,7 +230,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	# Do not turn raw bytes into an unphysical power correction.  The cylinder
 	# model remains driven by the rider command and its physical mixture target.
 	var calibrated_throttle := throttle
-	var target_lambda := EngineAir.get_target_lambda(spec, calibrated_throttle, rpm) * lambda
+	var target_lambda := EngineAir.get_target_lambda(spec, calibrated_throttle, rpm) * lambda * _transient_lambda_mult(throttle, delta)
 	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, target_lambda) if running else 0.0)
 	for _i in SUBSTEPS:
 		_update_limiter(h, effective_limiter_rpm(spec))
@@ -221,23 +247,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			net += starter * clampf(1.0 - rpm / CRANK_RPM, 0.0, 1.0)
 		net -= friction
 
-		# clutch: a spring between crank speed and the speed the road asks for, capped
-		var clutch_torque := 0.0
-		if ratio > 0.0:
-			# capacity rises with the square of the lever travel, so the first part of the pull slips gently
-			# use gearbox_load from previous step for slipper clutch (negative = engine braking)
-			var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
-			# implicit in crank speed, so it stays stable at any step size; the explicit form blew up with a light flywheel
-			var wheel_crank := speed * ratio / radius
-			var omega_free := (inertia * omega + h * (net + CLUTCH_STIFFNESS * wheel_crank)) / (inertia + h * CLUTCH_STIFFNESS)
-			clutch_torque = clampf(CLUTCH_STIFFNESS * (omega_free - wheel_crank), -cap, cap)
-		gearbox_load = clutch_torque
-		omega = maxf(omega + (net - clutch_torque) / inertia * h, 0.0)
-		# the driveline loses power both ways: less reaches the wheel when driving, and the wheel gives the crank less when engine braking
-		var wheel_force := clutch_torque * ratio / radius
-		wheel_force = wheel_force * DRIVE_EFFICIENCY if wheel_force > 0.0 else wheel_force / DRIVE_EFFICIENCY
-		var mass := cell_mass_kg if cell_mass_kg > 0.0 else spec.vehicle_kg
-		speed = maxf(speed + (wheel_force - road_resistance(speed, mass, spec.drag_area_m2) - BRAKE_FORCE * brake - cell_load_n) / (mass + spec.wheel_equivalent_kg()) * h, 0.0)
+		_advance_driveline(h, spec, net, inertia, ratio, radius)
 
 		# drift next: the cylinders and the intake see the crank step in smaller sub-steps (the intake fills and empties
 		# fast, so one coarse step overshoots), and the average gas torque is used in the next kick
@@ -248,7 +258,9 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			ecu.set_power_mode(spec.power_mode)
 			_prev_power_mode = spec.power_mode
 		var base_advance := EngineAir.spark_advance_deg(rpm)
-		var ecu_trim := ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear)
+		var throttle_override := ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear)
+		calibrated_throttle = throttle_override if throttle_override >= 0.0 else throttle
+		var ecu_trim := ecu.trim
 		var ign := 720.0 - (base_advance + spec.ignition_offset_deg + ecu_trim)
 		var gas := 0.0
 		var step_deg := 0.0
@@ -313,19 +325,111 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					# Normalize by cylinder count
 					_emit_intake((intake_mdot / rho) / spec.cylinders, sub_h)
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
-			intake.manifold_update(sub_h, calibrated_throttle, drawn / sub_h, spec, rpm, running, speed)
+			intake.manifold_update(sub_h, calibrated_throttle, drawn / sub_h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
 		gas *= 1.0 - knock_loss
 		_gas_torque = gas
-		if step_deg > 0.0:
-			_rev_deg += step_deg
-			_rev_tq += (gas - friction) * step_deg
-			if _rev_deg >= 720.0:
-				cycle_brake_torque = _rev_tq / _rev_deg
-				cycle_ready = true
-				_rev_deg = 0.0
-				_rev_tq = 0.0
+		_accumulate_cycle(gas - friction, step_deg, h, 720.0)
 		torque_sum += gas - friction # shaft torque, what the crank delivers
 		rpm = omega * 60.0 / TAU
+	limiter_active = intake.limiter_cut
+	torque = torque_sum / SUBSTEPS
+
+
+# Two-stroke physics step: crankcase compression + cylinder combustion + expansion chamber
+func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, ignition: bool, starter_held: bool,
+		clutch_held: bool, brake_held: bool, lambda: float) -> void:
+	
+	_update_controls(delta, clutch_held, brake_held)
+	
+	if not ignition or rpm < STALL_RPM:
+		running = false
+	elif rpm >= FIRE_RPM:
+		running = true
+	
+	var inertia := spec.rotating_inertia()
+	gear.gear_ratios = spec.gear_ratios
+	var ratio := spec.primary_ratio * gear.ratio() * spec.final_drive
+	var radius := tire_radius_m(spec)
+	var h := delta / SUBSTEPS
+	var torque_sum := 0.0
+	
+	_warm_fluids(delta, spec)
+	var knock_limit := knock_limit_deg(fuel.octane, spec.compression_ratio) - coolant_knock_penalty_deg(coolant_c)
+	knock_excess = maxf(spec.ignition_offset_deg - knock_limit, 0.0)
+	if running and knock_excess > 0.0 and not _knocking:
+		knock_count += 1
+	_knocking = running and knock_excess > 0.0
+	var knock_loss := clampf(knock_excess / 5.0, 0.0, 1.0) * KNOCK_TORQUE_LOSS
+	
+	# Two-stroke: target lambda from spec map
+	var calibrated_throttle := throttle
+	var target_lambda := EngineAir.get_target_lambda(spec, calibrated_throttle, rpm) * lambda * _transient_lambda_mult(throttle, delta)
+	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, target_lambda) if running else 0.0)
+	
+	# Friction: 2-stroke has less friction (no valve train) but more ring friction
+	var friction := FRICTION_BASE * 0.7 + 2.0 * MAIN_BEARING_FRICTION + BALANCER_FRICTION + FRICTION_PER_RPM * rpm
+	friction += spec.cylinders * FRICTION_PER_CYLINDER * (spec.bore_mm / 57.3) * 1.2
+	friction += spec.crank_friction_nm * minf(rpm / 50.0, 1.0)
+	friction *= oil_friction_scale(oil_c, spec.oil_operating_c)
+	
+	# Ignition timing for 2-stroke: the same ECU idle loop as the four-stroke, so the engine holds its idle at a closed throttle
+	var base_advance := EngineAir.spark_advance_deg(rpm)
+	ecu.target_rpm = spec.idle_target_rpm
+	ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear)
+	var ign := 360.0 - (base_advance + spec.ignition_offset_deg + ecu.trim)
+	
+	for _i in SUBSTEPS:
+		_update_limiter(h, effective_limiter_rpm(spec))
+		
+		var net := _gas_torque
+		if starter_held:
+			var starter := spec.starter_torque_nm if spec.starter_torque_nm > 0.0 else STARTER_TORQUE * spec.displacement_cc / 150.0
+			net += starter * clampf(1.0 - rpm / CRANK_RPM, 0.0, 1.0)
+		net -= friction
+		
+		_advance_driveline(h, spec, net, inertia, ratio, radius)
+		
+		# Cylinder advance (360° cycle for 2-stroke)
+		# Each cylinder fires every 360°
+		var gas := 0.0
+		var step_deg := 0.0
+		var sub := maxi(1, ceili(h / TwoStrokeCylinder.STEP_DEG))
+		var sub_h := h / sub
+		
+		var drawn: float = 0.0
+		for _j in sub:
+			var dphi := omega * sub_h * 180.0 / PI
+			step_deg += absf(dphi)
+			for ci in cylinders.size():
+				var c: RefCounted = cylinders[ci]
+				# 2-stroke cylinder advance
+				# the chamber (or pipe) this cylinder breathes into: its own pressure and temperature, as the four-stroke gets
+				var ex_p := Cylinder.P0
+				var ex_t := Cylinder.T0
+				if exhaust != null:
+					ex_p = exhaust.port_pressure(ci)
+					ex_t = exhaust.port_temperature(ci)
+				var res: Vector2 = c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, target_lambda, running and not intake.limiter_cut, intake.limiter_cut, ex_p, ex_t)
+				gas += res.x / sub
+				drawn += res.y
+				
+				if exhaust != null:
+					exhaust.apply_valve(ci, c.exhaust_mdot, c.exhaust_power)
+			# the chambers and pipes move on one step, with every cylinder's flow in
+			if exhaust != null:
+				exhaust.record_audio = audio_enabled
+				exhaust.advance(sub_h)
+		
+		# Intake manifold update with 2-stroke crankcase pumping
+		intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air, as the four-stroke
+		intake.manifold_update(h, throttle, drawn / h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
+		
+		gas *= 1.0 - knock_loss
+		_gas_torque = gas
+		_accumulate_cycle(gas - friction, step_deg, h, 360.0)
+		torque_sum += gas - friction
+	
+	rpm = omega * 60.0 / TAU
 	limiter_active = intake.limiter_cut
 	torque = torque_sum / SUBSTEPS
 
@@ -347,6 +451,9 @@ func take_blowdown() -> PackedFloat32Array:
 # Rebuild audio-only propagation paths without changing cylinder or exhaust physics.
 func set_audio_layout(layout: ExhaustLayout, count: int) -> void:
 	_audio_layout = layout
+	# the solver runs the same pipes the drawing shows, so the sound, the pressures and the picture agree
+	if exhaust != null and layout != null:
+		exhaust.build(layout)
 	_blowdown = PackedFloat32Array()
 	_blowdown_left = 0.0
 	var dt := physics_dt / maxi(1, ceili(physics_dt / Cylinder.MAX_FLOW_DT))
@@ -426,8 +533,15 @@ func _route_exhaust_flow() -> float:
 
 
 # Mean pressure the exhaust valves blow into, Pa. Atmosphere when there is no pipe.
+# True when the sound and back pressure come from the pipes: the two-stroke always does, the four-stroke only when the solver is on.
+func uses_pipe_sound() -> bool:
+	if exhaust == null or cylinders.is_empty():
+		return false
+	return exhaust_solver or cylinders[0] is TwoStrokeCylinder
+
+
 func backpressure_pa() -> float:
-	if not exhaust_solver or exhaust == null or cylinders.is_empty():
+	if not uses_pipe_sound():
 		return Cylinder.P0
 	var sum := 0.0
 	for i in cylinders.size():
@@ -607,7 +721,7 @@ func peak_dp_dtheta() -> float:
 
 
 func ca50_deg() -> float:
-	return _mean_angle(func(c: Cylinder) -> float: return c.last_ca50)
+	return _mean_angle(func(c) -> float: return c.last_ca50) # both cylinder types have last_ca50
 
 
 func burn_10_90_deg() -> float:
@@ -870,33 +984,39 @@ func _update_limiter(dt: float, redline: float) -> void:
 
 # Builds one Cylinder per cylinder, each started at its own firing angle. Rebuilt only when the geometry changes.
 func _build_cylinders(spec: EngineSpec) -> void:
-	var key := "%d|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio, spec.header, str(FiringOrders.for_spec(spec)), [spec.intake_centre_deg, spec.intake_duration_deg, spec.intake_lift_mm, spec.exhaust_centre_deg, spec.exhaust_duration_deg, spec.exhaust_lift_mm, spec.cam_lobe_profile, spec.intake_lobe_profile, spec.exhaust_lobe_profile, spec.intake_open_ramp_deg, spec.intake_close_ramp_deg, spec.exhaust_open_ramp_deg, spec.exhaust_close_ramp_deg, spec.intake_duration_050_deg, spec.exhaust_duration_050_deg], [spec.intake_valve_mm, spec.exhaust_valve_mm, spec.runner_length_m, spec.wall_heat_scale, spec.valve_cd]]
+	var is_two_stroke := spec.stroke_type == "two_stroke"
+	var key := "%s|%d|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [is_two_stroke, spec.cylinders, spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.twin_pin_deg, spec.crossplane, spec.rod_ratio, spec.header, str(FiringOrders.for_spec(spec)), str([spec.intake_centre_deg, spec.intake_duration_deg, spec.intake_lift_mm, spec.exhaust_centre_deg, spec.exhaust_duration_deg, spec.exhaust_lift_mm, spec.cam_lobe_profile, spec.intake_lobe_profile, spec.exhaust_lobe_profile, spec.intake_open_ramp_deg, spec.intake_close_ramp_deg, spec.exhaust_open_ramp_deg, spec.exhaust_close_ramp_deg, spec.intake_duration_050_deg, spec.exhaust_duration_050_deg]), str([spec.intake_valve_mm, spec.exhaust_valve_mm, spec.runner_length_m, spec.runner_bore_mm, spec.wall_heat_scale, spec.valve_cd])]
 	if key == _cyl_key:
 		return
 	_cyl_key = key
 	var fire := FiringOrders.for_spec(spec)
 	cylinders.clear()
 	for i in spec.cylinders:
-		var c := Cylinder.new()
-		c.setup(spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.reciprocating_kg(), spec.rod_over_crank_radius())
-		c.set_cams(spec)
-		# the crank starts at zero, so this cylinder's firing TDC sits at its fire angle
-		c.start_at(-fire[i])
-		cylinders.append(c)
+		if is_two_stroke:
+			var c := TwoStrokeCylinder.new()
+			c.setup(spec)
+			c.start_at(-fire[i])
+			cylinders.append(c)
+		else:
+			var c := Cylinder.new()
+			c.setup(spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.reciprocating_kg(), spec.rod_over_crank_radius())
+			c.set_cams(spec)
+			c.start_at(-fire[i])
+			cylinders.append(c)
 	exhaust = ExhaustGas.new()
-	exhaust.build(ExhaustLayout.build(spec))
+	exhaust.build(_audio_layout if _audio_layout != null else ExhaustLayout.build(spec))
 
 
 # Cold oil shears harder. At and above the operating temperature the scale is 1, which is the friction the dyno was calibrated with.
-static func oil_friction_scale(oil_c: float, operating_c: float) -> float:
-	if oil_c >= operating_c - 0.5:
+static func oil_friction_scale(oil_temp_c: float, operating_c: float) -> float:
+	if oil_temp_c >= operating_c - 0.5:
 		return 1.0
-	return 1.0 + 0.8 * (operating_c - oil_c) / maxf(operating_c - 20.0, 1.0)
+	return 1.0 + 0.8 * (operating_c - oil_temp_c) / maxf(operating_c - 20.0, 1.0)
 
 
 # Degrees the knock margin loses once the coolant is hotter than 95 °C. None at a normal 90 °C operating point.
-static func coolant_knock_penalty_deg(coolant_c: float) -> float:
-	return maxf(coolant_c - 95.0, 0.0) * 0.04
+static func coolant_knock_penalty_deg(coolant_temp_c: float) -> float:
+	return maxf(coolant_temp_c - 95.0, 0.0) * 0.04
 
 
 # First-order warm-up. Combustion heat only counts while the fluid is still below its operating temperature, so a hot start stays put.
@@ -928,22 +1048,58 @@ static func clutch_grip(pull: float) -> float:
 
 # Most torque the clutch pack can carry when fully engaged, N·m. About 25 N·m with the estimates above.
 # If gearbox_load is negative (engine braking), apply slipper clutch reduction.
-func clutch_capacity(spec: EngineSpec, gearbox_load: float = 0.0) -> float:
+func clutch_capacity(spec: EngineSpec, drive_load: float = 0.0) -> float:
 	var base := maxf(CLUTCH_MU * CLUTCH_SPRING_N * CLUTCH_MEAN_R * CLUTCH_FACES, spec.displacement_cc * CLUTCH_NM_PER_CC)
-	if gearbox_load < 0.0 and spec.slipper_clutch:
+	if spec.clutch_capacity_nm > 0.0:
+		base = spec.clutch_capacity_nm
+	if drive_load < 0.0 and spec.slipper_clutch:
 		return base * SLIPPER_CLUTCH_RAMP
 	return base
 
 
 static func clutch_transfer_torque(free_omega: float, free_speed: float, inertia: float, vehicle_mass: float,
-		ratio: float, radius: float, capacity: float, dt: float) -> float:
+		ratio: float, radius: float, capacity: float, dt: float, stiffness: float = INF) -> float:
 	if ratio <= 0.0 or capacity <= 0.0 or dt <= 0.0:
 		return 0.0
 	var drive := ratio / radius
 	var slip := free_omega - free_speed * drive
 	var efficiency := DRIVE_EFFICIENCY if slip >= 0.0 else 1.0 / DRIVE_EFFICIENCY
 	var inverse_inertia := 1.0 / inertia + drive * drive * efficiency / vehicle_mass
-	return clampf(slip / (dt * inverse_inertia), -capacity, capacity)
+	return clampf(slip / (dt * inverse_inertia + (1.0 / stiffness if is_finite(stiffness) and stiffness > 0.0 else 0.0)), -capacity, capacity)
+
+
+func _advance_driveline(dt: float, spec: EngineSpec, net: float, inertia: float, ratio: float, radius: float) -> void:
+	var mass := cell_mass_kg if cell_mass_kg > 0.0 else spec.road_mass_kg()
+	var effective_mass := mass + spec.wheel_equivalent_kg()
+	var road_load := 0.0 if cell_mass_kg > 0.0 else road_resistance(speed, mass, spec.drag_area_m2)
+	var free_speed := maxf(speed - (road_load + BRAKE_FORCE * brake + cell_load_n) * dt / effective_mass, 0.0)
+	var free_omega := maxf(omega + net / inertia * dt, 0.0)
+	var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
+	var transfer := clutch_transfer_torque(free_omega, free_speed, inertia, effective_mass, ratio, radius, cap, dt, CLUTCH_STIFFNESS)
+	gearbox_load = transfer
+	omega = maxf(free_omega - transfer * dt / inertia, 0.0)
+	var efficiency := DRIVE_EFFICIENCY if transfer >= 0.0 else 1.0 / DRIVE_EFFICIENCY
+	speed = maxf(free_speed + transfer * ratio / radius * efficiency * dt / effective_mass, 0.0)
+
+
+func _accumulate_cycle(shaft_torque: float, degrees: float, dt: float, cycle_degrees: float) -> void:
+	if degrees <= 0.0:
+		return
+	var left := degrees
+	while left > 0.0000001:
+		var part := minf(left, cycle_degrees - _rev_deg)
+		_rev_tq += shaft_torque * part
+		_rev_time += dt * part / degrees
+		_rev_deg += part
+		left -= part
+		if _rev_deg >= cycle_degrees - 0.0000001:
+			cycle_brake_torque = _rev_tq / cycle_degrees
+			cycle_mean_rpm = cycle_degrees / (6.0 * _rev_time)
+			cycle_index += 1
+			cycle_ready = true
+			_rev_deg = 0.0
+			_rev_tq = 0.0
+			_rev_time = 0.0
 
 
 # Aero drag plus rolling resistance, newtons, opposing the bike's motion.
@@ -952,4 +1108,6 @@ func road_resistance(v: float, mass: float, drag_area: float = DRAG_CDA) -> floa
 
 
 static func tire_radius_m(spec: EngineSpec = null) -> float:
+	if spec != null and spec.vehicle_type != "car" and spec.rear_tire_width_mm > 0.0:
+		return (spec.rear_rim_in * 25.4 * 0.5 + spec.rear_tire_width_mm * spec.rear_tire_aspect) * 0.001
 	return spec.wheel_radius_m if spec != null and spec.wheel_radius_m > 0.0 else Drivetrain.tire_outer_radius() * 0.1

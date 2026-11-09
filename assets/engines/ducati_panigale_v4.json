@@ -1,6 +1,13 @@
 {
   "display_name": "Ducati Panigale V4 (1,103 cc)",
   "geometry": {
+    "wheelbase_mm": 1469,
+    "front_tire_width_mm": 120,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 200,
+    "rear_tire_aspect": 0.6,
+    "rear_rim_in": 17,
     "cylinders": 4,
     "displacement_cc": 1102.7,
     "bore_mm": 81.0,

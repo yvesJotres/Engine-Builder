@@ -1,9 +1,7 @@
 class_name FuelLine
 extends Node3D
 
-# Fuel hose from the tank outlet to an injector on the throttle body.
-# Two straight runs: along the tank's underside, then down to the injector.
-# Radius and routing are estimates.
+# Estimated external feed hose from tank outlet to the fuel rail or carburettors.
 
 const HOSE_RADIUS := 0.03 # scene units, 3 mm
 const INJECTOR_RADIUS := 0.05
@@ -18,13 +16,25 @@ func _ready() -> void:
 
 
 # outlet: tank fuel outlet. injector: nozzle position, world coordinates.
-func build(outlet: Vector3, injector: Vector3) -> void:
+func build(outlet: Vector3, feeds: Array[Vector3], induction: String = "injection") -> void:
 	for c in get_children():
 		c.queue_free()
-	var elbow := Vector3(injector.x, outlet.y, outlet.z)
-	_tube(outlet, elbow, HOSE_RADIUS)
-	_tube(elbow, injector, HOSE_RADIUS)
-	_add_cyl(injector + Vector3(0.0, 0.05, 0.0), INJECTOR_RADIUS, 0.1, _mat_injector)
+	if feeds.is_empty():
+		return
+	# Injected engines share their existing rail; carburettors each need a feed.
+	var junction := outlet + Vector3(0.0, -0.25, 0.0)
+	_tube(outlet, junction, HOSE_RADIUS)
+	var targets: Array[Vector3] = []
+	if induction == "injection":
+		targets.append(feeds[0])
+	else:
+		targets.append_array(feeds)
+	for target in targets:
+		var elbow := Vector3(target.x, junction.y, target.z)
+		_tube(junction, elbow, HOSE_RADIUS)
+		_tube(elbow, target, HOSE_RADIUS)
+		var connector := _add_cyl(target, INJECTOR_RADIUS, 0.08, _mat_injector)
+		connector.name = "FeedConnector"
 
 
 func _tube(a: Vector3, b: Vector3, radius: float) -> void:

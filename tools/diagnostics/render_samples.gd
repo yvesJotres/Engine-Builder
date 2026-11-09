@@ -29,11 +29,10 @@ func _init() -> void:
 
 func _render(spec: EngineSpec) -> PackedFloat32Array:
 	var sim := EngineSim.new()
+	sim.exhaust_solver = true
 	var sound := EngineSound.new()
 	root.add_child(sound) # its _ready loads the exhaust impulse response
 	sound.setup(spec)
-	var max_air := Units.AIR_DENSITY * spec.displacement_cc * 1.0e-6 * (spec.redline_rpm / 120.0)
-	var max_fuel := max_air / float(FuelTank.PROPERTIES[sim.fuel.kind].afr) * 1000.0
 	var out := PackedFloat32Array()
 	var gate := 0.0
 	var throttle := 0.0
@@ -86,8 +85,8 @@ func _render(spec: EngineSpec) -> PackedFloat32Array:
 		# the sound inputs, as main.gd sets them each frame
 		gate = move_toward(gate, 1.0 if sim.running else 0.0, DT / 0.05)
 		sound.rpm = sim.rpm
-		sound.firing = sim.running and not sim.limiter_active
-		sound.energy = sqrt(clampf(sim.fuel_flow / max_fuel, 0.0, 1.0))
+		if sim.exhaust != null:
+			sound.push_flow(sim.exhaust.take_flow())
 		for frame in sound.render(FRAME_SAMPLES):
 			out.append(frame.x * gate)
 		t += DT

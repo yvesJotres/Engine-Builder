@@ -11,7 +11,7 @@ func _ready() -> void:
 	shader.code = """
 shader_type spatial;
 void fragment() {
-	vec2 g = abs(fract(UV * 40.0 - 0.5) - 0.5) / fwidth(UV * 40.0);
+	vec2 g = abs(fract(UV * 200.0 - 0.5) - 0.5) / fwidth(UV * 200.0);
 	float line = 1.0 - min(min(g.x, g.y), 1.0);
 	ALBEDO = mix(vec3(0.12), vec3(0.35), line);
 }
@@ -19,7 +19,7 @@ void fragment() {
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(20, 20)
+	plane.size = Vector2(100, 100)
 	mesh = plane
 	material_override = mat
 	position = Vector3(0, Y, 0)

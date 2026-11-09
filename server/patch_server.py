@@ -25,10 +25,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.environ.get("ENGINE_BUILDER_DATA") or os.path.dirname(os.path.abspath(__file__))
 PATCH_DIR = os.path.join(HERE, "patches")
+LIBRARY_DIR = os.path.join(HERE, "library")
 PATCH_ROUTE = re.compile(r"^/patch(?:/(android|windows))?/(info|game\.pck|delta\.pck)$")
 LIBRARY_ROUTE = re.compile(r"^/patch/library$")
 STARTED = time.time()
 SECRET = ""
+
+# Library cache
+_LIBRARY_CACHE = None
+_LIBRARY_MTIME = 0
 
 
 def patch_dir(platform: str) -> str:
@@ -47,12 +52,103 @@ def read_patch_info(platform: str):
 
 
 def read_library():
-    """The engine library (presets) from library.json, or None if not present."""
-    path = os.path.join(HERE, "library.json")
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    """The engine library (presets) from server/library/*.json files."""
+    global _LIBRARY_CACHE, _LIBRARY_MTIME
+    if not os.path.isdir(LIBRARY_DIR):
+        return {}
+    
+    # Check mtime of directory contents
+    dir_mtime = 0
+    for fname in os.listdir(LIBRARY_DIR):
+        if fname.endswith(".json"):
+            mtime = os.path.getmtime(os.path.join(LIBRARY_DIR, fname))
+            if mtime > dir_mtime:
+                dir_mtime = mtime
+    
+    if _LIBRARY_CACHE is not None and dir_mtime <= _LIBRARY_MTIME:
+        return _LIBRARY_CACHE
+    
+    # Rebuild from individual JSON files
+    lib = {}
+    for fname in sorted(os.listdir(LIBRARY_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(LIBRARY_DIR, fname)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if _validate_preset(data, fname):
+            flat = _flatten_preset(data)
+            lib[flat.get("id", fname[:-5])] = flat
+    
+    _LIBRARY_CACHE = lib
+    _LIBRARY_MTIME = dir_mtime
+    return lib
+
+
+def _validate_preset(data: dict, fname: str) -> bool:
+    """Validate preset structure (ported from presets.gd)."""
+    # Required top-level keys
+    for key in ["display_name", "geometry", "valvetrain", "drivetrain", "ecu", "metadata"]:
+        if key not in data:
+            print(f"{fname}: missing required key '{key}'")
+            return False
+    
+    # Geometry validation
+    geo = data.get("geometry", {})
+    if "cylinders" not in geo or "displacement_cc" not in geo:
+        print(f"{fname}: geometry missing cylinders/displacement")
+        return False
+    
+    # Verify fire_deg matches cylinders
+    if "fire_deg" in geo and "cylinders" in geo:
+        fire_deg = geo["fire_deg"]
+        if not isinstance(fire_deg, list) or len(fire_deg) != geo["cylinders"]:
+            print(f"{fname}: fire_deg length ({len(fire_deg) if isinstance(fire_deg, list) else 'N/A'}) != cylinders ({geo['cylinders']})")
+            return False
+    
+    # Verify gear_ratios is array
+    drv = data.get("drivetrain", {})
+    if "gear_ratios" in drv and not isinstance(drv["gear_ratios"], list):
+        print(f"{fname}: gear_ratios must be array")
+        return False
+    
+    # ECU binary path
+    if "ecu" not in data or "binary_path" not in data["ecu"]:
+        print(f"{fname}: ecu.binary_path missing")
+        return False
+    
+    return True
+
+
+def _flatten_preset(data: dict) -> dict:
+    """Flatten preset structure (ported from presets.gd)."""
+    flat = {}
+    # Copy display_name
+    if "display_name" in data:
+        flat["display_name"] = data["display_name"]
+    # Flatten geometry
+    if "geometry" in data:
+        for key in data["geometry"]:
+            flat[key] = data["geometry"][key]
+    # Flatten valvetrain
+    if "valvetrain" in data:
+        for key in data["valvetrain"]:
+            flat[key] = data["valvetrain"][key]
+    # Flatten drivetrain
+    if "drivetrain" in data:
+        for key in data["drivetrain"]:
+            flat[key] = data["drivetrain"][key]
+    # Flatten ecu
+    if "ecu" in data:
+        for key in data["ecu"]:
+            flat[key] = data["ecu"][key]
+    # Store raw ecu binary path for EngineSim
+    revision = data.get("metadata", {}).get("revision", 0)
+    if isinstance(revision, int) and not isinstance(revision, bool) and revision > 0:
+        flat["preset_revision"] = revision
+    if "ecu" in data and "binary_path" in data["ecu"]:
+        flat["ecu_binary"] = data["ecu"]["binary_path"]
+    return flat
 
 
 def health() -> dict:
@@ -68,11 +164,17 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "EngineBuilderPatches/1.0"
     timeout = 10  # seconds a silent connection may stay open
 
+    def __init__(self, *args, **kwargs):
+        with open("handler_init.log", "a") as f:
+            f.write(f"Handler __init__\n")
+        super().__init__(*args, **kwargs)
+
     def log_message(self, fmt, *args):  # one line per request: method and path
         if hasattr(self, "command"):
             print("%s %s" % (self.command, self.path.split("?")[0]), flush=True)
 
     def send_json(self, status: int, body: dict) -> None:
+        body['_debug_server_pid'] = os.getpid()
         raw = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -81,6 +183,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def secret_ok(self) -> bool:
+        print(f"DEBUG secret_ok: SECRET={repr(SECRET)}, header={repr(self.headers.get('X-Engine-Builder-Secret', ''))}", flush=True)
         if SECRET == "":
             return True
         # Headers arrive decoded as latin-1; encoding back gives the bytes the app sent (UTF-8)
@@ -88,11 +191,14 @@ class Handler(BaseHTTPRequestHandler):
         return hmac.compare_digest(sent, SECRET.encode("utf-8"))
 
     def do_GET(self):
+        with open("request_debug.log", "a") as f:
+            f.write(f"do_GET: path={self.path}\n")
+        print(f"DEBUG do_GET: path={self.path}", flush=True)
         if self.path == "/health":
             return self.send_json(200, health())
         if LIBRARY_ROUTE.match(self.path.split("?")[0]):
             lib = read_library()
-            if lib is None:
+            if not lib:
                 return self.send_json(404, {"error": "no library published"})
             return self.send_json(200, lib)
         if not self.secret_ok():
@@ -130,7 +236,8 @@ def main() -> None:
     if not args.secret and not args.open:
         print("Refusing to start without a secret. Pass --secret or set ENGINE_BUILDER_SECRET.", file=sys.stderr)
         sys.exit(2)
-    SECRET = args.secret
+    SECRET = "" if args.open else args.secret
+    print(f"DEBUG STARTUP: args.open={args.open}, args.secret={repr(args.secret)}, SECRET={repr(SECRET)}", flush=True)
     print("Engine Builder patch server on %s:%d (patches %s)" % (args.host, args.port, PATCH_DIR), flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 

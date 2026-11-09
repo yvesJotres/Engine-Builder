@@ -1,7 +1,11 @@
 # Third-party material
 
-## engine-sim impulse response
-`assets/ir/minimal_muffling_03.wav` is an exhaust impulse response from engine-sim
-(`es/sound-library/new/minimal_muffling_03.wav`), copyright 2022 Ange Yaghi (AngeTheGreat),
+## engine-sim impulse responses
+These exhaust impulse responses are from engine-sim, copyright 2022 Ange Yaghi (AngeTheGreat),
 released under the MIT licence. The licence text is in the engine-sim project's LICENSE file.
-It is used to shape the exhaust sound through a convolution in `scripts/engine_sound.gd`.
+
+- `assets/ir/mild_exhaust.wav` (`es/sound-library/new/mild_exhaust.wav`) colors a muffled tailpipe in `scripts/engine/engine_sound.gd`.
+- `assets/ir/sharp_01.wav` (`es/sound-library/sharp/sharp_01.wav`) colors an open pipe.
+- `assets/ir/minimal_muffling_03.wav` (`es/sound-library/new/minimal_muffling_03.wav`) is an alternate response kept in the tree.
+
+The playback chain in `engine_sound.gd` (DC removal, flow-shaped noise, a little pulse edge, then convolution) follows engine-sim's synthesizer. The gas in the pipes is this project's own solver.

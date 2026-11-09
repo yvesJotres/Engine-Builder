@@ -11,8 +11,12 @@ signal brake_changed(held: bool)
 signal starter_changed(held: bool)
 signal shift_pressed(up: bool)
 signal pause_pressed
+signal setup_pressed
 
 const SPRING_TIME := 0.25 # s, a released lever springs back to rest in about this time
+
+const PHONE_PANEL_CLEARANCE := 540 # px from the left edge to just past the open settings panel, measured on a 2340x1080 phone (panel is about 515 wide)
+var _margin: MarginContainer
 
 
 func _ready() -> void:
@@ -20,9 +24,10 @@ func _ready() -> void:
 	# On the 1920x1080 layout: the margins clear the settings panel on the left and the dashboard in the bottom right.
 	# The bottom margin leaves a gap above the dashboard so the pads do not run into it.
 	var margin := MarginContainer.new()
+	_margin = margin
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE # the empty parts of the screen still orbit the camera
-	margin.add_theme_constant_override("margin_left", 372) # clear of the settings panel: 16 px offset plus its 340 px width, and a gap
+	margin.add_theme_constant_override("margin_left", 24 if OS.has_feature("mobile") else 372)
 	margin.add_theme_constant_override("margin_right", 16)
 	margin.add_theme_constant_override("margin_top", 16)
 	margin.add_theme_constant_override("margin_bottom", 290)
@@ -34,6 +39,8 @@ func _ready() -> void:
 	var top := HBoxContainer.new()
 	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(top)
+	if OS.has_feature("mobile"):
+		top.add_child(_pad("SETUP", Vector2(150, 70), Color(0.25, 0.55, 0.9), func(on: bool) -> void: if on: setup_pressed.emit()))
 	top.add_child(_spacer())
 	top.add_child(_pad("PAUSE", Vector2(130, 70), Color(0.45, 0.47, 0.55), func(on: bool) -> void: if on: pause_pressed.emit()))
 	column.add_child(_spacer(true))
@@ -43,12 +50,22 @@ func _ready() -> void:
 	bottom.add_theme_constant_override("separation", 10)
 	column.add_child(bottom)
 	bottom.add_child(_lever("CLUTCH", Vector2(150, 260), Color(0.25, 0.55, 0.95), func(v: float) -> void: clutch_changed.emit(v)))
-	bottom.add_child(_pad("BRAKE", Vector2(170, 130), Color(0.9, 0.25, 0.2), func(on: bool) -> void: brake_changed.emit(on)))
-	bottom.add_child(_pad("SHIFT -", Vector2(150, 130), Color(0.95, 0.7, 0.2), func(on: bool) -> void: if on: shift_pressed.emit(false)))
-	bottom.add_child(_pad("SHIFT +", Vector2(150, 130), Color(0.95, 0.7, 0.2), func(on: bool) -> void: if on: shift_pressed.emit(true)))
-	bottom.add_child(_pad("STARTER", Vector2(150, 130), Color(0.3, 0.8, 0.8), func(on: bool) -> void: starter_changed.emit(on)))
+	var gears := VBoxContainer.new()
+	gears.add_theme_constant_override("separation", 10)
+	gears.size_flags_vertical = Control.SIZE_SHRINK_END
+	bottom.add_child(gears)
+	gears.add_child(_pad("SHIFT +", Vector2(150, 125), Color(0.95, 0.7, 0.2), func(on: bool) -> void: if on: shift_pressed.emit(true)))
+	gears.add_child(_pad("SHIFT -", Vector2(150, 125), Color(0.95, 0.7, 0.2), func(on: bool) -> void: if on: shift_pressed.emit(false)))
+	bottom.add_child(_pad("STARTER", Vector2(150, 110), Color(0.3, 0.8, 0.8), func(on: bool) -> void: starter_changed.emit(on)))
 	bottom.add_child(_spacer())
+	bottom.add_child(_pad("BRAKE", Vector2(170, 130), Color(0.9, 0.25, 0.2), func(on: bool) -> void: brake_changed.emit(on)))
 	bottom.add_child(_lever("THROTTLE", Vector2(180, 260), Color(0.25, 0.75, 0.35), func(v: float) -> void: throttle_changed.emit(v)))
+
+
+# On a phone the pads hug the left edge, but while the settings panel is open they start just past it.
+func set_panel_open(open: bool) -> void:
+	if OS.has_feature("mobile") and _margin:
+		_margin.add_theme_constant_override("margin_left", PHONE_PANEL_CLEARANCE if open else 24)
 
 
 func _spacer(vertical := false) -> Control:
@@ -80,12 +97,13 @@ func _lever(text: String, min_size: Vector2, accent: Color, handler: Callable) -
 class Pad extends Panel:
 	signal held(on: bool)
 	var _down := false
+	var _finger := -1
 	var _idle: StyleBoxFlat
 	var _lit: StyleBoxFlat
 
 	func _init(text: String, min_size: Vector2, accent: Color) -> void:
 		custom_minimum_size = min_size
-		_idle = _style(Color(0.12, 0.13, 0.16, 0.8), Color(0.45, 0.47, 0.53, 0.9))
+		_idle = _style(Color(0.06, 0.08, 0.11, 0.88), accent.darkened(0.35))
 		_lit = _style(accent, Color(1.0, 1.0, 1.0, 0.9))
 		add_theme_stylebox_override("panel", _idle)
 		add_child(TouchControls._label(text))
@@ -100,9 +118,15 @@ class Pad extends Panel:
 
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventScreenTouch:
-			_set_down(event.pressed)
+			if event.pressed and _finger == -1:
+				_finger = event.index
+				_set_down(true)
+			elif not event.pressed and event.index == _finger:
+				_finger = -1
+				_set_down(false)
 		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-			_set_down(event.pressed)
+			if _finger == -1:
+				_set_down(event.pressed)
 		else:
 			return
 		accept_event()
@@ -121,14 +145,15 @@ class Lever extends Panel:
 	signal changed(amount: float)
 	var amount := 0.0 # 0 = at rest, 1 = fully pulled up
 	var _dragging := false
+	var _finger := -1
 	var _accent: Color
 
 	func _init(text: String, min_size: Vector2, accent: Color) -> void:
 		custom_minimum_size = min_size
 		_accent = accent
 		var s := StyleBoxFlat.new()
-		s.bg_color = Color(0.12, 0.13, 0.16, 0.8)
-		s.border_color = Color(0.45, 0.47, 0.53, 0.9)
+		s.bg_color = Color(0.06, 0.08, 0.11, 0.88)
+		s.border_color = accent.darkened(0.35)
 		s.set_border_width_all(3)
 		s.set_corner_radius_all(14)
 		s.set_expand_margin_all(0)
@@ -139,12 +164,21 @@ class Lever extends Panel:
 		add_child(label)
 
 	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventScreenTouch or (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT):
+		if event is InputEventScreenTouch:
+			if event.pressed and _finger == -1:
+				_finger = event.index
+				_dragging = true
+				_set_from(event.position.y)
+			elif not event.pressed and event.index == _finger:
+				_finger = -1
+				_dragging = false
+			accept_event()
+		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and _finger == -1:
 			_dragging = event.pressed
 			if _dragging:
 				_set_from(event.position.y)
 			accept_event()
-		elif _dragging and (event is InputEventScreenDrag or event is InputEventMouseMotion):
+		elif _dragging and ((event is InputEventScreenDrag and event.index == _finger) or (event is InputEventMouseMotion and _finger == -1)):
 			_set_from(event.position.y)
 			accept_event()
 

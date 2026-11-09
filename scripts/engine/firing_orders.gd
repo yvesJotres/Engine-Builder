@@ -27,12 +27,24 @@ static func fired_between(prev: float, cur: float, at: float) -> bool:
 # The firing angles for this spec: the engine's own ignition wiring when its preset gives one for this cylinder count,
 # otherwise the generic order below.
 static func for_spec(spec: EngineSpec) -> Array[float]:
+	var out: Array[float] = []
 	if spec.cylinders > 0 and spec.fire_deg.size() == spec.cylinders:
-		var out: Array[float] = []
 		for a in spec.fire_deg:
 			out.append(float(a))
-		return out
-	return fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
+	else:
+		out = fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
+	if spec.layout == "V" and spec.shared_v_crankpins:
+		for i in range(0, out.size() - 1, 2):
+			# Opposite banks share a crankpin when bank_angle + second firing angle
+			# equals the first firing angle modulo one crank revolution.
+			var bank_offset := -spec.bank_angle if spec.v3r_style and spec.cylinders == 3 else spec.bank_angle
+			var first := fposmod(out[i] - bank_offset, 360.0)
+			var second := first + 360.0
+			var old := fposmod(out[i + 1], 720.0)
+			var d1 := absf(fposmod(first - old + 360.0, 720.0) - 360.0)
+			var d2 := absf(fposmod(second - old + 360.0, 720.0) - 360.0)
+			out[i + 1] = first if d1 <= d2 else second
+	return out
 
 
 # Crank angle (deg, 0..720) at which each cylinder fires. Index = cylinder number - 1.

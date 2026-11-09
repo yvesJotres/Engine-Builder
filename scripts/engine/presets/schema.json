@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://engine-builder.com/schemas/preset.json",
+  "title": "Engine Preset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["display_name", "geometry", "valvetrain", "drivetrain", "ecu", "metadata"],
+  "properties": {
+    "display_name": { "type": "string", "minLength": 1 },
+    "geometry": {
+      "type": "object",
+      "required": ["cylinders", "displacement_cc", "bore_mm", "stroke_mm", "rod_ratio", "layout", "compression_ratio"],
+      "additionalProperties": false,
+      "properties": {
+        "cylinders": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "throttle_bore_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "throttle_count": { "type": "integer", "minimum": 1 },
+        "runner_bore_mm": { "type": "number", "minimum": 0, "maximum": 100 },
+        "vehicle_length_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "vehicle_width_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "vehicle_height_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "displacement_cc": { "type": "number", "exclusiveMinimum": 0 },
+        "bore_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "stroke_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "rod_ratio": { "type": "number", "exclusiveMinimum": 0 },
+        "layout": { "type": "string", "enum": ["inline", "V"] },
+        "v3r_style": { "type": "boolean", "default": false },
+        "bank_angle": { "type": "number", "minimum": 0, "maximum": 180, "default": 90 },
+        "compression_ratio": { "type": "number", "exclusiveMinimum": 1 },
+        "twin_pin_deg": { "type": "number", "enum": [180, 270, 315, 360], "default": 360 },
+        "split_pin_v4": { "type": "boolean", "default": false },
+        "crossplane": { "type": "boolean", "default": false },
+        "fire_deg": { "type": "array", "items": { "type": "number" }, "minItems": 1 },
+        "vehicle_kg": { "type": "number", "exclusiveMinimum": 0 },
+        "vehicle_mass_includes_rider": { "type": "boolean" },
+        "rider_kg": { "type": "number", "minimum": 0 },
+        "tyre_kg": { "type": "number", "exclusiveMinimum": 0 },
+        "rim_kg": { "type": "number", "exclusiveMinimum": 0 },
+        "slant_deg": { "type": "number", "default": 0 },
+        "piston_kg": { "type": "number", "exclusiveMinimum": 0, "default": 0.09 },
+        "rod_kg": { "type": "number", "exclusiveMinimum": 0, "default": 0.20 },
+        "rod_big_fraction": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.4 },
+        "balancer_kg": { "type": "number", "exclusiveMinimum": 0, "default": 0.2 },
+        "flywheel_radius_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "flywheel_kg": { "type": "number", "exclusiveMinimum": 0 },
+        "wheel_radius_m": { "type": "number", "exclusiveMinimum": 0 }
+        ,"wheelbase_mm": { "type": "number", "exclusiveMinimum": 0 }
+        ,"front_tire_width_mm": { "type": "number", "exclusiveMinimum": 0 }
+        ,"rear_tire_width_mm": { "type": "number", "exclusiveMinimum": 0 }
+        ,"front_tire_aspect": { "type": "number", "exclusiveMinimum": 0 }
+        ,"rear_tire_aspect": { "type": "number", "exclusiveMinimum": 0 }
+        ,"front_rim_in": { "type": "number", "exclusiveMinimum": 0 }
+        ,"rear_rim_in": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "valvetrain": {
+      "type": "object",
+      "required": ["intake_centre_deg", "intake_duration_deg", "intake_lift_mm", "exhaust_centre_deg", "exhaust_duration_deg", "exhaust_lift_mm"],
+      "additionalProperties": false,
+      "properties": {
+        "intake_centre_deg": { "type": "number", "minimum": 360, "maximum": 600 },
+        "intake_valve_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "exhaust_valve_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "intake_duration_deg": { "type": "number", "minimum": 150, "maximum": 300 },
+        "intake_lift_mm": { "type": "number", "minimum": 2, "maximum": 15 },
+        "exhaust_centre_deg": { "type": "number", "minimum": 120, "maximum": 360 },
+        "exhaust_duration_deg": { "type": "number", "minimum": 150, "maximum": 300 },
+        "exhaust_lift_mm": { "type": "number", "minimum": 2, "maximum": 15 }
+      }
+    },
+    "drivetrain": {
+      "type": "object",
+      "required": ["redline_rpm", "primary_ratio", "final_drive", "gear_ratios", "header", "fuel", "idle_target_rpm"],
+      "additionalProperties": false,
+      "properties": {
+        "redline_rpm": { "type": "number", "minimum": 2000, "maximum": 20000 },
+        "speed_limit_enabled": { "type": "boolean" },
+        "speed_limit_kmh": { "type": "number", "minimum": 100, "maximum": 400 },
+        "primary_ratio": { "type": "number", "exclusiveMinimum": 0 },
+        "final_drive": { "type": "number", "exclusiveMinimum": 0 },
+        "gear_ratios": { "type": "array", "items": { "type": "number", "exclusiveMinimum": 0 }, "minItems": 1 },
+        "header": { "type": "string", "enum": ["stock", "4-1", "4-2-1"] },
+        "fuel": { "type": "string", "enum": ["ron90", "ron92", "ron95", "ron98", "ron100", "e85"] },
+        "idle_target_rpm": { "type": "number", "minimum": 400, "maximum": 4000 },
+        "fuel_capacity_l": { "type": "number", "exclusiveMinimum": 0 },
+        "quickshifter_cut_time": { "type": "number", "exclusiveMinimum": 0 },
+        "quickshifter_min_rpm": { "type": "number", "minimum": 0 },
+        "slipper_clutch": { "type": "boolean" },
+        "max_boost_ratio": { "type": "number", "minimum": 1 },
+        "electric_compressor": { "type": "boolean" },
+        "boost_spool_time": { "type": "number", "exclusiveMinimum": 0 },
+        "compressor_battery_wh": { "type": "number", "exclusiveMinimum": 0 },
+        "compressor_power_w": { "type": "number", "minimum": 0 },
+        "compressor_charge_w": { "type": "number", "minimum": 0 },
+        "intake_area_scale": { "type": "number", "exclusiveMinimum": 0 },
+        "ve_scale": { "type": "number", "default": 1.0 },
+        "lambda_target": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "number", "minimum": 0.6, "maximum": 1.4 } },
+          "default": [
+            [1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00],
+            [1.00, 1.00, 1.00, 1.00, 0.98, 0.96, 0.95, 0.94, 0.93, 0.92],
+            [1.00, 1.00, 0.99, 0.97, 0.95, 0.93, 0.92, 0.91, 0.90, 0.89],
+            [1.00, 0.99, 0.97, 0.95, 0.93, 0.91, 0.90, 0.89, 0.88, 0.87],
+            [0.99, 0.98, 0.95, 0.93, 0.91, 0.89, 0.88, 0.87, 0.87, 0.86],
+            [0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.87, 0.86, 0.86, 0.85],
+            [0.97, 0.95, 0.92, 0.90, 0.88, 0.87, 0.86, 0.85, 0.85, 0.85],
+            [0.96, 0.94, 0.91, 0.89, 0.87, 0.86, 0.85, 0.85, 0.85, 0.85],
+            [0.95, 0.93, 0.90, 0.87, 0.86, 0.85, 0.85, 0.85, 0.85, 0.85],
+            [0.94, 0.92, 0.89, 0.86, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85],
+            [0.93, 0.91, 0.88, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85]
+          ]
+        },
+        "ignition_offset_deg": { "type": "number", "minimum": -10, "maximum": 10, "default": 0 },
+        "clutch_capacity_nm": { "type": "number", "exclusiveMinimum": 0, "default": 0 },
+        "drag_area_m2": { "type": "number", "exclusiveMinimum": 0 }
+        ,"has_quickshifter": { "type": "boolean", "default": false }
+        ,"has_launch_control": { "type": "boolean", "default": false }
+        ,"has_abs": { "type": "boolean", "default": false }
+        ,"has_traction_control": { "type": "boolean", "default": false }
+        ,"quickshifter": { "type": "boolean", "default": false }
+        ,"launch_control": { "type": "boolean", "default": false }
+        ,"abs_enabled": { "type": "boolean", "default": false }
+        ,"traction_control_enabled": { "type": "boolean", "default": false }
+      }
+    },
+    "ecu": {
+      "type": "object",
+      "required": ["binary_path"],
+      "additionalProperties": false,
+      "properties": {
+        "binary_path": { "type": "string" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["source", "year", "region"],
+      "additionalProperties": true,
+      "properties": {
+        "source": { "type": "string" },
+        "year": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+        "region": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

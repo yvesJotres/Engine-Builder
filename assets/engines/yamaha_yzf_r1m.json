@@ -1,6 +1,17 @@
 {
   "display_name": "Yamaha YZF-R1M (2015)",
   "geometry": {
+    "vehicle_mass_includes_rider": false,
+    "throttle_bore_mm": 45.0,
+    "throttle_count": 4,
+    "runner_bore_mm": 45.0,
+    "wheelbase_mm": 1405,
+    "front_tire_width_mm": 120,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 200,
+    "rear_tire_aspect": 0.55,
+    "rear_rim_in": 17,
     "cylinders": 4,
     "displacement_cc": 998.0,
     "bore_mm": 79.0,
@@ -30,17 +41,19 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
-    "intake_centre_deg": 470.0,
-    "intake_duration_deg": 240.0,
-    "intake_lift_mm": 6.0,
-    "exhaust_centre_deg": 255.0,
-    "exhaust_duration_deg": 230.0,
-    "exhaust_lift_mm": 5.0
+    "intake_valve_mm": 33.0,
+    "exhaust_valve_mm": 26.5,
+    "intake_centre_deg": 468.0,
+    "intake_duration_deg": 284.0,
+    "intake_lift_mm": 9.7,
+    "exhaust_centre_deg": 250.0,
+    "exhaust_duration_deg": 280.0,
+    "exhaust_lift_mm": 8.8
   },
   "drivetrain": {
       "redline_rpm": 14600.0,
-      "primary_ratio": 1.0,
-      "final_drive": 4.7,
+      "primary_ratio": 1.634,
+      "final_drive": 2.563,
       "gear_ratios": [
         2.6,
         2.176,
@@ -55,8 +68,8 @@
       "ve_scale": 1.0,
       "lambda_target": null,
       "ignition_offset_deg": 0.0,
-      "clutch_capacity_nm": 0,
-      "drag_area_m2": 0.4,
+      "clutch_capacity_nm": 200.0,
+      "drag_area_m2": 0.35,
       "has_quickshifter": true,
       "quickshifter": true,
       "quickshifter_cut_time": 0.05,
@@ -66,9 +79,10 @@
     "binary_path": ""
   },
   "metadata": {
-    "source": "motodealers.co.uk + Ultimate Motorcycling + engine-sim yzf_r1.mr (MIT, Copyright 2022 Ange Yaghi)",
+    "revision": 1,
+    "source": "Yamaha 2015 Europe R1/R1M launch specifications and service manual; Yamaha 2016 kit manual STD cam centres; APE 2017 R1 valve data as a same-generation proxy. Remaining estimates originally from engine-sim yzf_r1.mr (MIT, Copyright 2022 Ange Yaghi)",
     "year": 2015,
-    "region": "JP",
-    "notes": "Bore x stroke from motodealers.co.uk and Ultimate Motorcycling: 79.0 x 50.9 mm = 998.0 cc. Compression 13.0. Gear ratios, redline (limiter 14,600), flywheel, rod ratio, 200 kg mass from engine-sim yzf_r1.mr. engine-sim has no separate primary drive: total ratio with 4.7 final drive, primary = 1.0. Crossplane crank: firing 270/180/90/180 apart."
+    "region": "Europe",
+    "notes": "2015 unrestricted Europe reference: 79.0 x 50.9 mm, 998 cc, compression 13.0, 147.1 kW at 13500 rpm and 112.4 Nm at 11500 rpm. Primary 1.634, final 2.563, 200 kg curb mass plus separate rider. Valve heads 33/26.5 mm are nominal service-manual dimensions; four 45 mm throttle bores. Yamaha STD cam centres 108 ATDC / 110 BTDC correspond to simulation phases 468/250. APE 2017 same-generation R1 lists 9.7/8.8 mm valve lift and 284/280 degrees duration at 0.15/0.25 mm; used as a proxy, not a verified 2015 cam trace. Generic seat ramps remain an approximation. Runner equivalent bore 45 mm is an ESTIMATE based on throttle bore, not a measured port dimension; fixed 0.25 m length and 50 cc effective port volume remain estimates and do not reproduce YCC-I switching. Clutch capacity 200 Nm is an estimated crank-side holding capacity (not a measured spring/plate value), replacing the 99.8 Nm fallback below the published engine torque. Drag area 0.35 m2 represents a tucked rider, using the older R1 CFD example in Limebeer and Sharma, BMD2010 p48, as a proxy; it is not verified 2015 R1M aero data. Flywheel, rod ratio, limiter and heat transfer remain estimated. Crossplane intervals 270/180/90/180. Real-world power, speed and transient acceptance remains incomplete. Sources: https://global.yamaha-motor.com/news/2014/1104/yzf-r1.html ; https://www.manualslib.com/manual/1176112/Yamaha-Yzf-R1.html?page=4 ; https://www.aperaceparts.com/tech/2017yzfr1_1.html ; https://www.bicycle.tudelft.nl/ProceedingsBMD2010/BookAbstractsBMD2010.pdf"
   }
 }

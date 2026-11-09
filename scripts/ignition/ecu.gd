@@ -35,13 +35,13 @@ var _overrun := false # closed-throttle fuel cut while the crank is well above i
 # Quickshifter state
 var _qs_active := false # true during quickshifter cut
 var _qs_timer := 0.0 # remaining cut time
+var _speed_limited := false # the speed limiter has closed the throttle and not yet let go
 # Quickshifter downshift blip state
 var _blip_active := false
 var _blip_timer := 0.0
 # Launch control state
 var _launch_active := false # true when launch control is armed and holding RPM
 var _launch_target_rpm := 0.0 # current launch RPM target (ramps up with speed)
-var _launch_ramp_rpm := 0.0 # rpm/s ramp rate based on speed
 # Power mode multipliers
 var _power_mode := "F" # "F", "M", "L"
 var _power_mode_lambda_mult := 1.0 # lambda target multiplier for current mode
@@ -94,13 +94,23 @@ func _get_qs_cut_time(spec: EngineSpec, gear: int) -> float:
 func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineSpec = null, speed_ms: float = 0.0, clutch_pull: float = 0.0, gear: int = 0) -> float:
 	_current_rpm = rpm
 	_current_gear = gear
+	# Disabling an aid must cancel any in-flight intervention on this step.
+	if spec == null or not spec.quickshifter or not running:
+		_qs_active = false
+		_qs_timer = 0.0
+		_blip_active = false
+		_blip_timer = 0.0
+	if spec == null or not spec.launch_control or not running:
+		_launch_active = false
+		_launch_target_rpm = 0.0
 	
 	# Quickshifter upshift cut
 	if _qs_active:
 		_qs_timer -= dt
 		if _qs_timer <= 0.0:
 			_qs_active = false
-		return 0.0  # cut throttle/ignition
+		# the ignition and fuel are cut in the sim; the throttle closes, unless flat shift keeps it cracked
+		return spec.flat_shift_throttle if spec != null and spec.quickshifter_flat_shift else 0.0
 	
 	# Quickshifter downshift blip
 	if _blip_active:
@@ -109,6 +119,18 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 			_blip_active = false
 		return spec.quickshifter_blip_throttle  # override throttle to blip value
 	
+	# Speed limiter: closes the throttle at the limit and lets go 2 km/h under it, so the bike holds the limit without chattering
+	if spec != null and spec.speed_limit_enabled and running:
+		var kmh := speed_ms * 3.6
+		if kmh >= spec.speed_limit_kmh:
+			_speed_limited = true
+		elif kmh < spec.speed_limit_kmh - 2.0:
+			_speed_limited = false
+		if _speed_limited:
+			return 0.0
+	else:
+		_speed_limited = false
+
 	# Launch control: check if conditions are met to arm/disarm
 	if spec != null and spec.launch_control and running:
 		var speed_kmh := speed_ms * 3.6
@@ -143,9 +165,9 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 	elif rpm < target_rpm * OVERRUN_RESUME:
 		_overrun = false
 	if _overrun:
-		_air_integral = move_toward(_air_integral, 0.0, AIR_RELEASE_RATE * dt)
+		# The fuel is cut, so the idle loops hold what they have learned. Letting them drift back to neutral here opened the
+		# valve again, and the engine hunted between the cut and the catch instead of settling at the target.
 		_air_log = _air_integral
-		_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
 		trim = _integral
 		return -1.0
 	
