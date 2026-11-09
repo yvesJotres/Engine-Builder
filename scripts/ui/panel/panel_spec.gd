@@ -77,10 +77,10 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 		spec.exhaust_duration_050_deg = float(panel._vehicle_settings.get("exhaust_duration_050_deg", 0.0))
 		spec.intake_lift_curve = panel._vehicle_settings.get("intake_lift_curve", [])
 		spec.exhaust_lift_curve = panel._vehicle_settings.get("exhaust_lift_curve", [])
-	# Feature switches are only applied when fitted to this preset.
+	# ABS and traction control apply only when the bike has them and the wheel physics is built. The other aids are on every bike.
 	spec.power_mode = panel._controls["power_mode"].get_item_text(panel._controls["power_mode"].selected)
 	# Quickshifter detailed controls
-	spec.quickshifter = spec.has_quickshifter and panel._controls["qs_enabled"].selected == 1
+	spec.quickshifter = panel._controls["qs_enabled"].selected == 1
 	spec.quickshifter_cut_time = panel._controls["qs_cut_base"].value / 1000.0
 	spec.quickshifter_blip_time = panel._controls["qs_blip_time"].value / 1000.0
 	spec.quickshifter_blip_throttle = panel._controls["qs_blip_throttle"].value
@@ -95,7 +95,7 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 		for p in profile:
 			p[1] = p[1] * (1.0 - g * 0.05)  # shorter cut in higher gears
 		spec.quickshifter_cut_profile.append(profile)
-	spec.launch_control = spec.has_launch_control and panel._controls["launch_control"].selected == 1
+	spec.launch_control = panel._controls["launch_control"].selected == 1
 	spec.abs_enabled = spec.has_abs and panel._controls["abs_enabled"].selected == 1
 	spec.traction_control_enabled = spec.has_traction_control and panel._controls["traction_control_enabled"].selected == 1
 	spec.slipper_clutch = panel._controls["slipper_clutch"].selected == 1

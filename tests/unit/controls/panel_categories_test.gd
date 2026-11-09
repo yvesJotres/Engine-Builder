@@ -1,6 +1,6 @@
 extends SceneTree
 
-# The reworked panel: seven category pages and their tabs, Forced induction and Rider aids shown only for bikes that have them,
+# The reworked panel: seven category pages and their tabs, Forced induction shown only for bikes that have a compressor, Rider aids on every bike,
 # ABS and traction control hidden until they are built, a reset that puts back only its own category, and the shift force and flat
 # shift settings reaching the spec and the ECU. Exits 1 on any failure.
 # Run: godot --headless --path . -s res://tests/unit/controls/panel_categories_test.gd
@@ -30,7 +30,7 @@ func _init() -> void:
 	# a plain bike sees neither optional category; a quickshifter bike sees Rider aids; a compressor bike sees Forced induction
 	_pick(panel, "honda_cbr150r")
 	check(not panel._tabs[4].visible, "the CBR150R has no Forced induction tab")
-	check(not panel._tabs[5].visible, "the CBR150R has no Rider aids tab")
+	check(panel._tabs[5].visible, "the CBR150R has a Rider aids tab: every bike can use the aids")
 	_pick(panel, "kawasaki_zx25r")
 	check(panel._tabs[5].visible, "the ZX-25R has a Rider aids tab")
 	check(not panel._tabs[4].visible, "the ZX-25R has no Forced induction tab")
@@ -38,9 +38,9 @@ func _init() -> void:
 	check(panel._tabs[4].visible, "the V3R has a Forced induction tab")
 
 	# a hidden category is left for the first page
-	panel._select_category(5)
+	panel._select_category(4)
 	_pick(panel, "honda_cbr150r")
-	check(panel._category == 0, "leaving for a bike without Rider aids returns to the Engine page, got %d" % panel._category)
+	check(panel._category == 0, "leaving for a bike without Forced induction returns to the Engine page, got %d" % panel._category)
 
 	# ABS and traction control stay hidden, whatever the preset fits
 	for name in Presets.PRESETS:

@@ -398,7 +398,7 @@ func _ready() -> void:
 	_controls["power_mode"] = _option(timing_page, "Power mode", ["F", "M", "L"])
 	_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
 
-	# Quickshifter detailed controls (only visible when has_quickshifter)
+	# Quickshifter detailed controls
 	_controls["qs_enabled"] = _option(aids, "Quickshifter", ["Off", "On"])
 	_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
 	_feature_labels["qs_enabled"] = _label_of(_controls["qs_enabled"])
@@ -633,8 +633,8 @@ func _feature_switch(grid: GridContainer, key: String, label_text: String, toolt
 
 func _refresh_feature_switches() -> void:
 	var fitted := {
-		"qs_enabled": bool(_vehicle_settings.get("has_quickshifter", false)),
-		"launch_control": bool(_vehicle_settings.get("has_launch_control", false)),
+		"qs_enabled": true, # every bike can take the quickshifter and launch control: the factory fit only sets the default
+		"launch_control": true,
 		"abs_enabled": bool(_vehicle_settings.get("has_abs", false)),
 		"traction_control_enabled": bool(_vehicle_settings.get("has_traction_control", false)),
 	}
@@ -686,9 +686,8 @@ func _refresh_categories() -> void:
 	if _tabs.size() < CATEGORIES.size():
 		return
 	var boosted := float(_vehicle_settings.get("max_boost_ratio", 1.0)) > 1.0 or bool(_vehicle_settings.get("electric_compressor", false)) or str(_vehicle_settings.get("compressor_map_id", "")) != ""
-	var aided := bool(_vehicle_settings.get("has_quickshifter", false)) or bool(_vehicle_settings.get("has_launch_control", false)) or bool(_vehicle_settings.get("slipper_clutch", false))
 	_tabs[4].visible = boosted
-	_tabs[5].visible = aided
+	_tabs[5].visible = true # every bike can use the aids; the factory fit only sets the default
 	if not _tabs[_category].visible:
 		_select_category(0)
 
