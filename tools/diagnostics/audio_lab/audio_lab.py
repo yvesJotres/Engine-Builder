@@ -135,7 +135,7 @@ def main() -> None:
 
     r = sub.add_parser("render", help="render one sound to a WAV")
     r.add_argument("--preset", default="yamaha_yzf_r1m")
-    r.add_argument("--profile", default="idle", choices=["idle", "decel", "crank"])
+    r.add_argument("--profile", default="idle", choices=["idle", "decel", "crank", "crank_dry"])
     r.add_argument("--seconds", type=float, default=6.0)
     r.add_argument("--solver", default="live", choices=["live", "offline"])
     for opt in ["intake", "exhaust", "rasp", "muffler", "layers"]:

@@ -4,7 +4,7 @@ extends SceneTree
 # Options (key=value after --):
 #   preset=<id>             preset id (assets/engines/<id>.json), default yamaha_yzf_r1m
 #   seconds=<s>             length, default 6
-#   profile=idle|decel|crank  idle: closed throttle. decel: 0.8 throttle for 2.5 s, then closed.
+#   profile=idle|decel|crank|crank_dry  idle: closed throttle. decel: 0.8 throttle for 2.5 s, then closed. crank_dry: cranking with no spark.
 #                           crank: starts from rest with the starter held, records the cranking itself
 #   solver=live|offline     live (default, what the game uses for four-strokes): blowdown pulses.
 #                           offline: the 1D pipe solver (the offline render path)
@@ -76,7 +76,7 @@ func _init() -> void:
 
 	# warm up at idle, the same way the game does before recording (a cranking recording starts from rest instead)
 	var steps := 0
-	if profile != "crank":
+	if not profile.begins_with("crank"):
 		# hold the starter until the engine is well up, as a player does: releasing it near the firing speed can drop a big engine
 		while (not sim.running or sim.rpm < spec.idle_target_rpm * 1.5) and steps < int(40.0 / sim.physics_dt):
 			sim.step(sim.physics_dt, spec, 0.0, true, true, false, false, 1.0)
@@ -95,13 +95,14 @@ func _init() -> void:
 		var throttle := 0.0
 		if profile == "decel" and clock < 2.5:
 			throttle = 0.8
-		sim.step(sim.physics_dt, spec, throttle, true, profile == "crank", false, false, 1.0)
+		# crank_dry: the starter turns the engine but the spark stays off, so it cranks without firing
+		sim.step(sim.physics_dt, spec, throttle, profile != "crank_dry", profile.begins_with("crank"), false, false, 1.0)
 		clock += sim.physics_dt
 		sound.rpm = sim.rpm
 		sound.drive.update_from(sim, spec, throttle)
 		sound.set_conditions(sim.o2_lambda(), sim.exhaust_temp_c(), sim.backpressure_pa())
 		if not rasp_on:
-			sound._noise_mix = 0.0
+			sound.exh.noise_mix = 0.0
 		var exhaust_flow: PackedFloat32Array = _take_exhaust(sim, offline)
 		if not exhaust_on:
 			exhaust_flow.fill(0.0)
