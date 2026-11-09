@@ -563,6 +563,10 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 			dq = minf(y.burn_energy_left, y.burn_energy * (wiebe(rel + sd, burn_deg) - wiebe(rel, burn_deg)));
 			y.burn_energy_left -= dq;
 			y.burnt = 1.0 - y.burn_energy_left / y.burn_energy;
+		} else if (!spark && y.burn_energy_left > 0.0 && in_window(p0, ign_phi, burn_deg)) {
+			// the spark was cut after this charge got its fuel: the fuel never burns, and it leaves unlit into the exhaust, where it pops
+			y.fuel_unburnt_kg += y.burn_energy_left / (c.tank_lhv * COMBUSTION_EFFICIENCY);
+			y.burn_energy_left = 0.0;
 		}
 
 		double liner = (next_volume - c.clearance) / c.piston_area;

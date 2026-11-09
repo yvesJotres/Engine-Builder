@@ -580,6 +580,10 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 			dq = minf(burn_energy_left, burn_energy * (_wiebe(rel + sd, burn_deg) - _wiebe(rel, burn_deg)))
 			burn_energy_left -= dq
 			_burnt = 1.0 - burn_energy_left / burn_energy
+		elif not spark and burn_energy_left > 0.0 and _in_window(p0, ign_phi, burn_deg):
+			# the spark was cut after this charge got its fuel: the fuel never burns, and it leaves unlit into the exhaust, where it pops
+			fuel_unburnt_kg += burn_energy_left / (tank.lhv * COMBUSTION_EFFICIENCY)
+			burn_energy_left = 0.0
 
 		# heat lost to the walls: head plus piston crown plus the liner exposed by the piston
 		var liner := (next_volume - clearance) / piston_area
