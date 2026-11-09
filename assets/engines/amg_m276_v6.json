@@ -66,6 +66,7 @@
       "header": "4-2-1",
       "fuel": "ron98",
       "idle_target_rpm": 700.0,
+    "idle_air_scale": 0.6,
       "ve_scale": 1.15,
       "lambda_target": null,
       "ignition_offset_deg": 0.0,

@@ -74,6 +74,7 @@
       "additionalProperties": false,
       "properties": {
         "redline_rpm": { "type": "number", "minimum": 2000, "maximum": 20000 },
+        "idle_air_scale": { "type": "number", "minimum": 0.05, "maximum": 2.0 },
         "speed_limit_enabled": { "type": "boolean" },
         "speed_limit_kmh": { "type": "number", "minimum": 100, "maximum": 400 },
         "primary_ratio": { "type": "number", "exclusiveMinimum": 0 },

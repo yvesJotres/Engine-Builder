@@ -152,6 +152,8 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 # The drawing and cam model give every four-stroke two intake and two exhaust valves per cylinder. The sound reads this for
 # the valve tick rate; change it only together with the valve model, or the tick and the drawing disagree.
 @export var valves_per_cylinder := 4
+# Scales this engine's idle bypass on top of the displacement rule. 1.0 is the rule; an engine whose idle air the rule oversupplies sets less.
+@export_range(0.05, 2.0) var idle_air_scale := 1.0
 @export var runner_length_m := 0.25 # throttle body to the valve. 0.25 m is the small-single estimate; a shorter runner holds its fill to a higher rpm
 @export var runner_bore_mm := 0.0 # 0 preserves the legacy 6.6 cm² runner; equivalent bore, not butterfly diameter
 @export var intake_display := "stock" # visual option; stock stack dimensions are not verified

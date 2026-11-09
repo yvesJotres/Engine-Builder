@@ -77,7 +77,8 @@ func _init() -> void:
 	# warm up at idle, the same way the game does before recording (a cranking recording starts from rest instead)
 	var steps := 0
 	if profile != "crank":
-		while (not sim.running or sim.rpm < spec.idle_target_rpm * 0.9) and steps < int(40.0 / sim.physics_dt):
+		# hold the starter until the engine is well up, as a player does: releasing it near the firing speed can drop a big engine
+		while (not sim.running or sim.rpm < spec.idle_target_rpm * 1.5) and steps < int(40.0 / sim.physics_dt):
 			sim.step(sim.physics_dt, spec, 0.0, true, true, false, false, 1.0)
 			steps += 1
 		for i in int(1.0 / sim.physics_dt):

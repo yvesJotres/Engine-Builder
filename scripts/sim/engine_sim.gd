@@ -327,7 +327,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					var rho := maxf(intake.pressure / (Cylinder.R * maxf(intake_temp, 200.0)), 0.2)
 					# Normalize by cylinder count
 					_emit_intake((intake_mdot / rho) / spec.cylinders, sub_h)
-			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
+			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * spec.idle_air_scale * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
 			intake.manifold_update(sub_h, calibrated_throttle, drawn / sub_h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
 		gas *= 1.0 - knock_loss
 		_gas_torque = gas
@@ -424,7 +424,7 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 				exhaust.advance(sub_h)
 		
 		# Intake manifold update with 2-stroke crankcase pumping
-		intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * ecu.air_factor() # idle air, as the four-stroke
+		intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * spec.idle_air_scale * ecu.air_factor() # idle air, as the four-stroke
 		intake.manifold_update(h, throttle, drawn / h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
 		
 		gas *= 1.0 - knock_loss
