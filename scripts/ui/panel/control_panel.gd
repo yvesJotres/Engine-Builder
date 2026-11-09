@@ -387,7 +387,7 @@ func _ready() -> void:
 
 	_controls["redline"] = _spin(vehicle, "Redline (rpm)", 2000, 20000, 50, 10600)
 	_controls["redline"].tooltip_text = "Fuel is cut at this speed"
-	_controls["speed_limit_enabled"] = _option(vehicle, "Speed limiter", ["Off", "On"])
+	_controls["speed_limit_enabled"] = _toggle(vehicle, "Speed limiter")
 	_controls["speed_limit_enabled"].tooltip_text = "The voluntary 300 km/h limit most makers fit. On: the ECU closes the throttle at the limit and the bike holds it"
 	_controls["speed_limit_kmh"] = _spin(vehicle, "Speed limit (km/h)", 100, 400, 1, 300)
 	_controls["speed_limit_kmh"].tooltip_text = "The speed the limiter holds, km/h"
@@ -399,7 +399,7 @@ func _ready() -> void:
 	_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
 
 	# Quickshifter detailed controls
-	_controls["qs_enabled"] = _option(aids, "Quickshifter", ["Off", "On"])
+	_controls["qs_enabled"] = _toggle(aids, "Quickshifter")
 	_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
 	_feature_labels["qs_enabled"] = _label_of(_controls["qs_enabled"])
 	_controls["qs_sensitivity"] = _spin(aids, "Shift force", 0.1, 1.0, 0.05, 0.7)
@@ -414,16 +414,17 @@ func _ready() -> void:
 	_controls["qs_blip_throttle"] = _spin(aids, "Blip Throttle %", 0.1, 0.5, 0.05, 0.3)
 	_controls["qs_blip_throttle"].tooltip_text = "Throttle fraction during downshift blip"
 	_feature_labels["qs_blip_throttle"] = _label_of(_controls["qs_blip_throttle"])
-	_controls["qs_flat_shift"] = _option(aids, "Flat Shift", ["Off", "On"])
+	_controls["qs_flat_shift"] = _toggle(aids, "Flat Shift")
 	_controls["qs_flat_shift"].tooltip_text = "Hold throttle cracked during upshift for faster shifts"
 	_feature_labels["qs_flat_shift"] = _label_of(_controls["qs_flat_shift"])
 
 	_feature_switch(aids, "launch_control", "Launch control", "Holds launch RPM while the clutch is pulled and throttle is high.")
 	_feature_switch(aids, "abs_enabled", "ABS", "Anti-lock braking system. Intervention is available when wheel-brake simulation is active.")
 	_feature_switch(aids, "traction_control_enabled", "Traction control", "Traction control. Intervention is available when tyre-slip simulation is active.")
-	_controls["slipper_clutch"] = OptionButton.new()
+	_controls["slipper_clutch"] = ToggleSwitch.new()
 	_controls["slipper_clutch"].add_item("Off")
 	_controls["slipper_clutch"].add_item("On")
+	_controls["slipper_clutch"].item_selected.connect(func(_i: int) -> void: changed.emit())
 	_controls["slipper_clutch"].tooltip_text = "Slipper clutch: reduces clutch capacity during engine braking to prevent rear wheel hop"
 	_row(aids, "Slipper clutch", _controls["slipper_clutch"])
 
@@ -621,7 +622,7 @@ func _style_kill(killed: bool) -> void:
 
 
 func _feature_switch(grid: GridContainer, key: String, label_text: String, tooltip: String) -> void:
-	var option := OptionButton.new()
+	var option := ToggleSwitch.new()
 	option.add_item("Off")
 	option.add_item("On")
 	option.custom_minimum_size.y = CONTROL_HEIGHT
@@ -699,7 +700,7 @@ func _snapshot() -> Dictionary:
 		var c = _controls[key]
 		if c is SpinBox:
 			snap.controls[key] = c.value
-		elif c is OptionButton:
+		elif c is OptionButton or c is ToggleSwitch:
 			snap.controls[key] = c.selected
 	for name in PLAIN_VARS:
 		var v = get(name)
@@ -717,7 +718,7 @@ func _restore(snap: Dictionary, skip: Array, restore_vars: bool) -> void:
 			c.set_block_signals(true)
 			c.value = snap.controls[key]
 			c.set_block_signals(false)
-		elif c is OptionButton:
+		elif c is OptionButton or c is ToggleSwitch:
 			c.select(snap.controls[key])
 	if restore_vars:
 		for name in snap.vars:
@@ -791,6 +792,17 @@ func _spin(grid: GridContainer, label: String, lo: float, hi: float, step: float
 	return s
 
 
+# An on/off switch in a row, for the Off/On settings. A tap emits changed, like the other controls.
+func _toggle(grid: GridContainer, label: String) -> ToggleSwitch:
+	var toggle := ToggleSwitch.new()
+	toggle.add_item("Off")
+	toggle.add_item("On")
+	toggle.custom_minimum_size.y = CONTROL_HEIGHT
+	toggle.item_selected.connect(func(_i: int) -> void: changed.emit())
+	_row(grid, label, toggle)
+	return toggle
+
+
 func _option(grid: GridContainer, label: String, items: Array) -> OptionButton:
 	var o := OptionButton.new()
 	for item in items:
@@ -836,7 +848,7 @@ func _set_quiet(box: SpinBox, value: float) -> void:
 	box.set_block_signals(false)
 
 
-func _select_text(option: OptionButton, text: String) -> void:
+func _select_text(option, text: String) -> void:
 	for i in option.item_count:
 		if option.get_item_text(i) == text:
 			option.select(i)

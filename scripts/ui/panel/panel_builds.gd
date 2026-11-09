@@ -26,7 +26,7 @@ static func save_build(panel: ControlPanel) -> void:
 		var control: Control = panel._controls[key]
 		if control is SpinBox:
 			values[key] = control.value
-		elif control is OptionButton:
+		elif control is OptionButton or control is ToggleSwitch:
 			values[key] = control.get_item_text(control.selected)
 	var config := ConfigFile.new()
 	config.load(panel.builds_path)
@@ -89,7 +89,7 @@ static func load_build(panel: ControlPanel) -> void:
 		var control: Control = panel._controls[key]
 		if control is SpinBox and (values[key] is float or values[key] is int):
 			panel._set_quiet(control, values[key])
-		elif control is OptionButton and values[key] is String:
+		elif (control is OptionButton or control is ToggleSwitch) and values[key] is String:
 			panel._select_text(control, values[key])
 	panel.bank_angle = panel._controls["bank_angle"].value
 	var preset_index := panel._preset_ids.find(str(config.get_value(build_name, "preset_id", "")))
