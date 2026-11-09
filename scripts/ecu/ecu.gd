@@ -24,6 +24,7 @@ const OVERRUN_RESUME := 1.25 # fuel returns here, still above the target, so the
 # Launch control constants
 const LAUNCH_RAMP_RATE := 500.0 # rpm/s, how fast the launch RPM target ramps up once moving
 const LAUNCH_SLIP_RATE := 0.3 # clutch slip target during launch (0-1)
+const LAUNCH_HOLD_GAIN := 5.0 # throttle closed per unit of rpm error relative to the launch target, proportional, estimate
 
 var target_rpm := 1200.0
 var trim := 0.0 # degrees of spark advance added by the ECU right now
@@ -42,6 +43,7 @@ var _blip_timer := 0.0
 # Launch control state
 var _launch_active := false # true when launch control is armed and holding RPM
 var _launch_target_rpm := 0.0 # current launch RPM target (ramps up with speed)
+var _launch_throttle := 1.0 # throttle the launch holds the rpm with: wide open at the start, then trimmed to the target
 # Power mode multipliers
 var _power_mode := "F" # "F", "M", "L"
 var _power_mode_lambda_mult := 1.0 # lambda target multiplier for current mode
@@ -138,12 +140,17 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 		if launch_armed and not _launch_active:
 			_launch_active = true
 			_launch_target_rpm = spec.launch_rpm
-		elif _launch_active and (speed_kmh >= spec.launch_speed_kmh or throttle < spec.launch_throttle * 0.5 or clutch_pull < 0.2):
+			_launch_throttle = 1.0
+		elif _launch_active and (speed_kmh >= spec.launch_speed_kmh or throttle < spec.launch_throttle * 0.5):
+			# letting the lever go is the launch itself: the clutch then slips at the target, so it does not end the launch
 			_launch_active = false
 		if _launch_active:
 			# Ramp up target RPM with speed
 			_launch_target_rpm += LAUNCH_RAMP_RATE * dt * clampf(speed_kmh / spec.launch_speed_kmh, 0.0, 1.0)
 			_launch_target_rpm = minf(_launch_target_rpm, spec.redline_rpm * 0.95)
+			# launch holds the target with the throttle: it opens while the engine is under the target and closes above it
+			_launch_throttle = clampf(1.0 - LAUNCH_HOLD_GAIN * (rpm - _launch_target_rpm) / maxf(_launch_target_rpm, 1.0), 0.0, 1.0)
+			return _launch_throttle
 	
 	# the ECU stays out of the way while the engine is starting and climbing, and only holds the idle once it is running
 	if not running or throttle > IDLE_THROTTLE or rpm < ACTIVE_RPM:

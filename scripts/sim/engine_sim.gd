@@ -38,6 +38,7 @@ const CLUTCH_RELEASE_TIME := 0.05 # s, pulling the clutch in is fast
 const CLUTCH_LEVER_TIME := 0.03 # s, the plates follow the lever with only this much lag
 const CLUTCH_BITE_START := 0.5 # lever pull where the plates start to slip, estimate: the friction zone begins here
 const CLUTCH_BITE_END := 0.9 # lever pull where the plates are fully apart, estimate: the friction zone ends here
+const LAUNCH_CLUTCH_GAIN := 4.0 # per second, how fast the launch clutch closes or opens per unit of slip error, estimate
 const DRIVE_EFFICIENCY := 0.93 # gearbox mesh (6 gears, ~1.5% each), primary drive and chain (~3%) together, estimate
 const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
@@ -170,17 +171,19 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 func _update_controls(delta: float, clutch_held: bool, brake_held: bool) -> void:
 	# the lever sets how far apart the plates are: engaged up to the bite point, slipping through the friction zone, open past it.
 	# The Shift key pulls the clutch fully in, and when it lets go the plates come back slowly
-	var grip_target := 0.0 if clutch_held else clutch_grip(clutch_pull)
-	if clutch_held:
-		_clutch_slow_engage = true
-	var time := CLUTCH_LEVER_TIME
-	if grip_target < clutch_engage:
-		time = CLUTCH_RELEASE_TIME
-	elif _clutch_slow_engage:
-		time = CLUTCH_ENGAGE_TIME
-	clutch_engage = move_toward(clutch_engage, grip_target, delta / time)
-	if clutch_engage >= grip_target and not clutch_held:
-		_clutch_slow_engage = false
+	# while launch control is holding the engine, the clutch is set by the slip target in _advance_driveline, not by the lever
+	if not ecu.is_launch_active():
+		var grip_target := 0.0 if clutch_held else clutch_grip(clutch_pull)
+		if clutch_held:
+			_clutch_slow_engage = true
+		var time := CLUTCH_LEVER_TIME
+		if grip_target < clutch_engage:
+			time = CLUTCH_RELEASE_TIME
+		elif _clutch_slow_engage:
+			time = CLUTCH_ENGAGE_TIME
+		clutch_engage = move_toward(clutch_engage, grip_target, delta / time)
+		if clutch_engage >= grip_target and not clutch_held:
+			_clutch_slow_engage = false
 	brake = move_toward(brake, 1.0 if brake_held else 0.0, delta / BRAKE_APPLY_TIME)
 
 
@@ -882,6 +885,10 @@ func _advance_driveline(dt: float, spec: EngineSpec, net: float, inertia: float,
 	var road_load := 0.0 if cell_mass_kg > 0.0 else road_resistance(speed, mass, spec.drag_area_m2)
 	var free_speed := maxf(speed - (road_load + BRAKE_FORCE * brake + cell_load_n) * dt / effective_mass, 0.0)
 	var free_omega := maxf(omega + net / inertia * dt, 0.0)
+	if ecu.is_launch_active() and ratio > 0.0:
+		# launch control: the clutch closes while the slip is above its target and opens while it is below, so the engine holds its rpm
+		var slip := 1.0 - speed * ratio / radius / maxf(omega, 1.0)
+		clutch_engage = clampf(clutch_engage + LAUNCH_CLUTCH_GAIN * (slip - ECU.LAUNCH_SLIP_RATE) * dt, 0.0, 1.0)
 	var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
 	var transfer := clutch_transfer_torque(free_omega, free_speed, inertia, effective_mass, ratio, radius, cap, dt, CLUTCH_STIFFNESS)
 	gearbox_load = transfer
