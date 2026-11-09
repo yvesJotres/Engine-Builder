@@ -53,9 +53,13 @@ func _init() -> void:
 		high_c += value * cos(high)
 	var mid_band := sqrt(mid_s * mid_s + mid_c * mid_c)
 	var high_band := sqrt(high_s * high_s + high_c * high_c)
-	check(mid_band > 0.05, "simulated exhaust retains audible 2 kHz content")
-	check(high_band > 0.05, "simulated exhaust retains audible 4 kHz content")
-	print("generated RMS %.3f, 2 kHz probe %.3f, 4 kHz probe %.3f, render 0.1 s %.2f ms" % [rms, mid_band, high_band, elapsed_ms])
+	# The check is on a band of 12 frequencies, not on one: the magnitude at a single frequency of a pulse train swings by 10 times with
+	# the exact pulse timing, which the fuel film changes during a tip-in. A band stays put, and an over-filtered response would send it near 0.
+	var mid_avg := _band(output, 1500.0, 2500.0)
+	var high_avg := _band(output, 3500.0, 4500.0)
+	check(mid_avg > 0.05, "simulated exhaust retains audible 2 kHz content")
+	check(high_avg > 0.05, "simulated exhaust retains audible 4 kHz content")
+	print("generated RMS %.3f, 2 kHz probe %.3f, 4 kHz probe %.3f, 2 kHz band %.3f, 4 kHz band %.3f, render 0.1 s %.2f ms" % [rms, mid_band, high_band, mid_avg, high_avg, elapsed_ms])
 	sound.free()
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)
@@ -66,3 +70,19 @@ static func _rms(frames: PackedVector2Array) -> float:
 	for frame in frames:
 		sum += frame.x * frame.x
 	return sqrt(sum / maxf(frames.size(), 1))
+
+
+# Mean magnitude over 12 evenly spaced frequencies from lo to hi (Hz).
+static func _band(frames: PackedVector2Array, lo: float, hi: float) -> float:
+	var total := 0.0
+	var count := 12
+	for k in count:
+		var f := lo + (hi - lo) * float(k) / float(count - 1)
+		var sc := 0.0
+		var cc := 0.0
+		for i in frames.size():
+			var w := TAU * f * i / EngineSound.RATE
+			sc += frames[i].x * sin(w)
+			cc += frames[i].x * cos(w)
+		total += sqrt(sc * sc + cc * cc)
+	return total / count

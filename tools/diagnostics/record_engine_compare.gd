@@ -1,6 +1,6 @@
 extends SceneTree
 
-const WAV_WRITER := preload("res://scripts/render/wav_writer.gd")
+const WAV_WRITER := preload("res://scripts/audio/wav_writer.gd")
 const FRAME_DT := 1.0 / 60.0
 const SAMPLES_PER_FRAME := 735
 

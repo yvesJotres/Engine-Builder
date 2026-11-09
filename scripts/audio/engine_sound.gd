@@ -86,6 +86,8 @@ var _flow_scale := BASE_FLOW_SCALE
 var _last_sample := 0.0
 var compressor_load := 0.0
 var _compressor_phase := 0.0
+var drive := SoundContext.new() # what the sound layers need to know: the game fills it every frame
+var _layers := LayerBank.new() # valve tick, bottom end, driveline, turbo and knock, added to the mix
 
 
 func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
@@ -125,6 +127,8 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	_nz_a = _alpha(NOISE_HZ)
 	_intake_a = _alpha(INTAKE_HZ)
 	_set_resonance_cut(_spec)
+	_layers = LayerBank.standard(OS.has_feature("mobile"))
+	_layers.configure(_spec)
 	# The leveler sets the loudness. Volume flow already grows with displacement, and scaling by it
 	# again pushed a large engine past the clipper, which turned the firing ripple into a buzz.
 	_flow_scale = BASE_FLOW_SCALE
@@ -194,6 +198,7 @@ func render(frames: int) -> PackedVector2Array:
 		return out
 	var step := RATE / BODY_RATE
 	var ir := _ir
+	var layer_mix := _layers.render(frames, drive)
 	var hist := _hist
 	var taps := ir.size()
 	for i in frames:
@@ -224,7 +229,7 @@ func render(frames: int) -> PackedVector2Array:
 		if compressor_load > 0.0:
 			_compressor_phase = fposmod(_compressor_phase + TAU * (900.0 + 2600.0 * compressor_load) / RATE, TAU)
 			whine = sin(_compressor_phase) * compressor_load * 0.012
-		var sample := _shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine)
+		var sample := _shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine + layer_mix[i])
 		_delay[_dp] = sample
 		var side := _delay[(_dp + 18) % 32]
 		_dp = (_dp + 1) % 32
@@ -272,6 +277,7 @@ func clear_pending() -> void:
 	_mix_prev = 0.0
 	_mix_curr = 0.0
 	starved = false
+	_layers.reset()
 
 
 func _process(_delta: float) -> void:

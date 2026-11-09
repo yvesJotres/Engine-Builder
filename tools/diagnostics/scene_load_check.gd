@@ -17,7 +17,7 @@ func _init() -> void:
 			continue
 		print("ok scene " + path)
 		node.free()
-	for path in ["res://scripts/updates/patcher.gd", "res://scripts/app/single_instance.gd", "res://scripts/user/server_settings.gd"]:
+	for path in ["res://scripts/platform/updates/patcher.gd", "res://scripts/app/single_instance.gd", "res://scripts/platform/user/server_settings.gd"]:
 		var script = load(path)
 		print(("ok script " if script != null else "MISSING script ") + path)
 		if script == null:

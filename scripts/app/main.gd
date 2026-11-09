@@ -303,6 +303,7 @@ func _process(delta: float) -> void:
 	_tank.update(_sim.fuel.fraction(), Color(0.2, 0.55, 0.3) if _sim.fuel.kind == "e85" else Color(0.2, 0.4, 0.9))
 	if _frame <= 3: _trace("clutch and tank updated")
 	_sound.rpm = _sim.rpm
+	_sound.drive.update_from(_sim, spec, _throttle)
 	_sound.compressor_load = _sim.intake.compressor_load if spec.electric_compressor else 0.0
 	_sound.position = _tail_tip
 	if _sound_on:

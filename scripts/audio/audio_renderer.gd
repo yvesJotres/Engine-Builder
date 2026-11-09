@@ -95,6 +95,7 @@ func render(spec: EngineSpec, layout: ExhaustLayout = null,
 
 		# Drive the sound from the sim's current state
 		sound.rpm = sim.rpm
+		sound.drive.update_from(sim, spec, throttle)
 		sound.set_conditions(sim.o2_lambda(), sim.exhaust_temp_c(), sim.backpressure_pa())
 		if sim.exhaust != null:
 			sound.push_flow(sim.exhaust.take_flow())

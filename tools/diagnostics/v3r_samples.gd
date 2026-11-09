@@ -1,6 +1,6 @@
 extends SceneTree
 
-const WRITER := preload("res://scripts/render/wav_writer.gd")
+const WRITER := preload("res://scripts/audio/wav_writer.gd")
 
 func _init() -> void:
 	var preset: Dictionary = Presets.PRESETS["honda_v3r900"]

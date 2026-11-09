@@ -129,7 +129,7 @@ def promote() -> int:
     return 0
 
 
-GATE_TESTS = ["unit/test_engine", "unit/drivetrain/clutch_stability_test", "visual/ui/touch_controls_test", "unit/ecu/spark_check", "unit/ecu/ir_check", "unit/ecu/ecu_test", "unit/ecu/ecu_binary_parser_test", "unit/ecu/ecu_runtime_calibration_test", "unit/fuel/fuel_flow_test", "unit/controls/sensors_test", "unit/engine/v_geometry_test", "unit/engine/engine_geometry_test", "unit/engine/firing_reference_test", "unit/drivetrain/clutch_bite_test", "unit/ecu/backfire_test", "unit/engine/cam_test", "unit/ecu/ignition_offset_test", "unit/fuel/fuel_effect_test", "unit/fuel/fuel_chemistry_test", "unit/controls/panel_defaults_test", "integration/game/game_idle_test"]
+GATE_TESTS = ["unit/test_engine", "unit/drivetrain/clutch_stability_test", "visual/ui/touch_controls_test", "unit/ecu/spark_check", "unit/ecu/ir_check", "unit/ecu/ecu_test", "unit/ecu/ecu_binary_parser_test", "unit/ecu/ecu_runtime_calibration_test", "unit/fuel/fuel_flow_test", "unit/controls/sensors_test", "unit/engine/v_geometry_test", "unit/engine/engine_geometry_test", "unit/engine/firing_reference_test", "unit/drivetrain/clutch_bite_test", "unit/ecu/backfire_test", "unit/engine/cam_test", "unit/ecu/ignition_offset_test", "unit/fuel/fuel_effect_test", "unit/fuel/fuel_chemistry_test", "unit/controls/panel_defaults_test", "integration/game/game_idle_test", "unit/audio/valvetrain_layer_test", "unit/audio/mechanical_layer_test", "unit/audio/turbo_layer_test", "unit/audio/driveline_layer_test", "unit/audio/knock_layer_test", "unit/ecu/cut_pop_test", "unit/ecu/launch_control_test"]
 
 
 GATE_TESTS.extend(["integration/dyno/dyno_measurement_test", "integration/dyno/dyno_test", "integration/dyno/dyno_cell_test", "integration/dyno/dyno_view_test"])
