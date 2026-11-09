@@ -60,8 +60,8 @@ func _init() -> void:
 			check(_same(got.get(field), want.get(field)), "%s: %s is %s from the panel, %s from the preset" % [name, field, str(got.get(field)), str(want.get(field))])
 		check(panel._controls["qs_enabled"].visible, "%s: quickshifter switch is on every bike" % name)
 		check(panel._controls["launch_control"].visible, "%s: launch-control switch is on every bike" % name)
-		check(panel._controls["abs_enabled"].visible == (got.has_abs and ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: ABS switch requires fitted hardware and implemented wheel physics" % name)
-		check(panel._controls["traction_control_enabled"].visible == (got.has_traction_control and ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: traction-control switch requires fitted hardware and implemented wheel physics" % name)
+		check(panel._controls["abs_enabled"].visible and panel._controls["abs_enabled"].disabled == (not ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: ABS is on every bike, locked until the wheel physics is built" % name)
+		check(panel._controls["traction_control_enabled"].visible and panel._controls["traction_control_enabled"].disabled == (not ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: traction control is on every bike, locked until the wheel physics is built" % name)
 		check(got.validation_warning() == "", "%s: the panel's settings pass validation (%s)" % [name, got.validation_warning()])
 		index += 1
 	var frame := panel.get_child(0) as PanelContainer

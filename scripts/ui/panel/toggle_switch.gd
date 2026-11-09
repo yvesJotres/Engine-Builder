@@ -20,6 +20,14 @@ const TEXT_SIZE := 16
 var _items: Array[String] = []
 var _selected := 0
 
+# A locked switch shows its state dimmed and ignores taps (used for aids that are not built yet).
+var disabled := false:
+	set(value):
+		disabled = value
+		modulate = Color(1.0, 1.0, 1.0, 0.45 if value else 1.0)
+		mouse_default_cursor_shape = Control.CURSOR_ARROW if value else Control.CURSOR_POINTING_HAND
+		queue_redraw()
+
 
 var selected: int:
 	get:
@@ -55,6 +63,8 @@ func select(index: int) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if disabled:
+		return
 	# Taps reach here as mouse events too (touch is emulated as mouse), so only the mouse button and the accept key count.
 	var tapped: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
 	if tapped or event.is_action_pressed("ui_accept"):

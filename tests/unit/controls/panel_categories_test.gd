@@ -42,11 +42,11 @@ func _init() -> void:
 	_pick(panel, "honda_cbr150r")
 	check(panel._category == 0, "leaving for a bike without Forced induction returns to the Engine page, got %d" % panel._category)
 
-	# ABS and traction control stay hidden, whatever the preset fits
+	# ABS and traction control are shown on every bike but locked until they are built
 	for name in Presets.PRESETS:
 		_pick(panel, name)
-		check(not panel._controls["abs_enabled"].visible, "%s: ABS stays hidden until it is built" % name)
-		check(not panel._controls["traction_control_enabled"].visible, "%s: traction control stays hidden until it is built" % name)
+		check(panel._controls["abs_enabled"].visible and panel._controls["abs_enabled"].disabled, "%s: ABS is shown and locked until it is built" % name)
+		check(panel._controls["traction_control_enabled"].visible and panel._controls["traction_control_enabled"].disabled, "%s: traction control is shown and locked until it is built" % name)
 
 	# a reset puts back only its own category
 	_pick(panel, "kawasaki_zx25r")

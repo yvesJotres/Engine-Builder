@@ -51,5 +51,13 @@ func _init() -> void:
 	toggle.select(5)
 	check(toggle.selected == 1, "an out-of-range select clamps to the last item")
 
+	# a locked switch ignores taps
+	var locked := ToggleSwitch.new()
+	locked.add_item("Off")
+	locked.add_item("On")
+	locked.disabled = true
+	locked._gui_input(press)
+	check(locked.selected == 0 and locked.disabled, "a locked switch ignores a tap")
+
 	print("toggle_switch_test: %s" % ("PASSED" if _fails == 0 else "FAILED"))
 	quit(0 if _fails == 0 else 1)

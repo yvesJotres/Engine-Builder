@@ -96,7 +96,7 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 			p[1] = p[1] * (1.0 - g * 0.05)  # shorter cut in higher gears
 		spec.quickshifter_cut_profile.append(profile)
 	spec.launch_control = panel._controls["launch_control"].selected == 1
-	spec.abs_enabled = spec.has_abs and panel._controls["abs_enabled"].selected == 1
-	spec.traction_control_enabled = spec.has_traction_control and panel._controls["traction_control_enabled"].selected == 1
+	spec.abs_enabled = ControlPanel.WHEEL_AIDS_AVAILABLE and panel._controls["abs_enabled"].selected == 1
+	spec.traction_control_enabled = ControlPanel.WHEEL_AIDS_AVAILABLE and panel._controls["traction_control_enabled"].selected == 1
 	spec.slipper_clutch = panel._controls["slipper_clutch"].selected == 1
 	spec.slipper_ramp = 0.5 # fixed for now, could add a spin box later

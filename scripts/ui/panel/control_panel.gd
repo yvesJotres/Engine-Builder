@@ -419,8 +419,8 @@ func _ready() -> void:
 	_feature_labels["qs_flat_shift"] = _label_of(_controls["qs_flat_shift"])
 
 	_feature_switch(aids, "launch_control", "Launch control", "Holds launch RPM while the clutch is pulled and throttle is high.")
-	_feature_switch(aids, "abs_enabled", "ABS", "Anti-lock braking system. Intervention is available when wheel-brake simulation is active.")
-	_feature_switch(aids, "traction_control_enabled", "Traction control", "Traction control. Intervention is available when tyre-slip simulation is active.")
+	_feature_switch(aids, "abs_enabled", "ABS", "Anti-lock braking system. Not built yet: it needs the wheel-slip physics, so the switch is locked.")
+	_feature_switch(aids, "traction_control_enabled", "Traction control", "Traction control. Not built yet: it needs the wheel-slip physics, so the switch is locked.")
 	_controls["slipper_clutch"] = ToggleSwitch.new()
 	_controls["slipper_clutch"].add_item("Off")
 	_controls["slipper_clutch"].add_item("On")
@@ -633,23 +633,17 @@ func _feature_switch(grid: GridContainer, key: String, label_text: String, toolt
 
 
 func _refresh_feature_switches() -> void:
-	var fitted := {
-		"qs_enabled": true, # every bike can take the quickshifter and launch control: the factory fit only sets the default
-		"launch_control": true,
-		"abs_enabled": bool(_vehicle_settings.get("has_abs", false)),
-		"traction_control_enabled": bool(_vehicle_settings.get("has_traction_control", false)),
-	}
-	fitted["abs_enabled"] = fitted["abs_enabled"] and WHEEL_AIDS_AVAILABLE
-	fitted["traction_control_enabled"] = fitted["traction_control_enabled"] and WHEEL_AIDS_AVAILABLE
-	for key in fitted:
-		var shown: bool = fitted[key]
-		_controls[key].visible = shown
-		_feature_labels[key].visible = shown
-		if not shown:
+	# every aid is on every bike: the factory fit only sets its default, which the preset applies.
+	# ABS and traction control stay locked until their wheel-slip physics is built.
+	for key in ["abs_enabled", "traction_control_enabled"]:
+		_controls[key].visible = true
+		_feature_labels[key].visible = true
+		_controls[key].disabled = not WHEEL_AIDS_AVAILABLE
+		if not WHEEL_AIDS_AVAILABLE:
 			_controls[key].select(0)
-	
+
 	# Quickshifter detailed controls visibility
-	var qs_visible: bool = fitted["qs_enabled"]
+	var qs_visible := true
 	_controls["qs_enabled"].visible = qs_visible
 	_controls["qs_sensitivity"].visible = qs_visible
 	_controls["qs_cut_base"].visible = qs_visible
