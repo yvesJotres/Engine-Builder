@@ -14,6 +14,9 @@ const FRICTION_PER_RPM := 0.00012 # N·m per rpm, bearings and oil shear: about 
 const REITZ_FMEP_C := 0.25 # bar, constant part of FMEP; Reitz (2018) lecture, Chen–Flynn form
 const REITZ_PF := 0.005 # per bar of peak cylinder pressure; Reitz (2018)
 const REITZ_MPSF := 0.1 # bar per (m/s) of mean piston speed; Reitz (2018), unit decided by the offline check (docs/engine_physics/09)
+const FMEP_CONST_BAR := REITZ_FMEP_C
+const FMEP_PMAX_BAR := REITZ_PF
+const FMEP_MPS_BAR := REITZ_MPSF
 const SUBSTEPS := 1 # each fixed physics step is taken once
 var physics_dt := 1.0 / 1200.0 # s per physics step, set from the pause menu: Fast 1/1200, Normal 1/2400, Accurate 1/3600, Ultra 1/7200, Extreme 1/10800, Insane 1/14400, Ludicrous 1/28800
 const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch must not make the sim run in fast-forward
@@ -846,6 +849,12 @@ func _build_cylinders(spec: EngineSpec) -> void:
 			cylinders.append(c)
 	exhaust = ExhaustNative.new()
 	exhaust.build((_audio_layout if _audio_layout != null else ExhaustLayout.build(spec)).to_native_dict())
+
+
+# Chen-Flynn FMEP in Pa for a four-stroke at this speed and peak pressure.
+static func fmep_pa_for(spec: EngineSpec, rpm: float, peak_pressure_pa_now: float) -> float:
+	var mean_piston_speed := 2.0 * spec.stroke_mm * 0.001 * rpm / 60.0
+	return (FMEP_CONST_BAR + FMEP_PMAX_BAR * peak_pressure_pa_now / 1e5 + FMEP_MPS_BAR * mean_piston_speed) * 1e5
 
 
 # Cold oil shears harder. At and above the operating temperature the scale is 1, which is the friction the dyno was calibrated with.

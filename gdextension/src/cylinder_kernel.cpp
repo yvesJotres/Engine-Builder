@@ -640,7 +640,7 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 		double wall_area = 2.0 * c.piston_area + PI_ * c.bore * maxf(liner, 0.0);
 		const bool gas_exchange = in_window(p0, c.intake_open, c.intake_close - c.intake_open) || in_window(p0, c.exhaust_open, c.exhaust_close - c.exhaust_open);
 		const double h_wall = woschni_h(c, y, w, next_volume, y.burnt > 0.0, gas_exchange);
-		double q_loss = h_wall * wall_area * (y.temp - WALL_TEMP) * sdt;
+		double q_loss = h_wall * wall_area * (y.temp - WALL_TEMP) * sdt * c.wall_heat_scale;
 		y.wall_loss_j += q_loss;
 
 		double cv = CV + y.burnt * (CV_BURNT - CV);

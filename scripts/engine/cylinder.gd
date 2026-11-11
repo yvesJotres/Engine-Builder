@@ -647,7 +647,7 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		var wall_area := 2.0 * piston_area + PI * bore * maxf(liner, 0.0)
 		var gas_exchange := _in_window(p0, intake_open, intake_close - intake_open) or _in_window(p0, exhaust_open, exhaust_close - exhaust_open)
 		var h_wall := woschni_h(w, pressure, temp, next_volume, _burnt > 0.0, gas_exchange)
-		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt
+		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt * wall_heat_scale
 		wall_loss_j += q_loss # running total, for the combustion checks
 
 		# first law for the gas in the cylinder

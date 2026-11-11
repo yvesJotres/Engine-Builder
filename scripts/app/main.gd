@@ -358,8 +358,8 @@ func _process(delta: float) -> void:
 	var imep_bar := 0.0 if stopped else _sim.imep_pa() / 1.0e5
 	var ca50 := _sim.ca50_deg()
 	var ca50_text := "—" if ca50 < 0.0 else "%.0f°" % ca50
-	_stats.set_engine_data("Instant crank torque %.1f N·m\nInstant power %.1f hp\nBMEP %.1f bar   IMEP %.1f bar   ηm %.0f%%\nVE %.0f%%   BSFC %.0f g/kWh   ηb %.0f%%\nPmax %.0f bar   CA50 %s   10–90 %.0f°\nIntake %.1f psi   Air %.0f °C\nThrottle %d%%   Clutch %s (%d%%)\nFuel %.1f kg (%d%%)   %.2f g/s\nMixture target λ %.2f   Timing %+.1f°\nKnocks %d   Audio %s (%s)" % [
-		torque, power_hp,
+	_stats.set_engine_data("RPM %.0f   Instant crank torque %.1f N·m\nInstant power %.1f hp\nBMEP %.1f bar   IMEP %.1f bar   ηm %.0f%%\nVE %.0f%%   BSFC %.0f g/kWh   ηb %.0f%%\nPmax %.0f bar   CA50 %s   10–90 %.0f°\nIntake %.1f psi   Air %.0f °C\nThrottle %d%%   Clutch %s (%d%%)\nFuel %.1f kg (%d%%)   %.2f g/s\nMixture target λ %.2f   Timing %+.1f°\nKnocks %d   Audio %s (%s)" % [
+		_sim.rpm, torque, power_hp,
 		bmep_bar, imep_bar, _sim.mechanical_efficiency() * 100.0,
 		_sim.volumetric_efficiency() * 100.0, _sim.bsfc_g_kwh(), _sim.brake_thermal_efficiency() * 100.0,
 		_sim.peak_pressure_pa() / 1.0e5, ca50_text, _sim.burn_10_90_deg(),
