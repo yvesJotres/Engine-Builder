@@ -1,0 +1,89 @@
+{
+  "display_name": "Kawasaki Ninja 300 (2013)",
+  "geometry": {
+    "vehicle_mass_includes_rider": false,
+    "throttle_bore_mm": 32.0,
+    "throttle_count": 2,
+    "wheelbase_mm": 1405,
+    "vehicle_length_mm": 2014,
+    "vehicle_width_mm": 714,
+    "vehicle_height_mm": 1110,
+    "front_tire_width_mm": 110,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 140,
+    "rear_tire_aspect": 0.7,
+    "rear_rim_in": 17,
+    "cylinders": 2,
+    "displacement_cc": 296.0,
+    "bore_mm": 62.0,
+    "stroke_mm": 49.0,
+    "rod_ratio": 2.45,
+    "layout": "inline",
+    "compression_ratio": 10.6,
+    "twin_pin_deg": 180.0,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      180.0
+    ],
+    "vehicle_kg": 172.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 3.0,
+    "flywheel_radius_mm": 80.0,
+    "wheel_radius_m": 0.3069
+  },
+  "valvetrain": {
+    "header_primary_mm": 34.0,
+    "runner_length_m": 0.125,
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 245.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 250.0,
+    "exhaust_duration_deg": 235.0,
+    "exhaust_lift_mm": 5.0,
+    "intake_valve_mm": 27.0,
+    "exhaust_valve_mm": 24.0,
+    "valve_cd": 1.0,
+    "wall_heat_scale": 0.28
+  },
+  "drivetrain": {
+    "redline_rpm": 12750.0,
+    "primary_ratio": 1.857,
+    "final_drive": 2.8,
+    "gear_ratios": [
+      2.846,
+      1.933,
+      1.428,
+      1.160,
+      1.000,
+      0.875
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1500.0,
+    "ve_scale": 0.73,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4,
+    "slipper_clutch": true,
+    "speed_limit_enabled": false
+  },
+  "ecu": {
+    "binary_path": ""
+  },
+  "metadata": {
+    "revision": 1,
+    "source": "Kawasaki.com official specs (2013 US model) + bikez.com + Wikipedia (claimed power/torque); Z300 service manual firing order 1-2 (180-degree crank)",
+    "year": 2013,
+    "region": "US",
+    "notes": "Factory: 296 cc liquid-cooled DOHC 8-valve parallel twin, 62.0 x 49.0 mm, compression 10.6:1, DFI with dual 32 mm throttle bodies, 29 kW (39 hp) @ 11,000 rpm, 27 Nm @ 10,000 rpm claimed, six-speed, chain, assist/slipper clutch, ABS option, 17.0 L fuel, 172 kg wet curb, wheelbase 1405 mm, 110/70-17 / 140/70-17 tyres. Firing order 1-2 = 180-degree crank (Z300 owner's manual; kawasakininja300.com). Estimates (no factory source found): redline ~12,750 rpm (ECU cut commonly cited), primary drive 1.857, final drive 2.800 (42/15), gearbox ratios, rod ratio 2.45, valve sizes 27.0/24.0 mm, cam timing, flywheel 2.0 kg @ 80 mm, idle 1,300 rpm. Not yet calibrated to a dyno reference."
+  }
+}

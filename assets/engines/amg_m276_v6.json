@@ -1,5 +1,5 @@
 {
-    "display_name": "Mercedes-AMG M276 3.0L Twin-Turbo V6 (DE30LA)",
+    "display_name": "Mercedes-AMG M276 V6 (2016)",
     "geometry": {
         "cylinders": 6,
         "displacement_cc": 2996.0,
@@ -41,12 +41,15 @@
         "rear_rim_in": 18.0
     },
     "valvetrain": {
-        "intake_centre_deg": 485.0,
+        "runner_length_m": 0.257,
+        "intake_centre_deg": 470.0,
         "intake_duration_deg": 220.0,
         "intake_lift_mm": 8.5,
-        "exhaust_centre_deg": 235.0,
+        "intake_valve_mm": 35.0,
+        "exhaust_centre_deg": 252.0,
         "exhaust_duration_deg": 215.0,
         "exhaust_lift_mm": 7.8,
+        "exhaust_valve_mm": 30.0,
         "cam_lobe_profile": 1,
         "intake_lobe_profile": 1,
         "exhaust_lobe_profile": 1,

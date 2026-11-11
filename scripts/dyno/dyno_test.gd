@@ -19,8 +19,13 @@ const TOP_GEAR_LIMIT := 120.0 # allow a power-limited road run to settle in top 
 const PLATEAU_AFTER := 8.0 # s in a gear before the speed is checked for having stopped rising
 const PLATEAU_WINDOW := 2.0 # s over which the rpm must rise
 const PLATEAU_RPM := 100.0 # rpm the engine must gain over the window to count as still accelerating
-const SHIFT_AT := 0.97 # share of the redline where the rider shifts up
+const SHIFT_AT := 0.999 # share of the redline where the rider shifts up: at the redline, same as top gear
 const BITE_RATE := 0.28 # lever travel per second while the clutch is taking up, slow enough to leave the engine near idle
+# The rider's hand cannot jump. The command sets where the throttle and lever are heading, and they move at these rates.
+const THROTTLE_OPEN_RATE := 5.0 # per s: roll on to wide open in about 0.2 s, so the first full-throttle reading stays near idle
+const THROTTLE_CLOSE_RATE := 4.0 # per s: shut in about 0.25 s
+const CLUTCH_PULL_RATE := 6.0 # lever per s: pulled in about 0.17 s
+const CLUTCH_RELEASE_RATE := 3.0 # lever per s when let out; the take-up itself is still governed by BITE_RATE
 const KW_PER_HP := 0.7457
 # Physics steps a second during a sweep. Kept at the game rate: 1200 was only 22% faster and moved peak torque by 5%.
 const SWEEP_STEPS_PER_SECOND := 2400.0
@@ -58,6 +63,14 @@ var _ambient_h := 0.0
 var _oil_c := 100.0
 var _coolant_c := 90.0
 var _max_speed := PackedFloat64Array() # m/s, the fastest the bike actually went in each gear
+var _max_speed_rpm := PackedFloat64Array() # engine rpm when the fastest speed in each gear was reached
+var _slip_n := PackedFloat64Array() # wide-open samples per gear with a slip reading
+var _slip_sum := PackedFloat64Array() # sum of engine-minus-wheel rpm per gear
+var _slip_peak := PackedFloat64Array() # largest engine-over-wheel slip per gear, rpm
+var _slip_pct_peak := PackedFloat64Array() # slip at that peak, % of engine rpm
+var _gear_end: Array = [] # why each gear ended: limiter, plateau or time_limit
+var _sent_throttle := 0.0 # throttle last sent to the engine, after the rider's rate limit
+var _sent_clutch := 0.0 # clutch lever last sent to the engine, after the rider's rate limit
 var _sum_torque := PackedFloat64Array() # per gear and bin, index gear * _bins + bin
 var _sum_sq := PackedFloat64Array()
 var _sum_rpm := PackedFloat64Array()
@@ -104,6 +117,14 @@ func start(spec: EngineSpec, sim: EngineSim) -> void:
 	_sum_imap = _zeros(cells)
 	_count = _zeros(cells)
 	_max_speed = _zeros(_gear_count + 1)
+	_max_speed_rpm = _zeros(_gear_count + 1)
+	_slip_n = _zeros(_gear_count + 1)
+	_slip_sum = _zeros(_gear_count + 1)
+	_slip_peak = _zeros(_gear_count + 1)
+	_slip_pct_peak = _zeros(_gear_count + 1)
+	_gear_end = []
+	_gear_end.resize(_gear_count + 1)
+	_gear_end.fill("")
 	_ambient_p = spec.ambient_pressure_pa
 	_ambient_t = spec.ambient_temp_k
 	_ambient_h = spec.relative_humidity
@@ -132,6 +153,8 @@ func start(spec: EngineSpec, sim: EngineSim) -> void:
 	throttle = 0.0
 	clutch_held = false
 	clutch_pull = 0.0
+	_sent_throttle = 0.0
+	_sent_clutch = 0.0
 	_starter = true
 
 
@@ -173,6 +196,7 @@ func result() -> Dictionary:
 		var gear_torque := {"torque": 0.0, "rpm": 0.0}
 		var gear_hp := {"hp": 0.0, "rpm": 0.0}
 		var samples := 0.0
+		var pull := [] # this gear's own pull, one point per bin, before any averaging across gears
 		for b in _bins:
 			var i: int = g * _bins + b
 			var n: float = _count[i]
@@ -182,11 +206,16 @@ func result() -> Dictionary:
 			var torque := _sum_torque[i] / n
 			var rpm := _sum_rpm[i] / n
 			var hp := Units.w_to_hp(Units.power_w(torque, rpm))
+			pull.append({"rpm": rpm, "torque": torque, "hp": hp})
 			if torque > gear_torque.torque:
 				gear_torque = {"torque": torque, "rpm": rpm}
 			if hp > gear_hp.hp:
 				gear_hp = {"hp": hp, "rpm": rpm}
-		gears.append({"gear": g, "torque": gear_torque.torque, "torque_rpm": gear_torque.rpm, "hp": gear_hp.hp, "hp_rpm": gear_hp.rpm, "kmh": _max_speed[g] * 3.6, "samples": samples})
+		var slip_mean := _slip_sum[g] / _slip_n[g] if _slip_n[g] > 0.0 else 0.0
+		gears.append({"gear": g, "curve": pull, "torque": gear_torque.torque, "torque_rpm": gear_torque.rpm, "hp": gear_hp.hp, "hp_rpm": gear_hp.rpm,
+			"kmh": _max_speed[g] * 3.6, "top_kmh_rpm": _max_speed_rpm[g], "samples": samples,
+			"slip_samples": _slip_n[g], "slip_rpm_mean": slip_mean, "slip_rpm_peak": _slip_peak[g], "slip_pct_peak": _slip_pct_peak[g],
+			"end_reason": _gear_end[g]})
 	return {
 		"curve": curve, "peak_torque": peak_torque, "peak_hp": peak_hp, "gears": gears, "ok": ok, "status": status,
 		"sae_factor": factor,
@@ -244,6 +273,11 @@ func _tick(dt: float, sim: EngineSim, spec: EngineSpec, lambda: float, ignition:
 	_control(dt, sim, spec)
 	if not active():
 		return
+	# the rider's hand moves at a finite rate, so the throttle and clutch lever ramp instead of stepping
+	throttle = move_toward(_sent_throttle, throttle, (THROTTLE_OPEN_RATE if throttle > _sent_throttle else THROTTLE_CLOSE_RATE) * dt)
+	clutch_pull = move_toward(_sent_clutch, clutch_pull, (CLUTCH_PULL_RATE if clutch_pull > _sent_clutch else CLUTCH_RELEASE_RATE) * dt)
+	_sent_throttle = throttle
+	_sent_clutch = clutch_pull
 	sim.clutch_pull = clutch_pull
 	sim.step(dt, spec, throttle, true, _starter, clutch_held, false, lambda)
 	rpm_now = sim.rpm
@@ -394,10 +428,13 @@ func _observe(dt: float, sim: EngineSim) -> void:
 	if not sim.running:
 		_fail("The engine stalled in gear %d" % _gear)
 		return
+	if sim.clutch_engage > 0.99 and throttle >= 0.99:
+		_note_slip(sim)
 	_pull_deg += sim.rpm * dt * 6.0
 	# the cycle mean still belongs to the clutch take-up until the crank has turned once at full throttle
 	var cycle_degrees := 360.0 if _spec.stroke_type == "two_stroke" else 720.0
-	if _pull_deg >= cycle_degrees and clutch_pull <= 0.0 and sim.clutch_engage > 0.99 and not sim.limiter_active:
+	var qs_cut := sim.ecu != null and sim.ecu.quickshifter_cut_active()
+	if _pull_deg >= cycle_degrees and clutch_pull <= 0.0 and sim.clutch_engage > 0.99 and throttle >= 0.99 and not sim.limiter_active and not qs_cut:
 		_record(sim)
 	_check_gear_end(sim)
 
@@ -405,7 +442,7 @@ func _observe(dt: float, sim: EngineSim) -> void:
 func _check_gear_end(sim: EngineSim) -> void:
 	# the redline counts only once the clutch has taken up: right after a shift the engine still spins at the old gear's rpm
 	var last_gear := _gear >= _gear_count
-	var at_redline := sim.clutch_engage > 0.99 and (sim.rpm >= _redline * (0.999 if last_gear else _shift_at) or (last_gear and sim.limiter_active))
+	var at_redline := sim.clutch_engage > 0.99 and (sim.rpm >= _redline * (0.999 if last_gear else _shift_at) or sim.limiter_active)
 	if _phase_time >= (TOP_GEAR_LIMIT if last_gear else GEAR_LIMIT) or at_redline:
 		_end_reason = "limiter" if at_redline else "time_limit"
 		_next_gear(sim)
@@ -426,7 +463,32 @@ func _note_speed(sim: EngineSim) -> void:
 		return
 	if phase != Phase.PULL and not (phase == Phase.UPSHIFT and not _clicked):
 		return
-	_max_speed[gear] = maxf(_max_speed[gear], sim.speed)
+	if sim.speed > _max_speed[gear]:
+		_max_speed[gear] = sim.speed
+		_max_speed_rpm[gear] = sim.rpm
+
+
+# Clutch slip while the clutch is fully engaged at full throttle: engine rpm minus the rpm the wheel is turning through the gear.
+func _note_slip(sim: EngineSim) -> void:
+	var gear := sim.gear.gear
+	if gear <= 0 or gear >= _slip_n.size():
+		return
+	var ratio := _spec.primary_ratio * sim.gear.ratio() * _spec.final_drive
+	var slip := slip_rpm(sim.rpm, sim.speed, ratio, EngineSim.tire_radius_m(_spec))
+	if is_nan(slip):
+		return
+	_slip_n[gear] += 1.0
+	_slip_sum[gear] += slip
+	if slip > _slip_peak[gear]:
+		_slip_peak[gear] = slip
+		_slip_pct_peak[gear] = slip / maxf(sim.rpm, 1.0) * 100.0
+
+
+# Engine rpm minus the engine rpm implied by the bike's road speed through the drive ratio. NAN when the geometry is unknown.
+static func slip_rpm(engine_rpm: float, speed_ms: float, ratio: float, radius_m: float) -> float:
+	if ratio <= 0.0 or radius_m <= 0.0:
+		return NAN
+	return engine_rpm - speed_ms / radius_m * ratio * 60.0 / TAU
 
 
 func _record(sim: EngineSim) -> void:
@@ -451,6 +513,7 @@ func _record(sim: EngineSim) -> void:
 
 
 func _next_gear(_sim: EngineSim) -> void:
+	_gear_end[_gear] = _end_reason
 	if _gear >= _gear_count or (max_gears > 0 and _gear >= max_gears):
 		_finish()
 	else:
@@ -511,11 +574,12 @@ func _step_toward_first(gear: Gearbox) -> void:
 
 
 # SAE J1349 spark-ignition correction: 99 kPa dry air and 25 °C. 1.0 means the run already was that day.
+# CF = 1.18 (990 / p_dry_mbar) sqrt(T / 298) - 0.18, the form quoted in docs/engine_physics/11.
 static func sae_j1349_factor(pressure_pa: float, temp_k: float, relative_humidity: float) -> float:
 	var tc := temp_k - 273.15
 	var saturation := 610.94 * exp(17.625 * tc / (tc + 243.04))
-	var dry_kpa := maxf(pressure_pa - clampf(relative_humidity, 0.0, 1.0) * saturation, 1000.0) / 1000.0
-	return (99.0 / dry_kpa) * sqrt(temp_k / 298.15)
+	var dry_mbar := maxf(pressure_pa - clampf(relative_humidity, 0.0, 1.0) * saturation, 1000.0) / 100.0
+	return 1.18 * (990.0 / dry_mbar) * sqrt(temp_k / 298.0) - 0.18
 
 
 static func to_json(r: Dictionary) -> String:

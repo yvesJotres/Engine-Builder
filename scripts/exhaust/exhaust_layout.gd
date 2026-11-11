@@ -105,6 +105,8 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		groups = [range(ceili(n / 2.0)), range(ceili(n / 2.0), n)]
 
 	var radius := PRIMARY_R if long_primaries else PRIMARY_R * 0.92
+	if spec.header_primary_mm > 0.0:
+		radius = spec.header_primary_mm * 0.0005 # mm diameter to m radius
 	var group_ends: Array[Vector3] = []
 	for g in groups:
 		var gx := 0.0
@@ -186,6 +188,17 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 
 
 # Sum of all pipe lengths, metres. A change in it tells the caller the sound must be rebuilt.
+# The layout as the native solver takes it (ExhaustNative.build). The native solver stores positions and radii as doubles.
+func to_native_dict() -> Dictionary:
+	var out_pipes := []
+	for p in pipes:
+		var radii := PackedFloat64Array()
+		for r in p.radii:
+			radii.append(r)
+		out_pipes.append({"pts": p.pts, "radii": radii, "cyl": p.cyl, "feeders": PackedInt32Array(p.feeders), "loss": p.loss})
+	return {"scene_per_m": M, "pipes": out_pipes}
+
+
 func total_length_m() -> float:
 	var total := 0.0
 	for p in pipes:

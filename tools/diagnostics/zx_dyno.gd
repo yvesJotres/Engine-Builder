@@ -6,7 +6,7 @@ const DPHI := 30.0
 
 func _init() -> void:
 	var spec := EngineSpec.new()
-	var p: Dictionary = Presets.PRESETS["Kawasaki ZX-25R (2020)"]
+	var p: Dictionary = Presets.PRESETS["kawasaki_zx25r"]
 	for key in p.keys():
 		spec.set(key, p[key])
 	for rpm in [4000, 6000, 8000, 10000, 12000, 14000, 15000, 16000]:

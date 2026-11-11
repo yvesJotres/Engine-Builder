@@ -28,8 +28,12 @@ public:
 		S_OUT_TORQUE, // out: average gas torque over dphi, N*m
 		S_OUT_DRAWN, // out: mass drawn from the manifold, kg
 		S_FILM_KG, // fuel on the port wall, kg (in and out)
+		S_INTAKE_MDOT, // fresh air through the intake valve last step, kg/s (in and out): sets the port's dynamic loss
 		S_BINS = 48, // 90 exhaust flow bins start here
-		S_SIZE = 48 + 90
+		S_IVC_P = 138, // intake-closing pressure, volume and temperature (Woschni reference)
+		S_IVC_V = 139, S_IVC_T = 140,
+		S_RESIDUAL_TEMP = 141, // K, temperature of the burnt gas left at exhaust closing
+		S_SIZE = 142
 	};
 
 	// Config array layout (doubles), fixed for the life of a cylinder.

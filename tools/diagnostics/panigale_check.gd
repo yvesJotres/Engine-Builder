@@ -4,7 +4,7 @@ extends SceneTree
 # godot --headless -s tools/diagnostics/panigale_check.gd
 func _init() -> void:
 	await process_frame
-	var p: Dictionary = Presets.PRESETS["Ducati Panigale V4 (1,103 cc)"]
+	var p: Dictionary = Presets.PRESETS["ducati_panigale_v4"]
 	var spec := EngineSpec.new()
 	for key in p.keys():
 		spec.set(key, p[key])

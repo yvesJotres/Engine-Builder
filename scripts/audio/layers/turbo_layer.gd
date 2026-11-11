@@ -4,8 +4,9 @@ extends SoundLayer
 # Turbo whistle, wastegate flutter and blow-off. Silent unless the bike has a turbo or supercharger; the electric
 # compressor whine is a separate layer and is not added here.
 
-const WHISTLE_HZ := 1500.0 # turbine tone at no boost
-const WHISTLE_RISE_HZ := 6000.0 # how far the tone climbs at full spool
+const WHISTLE_FALLBACK_RPM := 20000.0 # used only when the sim has no compressor map/speed
+const WHISTLE_FALLBACK_SPAN := 80000.0 # additional shaft rpm at full spool
+const DEFAULT_BLADES := 9.0 # compressor wheel blade count when the spec does not override it
 const VIBRATO_HZ := 5.0 # slow wobble of the tone
 const VIBRATO_DEPTH := 0.01 # 1 percent of the tone's pitch
 const WHISTLE_AMP := 0.10 # tone amplitude at full spool
@@ -41,6 +42,7 @@ var _blow_env := 0.0
 var _peak := 0.0 # highest throttle within the last LIFT_WINDOW
 var _peak_age := 0.0 # seconds since _peak was set
 var _cooldown := 0.0 # seconds until another blow-off is allowed
+var _blades := DEFAULT_BLADES # compressor wheel blades, from the spec
 
 var _spool_k := 1.0 - exp(-1.0 / (RATE * SPOOL_TIME)) # per-sample smoothing factor
 var _chirp_len := int(CHIRP_LEN * RATE)
@@ -55,6 +57,11 @@ var _a_blow_9k := _alpha(9000.0)
 
 
 func _init() -> void:
+	reset()
+
+
+func configure(spec: EngineSpec) -> void:
+	_blades = maxf(spec.turbo_blade_count, 1.0)
 	reset()
 
 
@@ -104,7 +111,12 @@ func render(frames: int, c: SoundContext) -> PackedFloat32Array:
 	for i in frames:
 		_spool += (target - _spool) * _spool_k
 		_vib_phase = fposmod(_vib_phase + TAU * VIBRATO_HZ / RATE, TAU)
-		var freq := (WHISTLE_HZ + WHISTLE_RISE_HZ * _spool) * (1.0 + VIBRATO_DEPTH * sin(_vib_phase))
+		# The whistle is the compressor blade-pass frequency: shaft rev/s times the number of blades.
+		var shaft_rpm := c.compressor_speed_rpm
+		if shaft_rpm < 1000.0:
+			shaft_rpm = WHISTLE_FALLBACK_RPM + WHISTLE_FALLBACK_SPAN * _spool
+		var freq := shaft_rpm / 60.0 * _blades * (1.0 + VIBRATO_DEPTH * sin(_vib_phase))
+		freq = minf(freq, RATE * 0.45)
 		_tone_phase = fposmod(_tone_phase + TAU * freq / RATE, TAU) # phase carries over, so block edges do not click
 		var tone := sin(_tone_phase) * WHISTLE_AMP * _spool
 

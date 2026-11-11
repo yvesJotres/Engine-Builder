@@ -1,5 +1,5 @@
 {
-  "display_name": "Honda TRX520 (engine-sim)",
+  "display_name": "Honda TRX520 (2015)",
   "geometry": {
     "cylinders": 1,
     "displacement_cc": 517.4,
@@ -27,6 +27,8 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
+    "header_primary_mm": 32.0,
+    "runner_length_m": 0.35,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,

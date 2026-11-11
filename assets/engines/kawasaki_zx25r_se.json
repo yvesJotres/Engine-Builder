@@ -39,16 +39,21 @@
     "slipper_ramp": 0.5
   },
   "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.103,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,
+    "intake_valve_mm": 21.0,
     "exhaust_centre_deg": 255.0,
     "exhaust_duration_deg": 230.0,
-    "exhaust_lift_mm": 5.0
+    "exhaust_lift_mm": 5.0,
+    "exhaust_valve_mm": 18.5
   },
   "drivetrain": {
       "redline_rpm": 17000.0,
       "primary_ratio": 2.9,
+    "primary_crank_teeth": 30,
       "final_drive": 3.429,
       "gear_ratios": [
         2.929,
@@ -84,6 +89,7 @@
     "source": "Otomotifnet MY2022 + Autocar India + engine-sim zx_25r.mr (MIT, Copyright 2022 Ange Yaghi)",
     "year": 2020,
     "region": "JP",
+    "revision": 1,
     "notes": "Special Edition: Quickshifter, Launch Control, Slipper Clutch, Power Modes (F/M/L), Ram-air. Includes Öhlins rear shock, Brembo calipers, quickshifter, launch control, colored wheels."
   }
 }

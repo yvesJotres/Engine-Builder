@@ -101,5 +101,19 @@ func _init() -> void:
 	var big := render(ctx(3000.0), 1.0, 2205)
 	check(max_abs(small) <= 0.25 and max_abs(big) <= 0.25, "block edges exceed 0.25 (441: %s, 2205: %s)" % [str(max_abs(small)), str(max_abs(big))])
 
+	# 7: configured cam timing with live cylinder phases still renders cleanly
+	var spec := EngineSpec.new()
+	spec.cylinders = 4
+	spec.valves_per_cylinder = 4
+	var phased_layer = LAYER.new()
+	phased_layer.configure(spec)
+	var phased_ctx := ctx(1500.0)
+	phased_ctx.cylinder_phase_deg = PackedFloat32Array([0.0, 180.0, 540.0, 360.0])
+	var phased := PackedFloat32Array()
+	for i in 100:
+		phased.append_array(phased_layer.render(441, phased_ctx))
+	check(max_abs(phased) <= 0.25, "phased valve events peak at %s, above 0.25" % str(max_abs(phased)))
+	check(rms(phased) > 0.0, "phased valve events make no sound")
+
 	print("valvetrain_layer_test: %s" % ("PASSED" if _fails == 0 else "FAILED"))
 	quit(0 if _fails == 0 else 1)

@@ -39,16 +39,21 @@
     "slipper_ramp": 0.5
   },
   "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.103,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,
+    "intake_valve_mm": 21.0,
     "exhaust_centre_deg": 255.0,
     "exhaust_duration_deg": 230.0,
-    "exhaust_lift_mm": 5.0
+    "exhaust_lift_mm": 5.0,
+    "exhaust_valve_mm": 18.5
   },
   "drivetrain": {
       "redline_rpm": 17000.0,
       "primary_ratio": 2.9,
+    "primary_crank_teeth": 30,
       "final_drive": 3.429,
       "gear_ratios": [
         2.929,
@@ -84,6 +89,7 @@
     "source": "Otomotifnet MY2022 + Autocar India + engine-sim zx_25r.mr (MIT, Copyright 2022 Ange Yaghi)",
     "year": 2020,
     "region": "JP",
+    "revision": 1,
     "notes": "Bore x stroke from Otomotifnet MY2022 and Autocar India: 50.0 x 31.8 mm = 249.6 cc. Primary 2.900 (87/30) and final 3.429 (48/14). Gear ratios, rod ratio, flywheel from engine-sim zx_25r.mr. Increased flywheel inertia for launch stability (was 1.0kg/53mm). Quickshifter, launch control, slipper clutch, and power modes (F/M/L) enabled per SE spec."
   }
 }

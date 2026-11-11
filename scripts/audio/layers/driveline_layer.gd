@@ -4,7 +4,9 @@ extends SoundLayer
 # Gearbox and clutch sounds: gear whine, neutral and idle clutch rattle, gear change clunk and chain hum.
 
 const WHINE_GAIN := 0.03 # gear whine at full load with the clutch engaged
-const RATTLE_GAIN := 0.10 # clutch click level at standstill
+const GEARBOX_TEETH := 17.0 # default input-shaft gear teeth; configure() reads the per-engine value
+const REAR_TEETH := 42.0 # default rear sprocket teeth; sets the chain link-passing rate
+const RATTLE_GAIN := 0.10 # clutch click level at standstill (dry clutches only)
 const RATTLE_RPM := 2500.0 # above this the clutch rattle is gone
 const CLICK_RATE := 0.5 # clicks per engine revolution
 const CLICK_DECAY_S := 0.003 # a click burst dies away in about 3 ms
@@ -31,7 +33,13 @@ class BandPass:
 	var y2 := 0.0
 
 	func _init(hz: float, q: float) -> void:
-		var w := TAU * hz / SoundLayer.RATE
+		set_freq(hz, q)
+
+	# Recomputes the coefficients for a new centre frequency. The filter state is kept so a changing chain
+	# speed does not click.
+	func set_freq(hz: float, q: float) -> void:
+		var bounded := clampf(hz, 40.0, SoundLayer.RATE * 0.45)
+		var w := TAU * bounded / SoundLayer.RATE
 		var alpha := sin(w) / (2.0 * q)
 		var a0 := 1.0 + alpha
 		b0 = alpha / a0
@@ -57,16 +65,25 @@ var _click_timer := 0.0 # seconds until the next rattle click
 var _click_env := 0.0 # envelope of the click now sounding
 var _click_bp: BandPass
 var _hum_bp: BandPass
+var _hum_hz := 0.0
 var _clunk_t := -1.0 # seconds since the clunk started, -1 when none
 var _last_gear := 0
 var _gear_known := false
+var _gearbox_teeth := GEARBOX_TEETH
+var _rear_teeth := REAR_TEETH
+var _dry_clutch := false
+var _wheel_radius := 0.3
 
 
 func _init() -> void:
 	reset()
 
 
-func configure(_spec: EngineSpec) -> void:
+func configure(spec: EngineSpec) -> void:
+	_gearbox_teeth = maxf(spec.gearbox_input_teeth, 1.0)
+	_rear_teeth = maxf(spec.rear_sprocket_teeth, 1.0)
+	_dry_clutch = spec.dry_clutch
+	_wheel_radius = EngineSim.tire_radius_m(spec)
 	reset()
 
 
@@ -79,7 +96,8 @@ func reset() -> void:
 	_click_timer = 0.0
 	_click_env = 0.0
 	_click_bp = BandPass.new(2000.0, 1.0)
-	_hum_bp = BandPass.new(950.0, 1.0)
+	_hum_bp = BandPass.new(500.0, 1.0)
+	_hum_hz = 0.0
 	_clunk_t = -1.0
 	_last_gear = 0
 	_gear_known = false
@@ -99,17 +117,25 @@ func render(frames: int, c: SoundContext) -> PackedFloat32Array:
 	if shifted:
 		_clunk_t = 0.0
 
-	# the input shaft turns at engine speed over the primary ratio, and 17 teeth mesh with the gear
-	var f := c.rpm / maxf(c.primary_ratio, 0.5) / 60.0 * 17.0
+	# the input shaft turns at engine speed over the primary ratio; the engaged input gear sets the mesh order
+	var f := c.rpm / maxf(c.primary_ratio, 0.5) / 60.0 * _gearbox_teeth
 	while f >= 18000.0: # halve it, the tone is inaudible up there and only wastes the mix
 		f *= 0.5
 	var whine_target := WHINE_GAIN * c.clutch_engage * (0.35 + 0.65 * c.load) if c.gear > 0 else 0.0
-	# a dry clutch rattles only when it is not carrying drive: in neutral, or open at idle
-	var rattle := (c.gear == 0 or c.clutch_engage < 0.3) and c.rpm < RATTLE_RPM
+	# a dry clutch rattles only when it is not carrying drive: in neutral, or open at idle.
+	# A wet clutch, as on the ZX25R and most production bikes, does not make this sound.
+	var rattle := _dry_clutch and (c.gear == 0 or c.clutch_engage < 0.3) and c.rpm < RATTLE_RPM
 	var click_level := RATTLE_GAIN * clampf(1.0 - c.rpm / RATTLE_RPM, 0.0, 1.0)
 	var click_rate := c.rpm / 60.0 * CLICK_RATE
+	# The chain is a stream of link impacts at the rear sprocket: wheel revolutions per second times rear teeth.
+	var wheel_rps := c.speed_ms / maxf(TAU * _wheel_radius, 0.01)
+	var chain_hz := wheel_rps * _rear_teeth
 	# chain hum grows with road speed, and only shows when the clutch carries the drive
 	var hum_target := CHAIN_GAIN * clampf(c.speed_ms / 12.0, 0.0, 1.0) if (c.gear > 0 and c.clutch_engage > 0.5) else 0.0
+	if absf(chain_hz - _hum_hz) > 1.0:
+		_hum_hz = chain_hz
+		if chain_hz > 0.0:
+			_hum_bp.set_freq(chain_hz, 1.5)
 
 	var k := 1.0 - exp(-1.0 / (SMOOTH_S * SoundLayer.RATE))
 	var click_decay := exp(-1.0 / (CLICK_DECAY_S * SoundLayer.RATE))

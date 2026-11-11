@@ -24,6 +24,8 @@ var four_stroke := true
 var valves_per_cylinder := 4
 var primary_ratio := 1.0 # crank to clutch basket
 var final_drive := 3.0 # gearbox output to wheel
+var compressor_speed_rpm := 0.0 # turbo/electric compressor shaft speed, for blade-pass tones
+var cylinder_phase_deg := PackedFloat32Array() # each cylinder's crank phase, 0-720, for valve-event timing
 
 
 # Fills the context from the simulator and the spec. The game, the offline renderer and the audio lab all call this, so the
@@ -40,9 +42,14 @@ func update_from(sim: EngineSim, spec: EngineSpec, rider_throttle: float) -> voi
 	clutch_engage = sim.clutch_engage
 	speed_ms = sim.speed
 	boost_ratio = sim.intake.boost_ratio
-	# a turbocharger or a mechanical blower whistles; the electric compressor has its own whine in the engine sound
-	turbo = spec.max_boost_ratio > 1.0 and not spec.electric_compressor
+	# A turbocharger and a mechanical blower are different machines: only the turbo has a wastegate and a
+	# diverter valve, and only the blower gets the speed-locked supercharger layer.
+	turbo = spec.max_boost_ratio > 1.0 and not spec.electric_compressor and not spec.mechanical_blower
 	blower = spec.mechanical_blower
+	compressor_speed_rpm = sim.intake.compressor_speed_rpm
+	cylinder_phase_deg.resize(sim.cylinders.size())
+	for i in sim.cylinders.size():
+		cylinder_phase_deg[i] = sim.cylinders[i].phi
 	starter = 1.0 if sim.last_starter_held else 0.0
 	knock_count = sim.knock_count
 	cylinders = spec.cylinders

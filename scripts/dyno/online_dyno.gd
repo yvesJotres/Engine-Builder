@@ -4,14 +4,29 @@ extends RefCounted
 # Measured references are used for comparison only; never fed into EngineSim.
 const NM_PER_LB_FT := 1.3558179483314
 
+# Existing dyno-screen tolerances for rear-wheel references.
+const DEFAULT_TOL := {"power": 0.03, "torque": 0.05, "peak_rpm": 600.0, "curve": 0.03, "top_speed": 0.03}
+# Tighter tolerances used by the Calibrate command.
+const CALIBRATION_TOL := {"power": 0.01, "torque": 0.02, "peak_rpm": 200.0, "curve": 0.02, "top_speed": 0.02}
+
+
 static func for_preset(id: String) -> Dictionary:
+	return _load_reference(id, "rear_wheel")
+
+
+# Crankshaft manufacturer reference, compared against the simulator's crank output with no drivetrain estimate.
+static func for_crank_reference(id: String) -> Dictionary:
+	return _load_reference(id, "crank")
+
+
+static func _load_reference(id: String, basis: String) -> Dictionary:
 	if id.is_empty() or id != id.validate_filename():
 		return {}
 	var path := "res://assets/dyno/%s.json" % id
 	if not FileAccess.file_exists(path):
 		return {}
 	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if not data is Dictionary or data.get("preset_id", "") != id or data.get("basis", "") != "rear_wheel":
+	if not data is Dictionary or data.get("preset_id", "") != id or data.get("basis", "") != basis:
 		return {}
 	return data
 
@@ -43,7 +58,14 @@ static func wheel_estimate(crank_curve: Array, normalization := 1.0) -> Array:
 	return result
 
 
-static func compare(wheel_curve: Array, reference: Dictionary) -> Dictionary:
+static func reference_peak_torque_nm(reference: Dictionary) -> float:
+	if reference.has("peak_torque_nm"):
+		return float(reference.peak_torque_nm)
+	return float(reference.peak_torque_lb_ft) * NM_PER_LB_FT
+
+
+# tol gives the allowed error for each check; DEFAULT_TOL keeps the dyno screen's historical limits.
+static func compare(wheel_curve: Array, reference: Dictionary, tol: Dictionary = DEFAULT_TOL) -> Dictionary:
 	if wheel_curve.is_empty() or reference.is_empty():
 		return {}
 	var peak_hp := {"hp": -INF, "rpm": 0.0}
@@ -53,8 +75,9 @@ static func compare(wheel_curve: Array, reference: Dictionary) -> Dictionary:
 			peak_hp = point
 		if float(point.torque) > float(peak_torque.torque):
 			peak_torque = point
+	var torque_ref := reference_peak_torque_nm(reference)
 	var power_error := float(peak_hp.hp) / float(reference.peak_power_hp) - 1.0
-	var torque_error := float(peak_torque.torque) / (float(reference.peak_torque_lb_ft) * NM_PER_LB_FT) - 1.0
+	var torque_error := float(peak_torque.torque) / torque_ref - 1.0
 	var squared_error := 0.0
 	var max_error := 0.0
 	var compared := 0
@@ -70,14 +93,32 @@ static func compare(wheel_curve: Array, reference: Dictionary) -> Dictionary:
 				max_error = maxf(max_error, absf(error))
 				compared += 1
 				break
+	var basis := "crankshaft, manufacturer figure; no drivetrain estimate" if reference.get("basis", "") == "crank" else "estimated rear wheel; existing 93% drivetrain efficiency; comparison uses reference correction basis"
 	return {"power_hp": peak_hp.hp, "power_rpm": peak_hp.rpm, "torque_nm": peak_torque.torque, "torque_rpm": peak_torque.rpm,
 		"power_error": power_error, "torque_error": torque_error,
-		"power_pass": absf(power_error) <= 0.03, "torque_pass": absf(torque_error) <= 0.05,
-		"peak_rpm_pass": absf(float(peak_hp.rpm) - float(reference.peak_power_rpm)) <= 600.0,
+		"power_pass": absf(power_error) <= tol.power, "torque_pass": absf(torque_error) <= tol.torque,
+		"peak_rpm_pass": absf(float(peak_hp.rpm) - float(reference.peak_power_rpm)) <= tol.peak_rpm,
 		"curve_points_compared": compared, "curve_power_rmse_fraction": sqrt(squared_error / compared) if compared > 0 else null,
 		"curve_power_max_error_fraction": max_error if compared > 0 else null,
-		"curve_pass": compared == reference.get("power_samples", []).size() and compared > 0 and max_error <= 0.03,
-		"basis": "estimated rear wheel; existing 93% drivetrain efficiency; comparison uses reference correction basis"}
+		"curve_pass": compared == reference.get("power_samples", []).size() and compared > 0 and max_error <= tol.curve,
+		"basis": basis}
+
+
+# Per-gear top speed against the reference's gears. A gear the run never reached, or one without a reference, is not matched.
+static func compare_gears(gears: Array, reference: Dictionary, tol: Dictionary = DEFAULT_TOL) -> Array:
+	var out := []
+	var refs: Dictionary = reference.get("per_gear_top_speed_kmh", {})
+	for key in refs.keys():
+		var gear_number := int(key)
+		var ref: Dictionary = refs[key]
+		var kmh := 0.0
+		for g in gears:
+			if int(g.gear) == gear_number:
+				kmh = float(g.kmh)
+		var error := kmh / float(ref.kmh) - 1.0 if kmh > 0.0 else 0.0
+		out.append({"gear": gear_number, "reference_kmh": float(ref.kmh), "sim_kmh": kmh, "error": error,
+			"pass": kmh > 0.0 and absf(error) <= tol.top_speed, "source": str(ref.get("source", ""))})
+	return out
 
 
 static func wheel_result(crank: Dictionary, normalization := 1.0) -> Dictionary:

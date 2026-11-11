@@ -87,12 +87,21 @@ func _init() -> void:
 	var p1300 := power_at(tone, 1300.0)
 	check(p1700 >= 3.0 * p1300, "whine at 1700 Hz (%s) beats 1300 Hz (%s) by 3x" % [p1700, p1300])
 
-	# 4. the rattle only at idle in neutral
-	var idle_neutral := rms(run(LAYER.new(), ctx(1000.0, 0), 2.0))
-	var idle_gear := rms(run(LAYER.new(), ctx(1000.0, 3, 1.0, 0.0, 0.0), 2.0))
-	var high_neutral := rms(run(LAYER.new(), ctx(3000.0, 0), 2.0))
-	check(idle_neutral > idle_gear, "idle rattle in neutral (%s) beats idle in gear (%s)" % [idle_neutral, idle_gear])
-	check(high_neutral < idle_neutral, "no rattle at 3000 rpm (%s) vs idle (%s)" % [high_neutral, idle_neutral])
+	# 4. a wet clutch (the default) does not rattle; a dry clutch rattles at idle in neutral
+	var wet_spec := EngineSpec.new()
+	var wet_idle_layer = LAYER.new()
+	wet_idle_layer.configure(wet_spec)
+	var wet_idle := rms(run(wet_idle_layer, ctx(1000.0, 0), 2.0))
+	var dry_spec := EngineSpec.new()
+	dry_spec.dry_clutch = true
+	var dry_idle_layer = LAYER.new()
+	dry_idle_layer.configure(dry_spec)
+	var dry_idle := rms(run(dry_idle_layer, ctx(1000.0, 0), 2.0))
+	var dry_high_layer = LAYER.new()
+	dry_high_layer.configure(dry_spec)
+	var dry_high := rms(run(dry_high_layer, ctx(3000.0, 0), 2.0))
+	check(wet_idle < dry_idle * 0.5, "wet clutch is quieter than dry at idle (%s vs %s)" % [wet_idle, dry_idle])
+	check(dry_high < dry_idle, "dry clutch rattle is gone at 3000 rpm (%s vs %s)" % [dry_high, dry_idle])
 
 	# 5. one clunk on a gear change, none on the first block
 	var shift := LAYER.new()

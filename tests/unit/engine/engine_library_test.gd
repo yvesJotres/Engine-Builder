@@ -12,8 +12,11 @@ var _fails := 0
 func _init() -> void:
 	await process_frame
 	var probe := TestLibrary.new()
-	var merged: Dictionary = probe._merge_extras({"Honda CBR150R (K45N)": {"cylinders": 1}, "Test engine": {"cylinders": 2}})
-	if merged.has("Honda CBR150R (K45N)"):
+	# A server entry keyed by a bundled engine's display name duplicates the bundled engine and must be dropped.
+	# Derive the name from the preset so a rename does not leave this test asserting the wrong key.
+	var bundled_name: String = Presets.PRESETS["honda_cbr150r"].display_name
+	var merged: Dictionary = probe._merge_extras({bundled_name: {"cylinders": 1}, "Test engine": {"cylinders": 2}})
+	if merged.has(bundled_name):
 		_fail("display-name copy of a bundled engine was kept")
 	if not merged.has("honda_cbr150r") or not merged.has("Test engine"):
 		_fail("bundled engine or new server engine was dropped")
@@ -33,6 +36,15 @@ func _init() -> void:
 	merged = probe._merge_extras({"honda_cbr150r": old_cbr})
 	if merged.honda_cbr150r.wheelbase_mm != 1309.0:
 		_fail("old server cache replaced the corrected K45N wheelbase")
+	# The old ZX25R server cache carried a 1,200 rpm idle target and no revision. That target makes the
+	# 250 cc four stall instead of settling at its real 1,500 rpm idle, so the revised bundle must win.
+	for zx_id in ["kawasaki_zx25r", "kawasaki_zx25r_se"]:
+		var old_zx: Dictionary = Presets.PRESETS[zx_id].duplicate(true)
+		old_zx.erase("preset_revision")
+		old_zx.idle_target_rpm = 1200.0
+		merged = probe._merge_extras({zx_id: old_zx})
+		if merged[zx_id].idle_target_rpm != 1500.0:
+			_fail("old server cache replaced the corrected %s idle target" % zx_id)
 	await _check_response(200, '{"Test engine":{"cylinders":2}}')
 	await _check_response(500, "error")
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))

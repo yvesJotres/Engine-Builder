@@ -17,6 +17,13 @@ signal render_pressed
 
 const PANEL_WIDTH := 340.0 # wider and larger text for touch; the bottom-left touch pads sit beside its lower edge
 const PANEL_FONT := 18 # text size on the panel, up from the default 16
+const PANEL_MARGIN := 16.0 # gap between the panel and the screen edge
+const GAP := 8 # space between sections and rows
+const GAP_TIGHT := 6 # space between the fixed-top rows
+const TAB_COLUMNS := 4
+const TAB_HEIGHT := 36.0
+const TAB_FONT := 14
+const BOX_RADIUS := 8
 const CONTROL_HEIGHT := 40.0 # minimum height of a spin box, dropdown or button, so they are easy to hit
 const ACCENT := Color(0.25, 0.55, 0.9)
 const BUTTON := Color(0.16, 0.17, 0.21)
@@ -31,9 +38,7 @@ var fire_deg: Array = [] # not on screen, set by the preset: the engine's igniti
 var bank_angle := 90.0
 var vehicle_kg := 215.0 # not on screen, set by the preset
 var primary_ratio := 3.26 # gearbox values, set by the preset (defaults: K45R)
-var intake_valve_mm := 20.0
 var exhaust_valve_mm := 17.0
-var runner_length_m := 0.25
 var wall_heat_scale := 1.0
 var valve_cd := 0.7
 var final_drive := 3.0
@@ -41,6 +46,7 @@ var gear_ratios: Array = Gearbox.ratios()
 var _vehicle_settings := {}
 var _controls := {}
 var _feature_labels := {}
+var _visibility_conditions := {} # key -> condition name, for schema-driven visibility
 var _preset_button: OptionButton
 var _library_ready := false
 var _preset_ids: Array = []
@@ -53,40 +59,36 @@ var _bank_label: Label
 var _shared_pins_label: Label
 var _firing_order: LineEdit
 var _firing_message: Label
+var _four_stroke_rows: Array[Control] = [] # the valve and runner rows: a two-stroke has no valves
 var _firing_rows: Array[Control] = [] # the firing-order rows: only a multi-cylinder engine has a firing order
 var _warning: Label
 var builds_path := "user://engine_builds.cfg"
 var _build_name: LineEdit
 var _builds: OptionButton
 var _build_status: Label
+var _overwrite_dialog: ConfirmationDialog
+var _pending_build := ""
+var _delete_dialog: ConfirmationDialog
+var _pending_delete := ""
 
-# The seven categories, in the order of the tabs. Forced induction and Rider aids are shown only for bikes that have them.
-const CATEGORIES := ["Engine", "Intake and fuel", "Valvetrain", "Ignition", "Forced induction", "Rider aids", "Vehicle", "Sound"]
-const CATEGORY_TABS := ["Engine", "Intake", "Valves", "Ignition", "Boost", "Aids", "Vehicle", "Sound"]
-# The controls on each page: a category reset puts exactly these back to the preset's values.
-const CATEGORY_KEYS := {
-	"Engine": ["cyl", "bore", "stroke", "slant", "layout", "stroke_type", "bank_angle", "shared_pins", "twin", "custom_pin", "crank"],
-	"Intake and fuel": ["header", "muffler_style", "live_exhaust_physics", "fuel", "lambda", "intake_display", "stack_length"],
-	"Valvetrain": ["in_dur", "in_lift", "in_centre", "ex_dur", "ex_lift", "ex_centre"],
-	"Ignition": ["timing", "idle", "power_mode"],
-	"Forced induction": ["boost_ratio", "boost_time", "compressor_battery", "compressor_power", "compressor_charge"],
-	"Rider aids": ["qs_enabled", "qs_sensitivity", "qs_cut_base", "qs_blip_time", "qs_blip_throttle", "qs_flat_shift", "launch_control", "slipper_clutch"],
-	"Vehicle": ["redline", "flywheel", "flywheel_r", "speed_limit_enabled", "speed_limit_kmh"],
-	"Sound": ["sound_valvetrain", "sound_mechanical", "sound_gear_whine", "sound_driveline", "sound_turbo", "sound_knock", "sound_rasp", "sound_intake"],
-}
-# Values the preset sets that are not on screen: another category's reset must not touch them.
-const PLAIN_VARS := ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]
+# Categories, tabs, category keys, and plain vars are defined in PanelSchema.
+# ControlPanel re-exports them for convenience and backward compatibility with tests.
+const CATEGORIES := PanelSchema.CATEGORIES
+const CATEGORY_TABS := PanelSchema.CATEGORY_TABS
+const CATEGORY_KEYS := PanelSchema.CATEGORY_KEYS
+const PLAIN_VARS := PanelSchema.PLAIN_VARS
 var _tabs: Array[Button] = []
 var _pages_root: VBoxContainer
 var _category := 0
+var _changed_pending := false
 
 func _ready() -> void:
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	panel.offset_left = 16
-	panel.offset_top = 16
-	panel.offset_right = PANEL_WIDTH + 16
-	panel.offset_bottom = -16
+	panel.offset_left = PANEL_MARGIN
+	panel.offset_top = PANEL_MARGIN
+	panel.offset_right = PANEL_WIDTH + PANEL_MARGIN
+	panel.offset_bottom = -PANEL_MARGIN
 	panel.add_theme_stylebox_override("panel", _box(Color(0.06, 0.06, 0.08, 0.93), 6, 12))
 	var theme := Theme.new()
 	theme.default_font_size = PANEL_FONT
@@ -154,7 +156,7 @@ func _ready() -> void:
 	render_btn.focus_mode = Control.FOCUS_NONE
 	render_btn.custom_minimum_size = Vector2(0, CONTROL_HEIGHT)
 	render_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	render_btn.tooltip_text = "Renders the exhaust sound to a WAV file offline at the highest simulation refresh (1/3600 s physics step). Ignores real-time frame caps."
+	render_btn.tooltip_text = "Renders the exhaust sound offline and asks where to save the WAV file."
 	_style_button(render_btn)
 	render_btn.pressed.connect(func() -> void: render_pressed.emit())
 	actions.add_child(render_btn)
@@ -209,6 +211,16 @@ func _ready() -> void:
 	load_build.text = "Load"
 	load_build.pressed.connect(_load_build)
 	load_row.add_child(load_build)
+	var rename_build := Button.new()
+	rename_build.text = "Rename"
+	rename_build.tooltip_text = "Renames the selected build to the name typed above"
+	rename_build.pressed.connect(_rename_build)
+	load_row.add_child(rename_build)
+	var delete_build := Button.new()
+	delete_build.text = "Delete"
+	delete_build.tooltip_text = "Deletes the selected build"
+	delete_build.pressed.connect(_delete_build)
+	load_row.add_child(delete_build)
 	_build_status = Label.new()
 	_build_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	builds_box.add_child(_build_status)
@@ -220,7 +232,7 @@ func _ready() -> void:
 
 	# the category tabs: one page at a time, so the panel is as tall as the page it shows
 	var tab_grid := GridContainer.new()
-	tab_grid.columns = 4
+	tab_grid.columns = TAB_COLUMNS
 	tab_grid.add_theme_constant_override("h_separation", 4)
 	tab_grid.add_theme_constant_override("v_separation", 4)
 	box.add_child(tab_grid)
@@ -232,8 +244,8 @@ func _ready() -> void:
 		tab.button_group = tab_group
 		tab.focus_mode = Control.FOCUS_NONE
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tab.custom_minimum_size.y = 36
-		tab.add_theme_font_size_override("font_size", 14)
+		tab.custom_minimum_size.y = TAB_HEIGHT
+		tab.add_theme_font_size_override("font_size", TAB_FONT)
 		tab.tooltip_text = CATEGORIES[i]
 		tab.pressed.connect(func() -> void: _select_category(i))
 		_style_button(tab)
@@ -247,72 +259,112 @@ func _ready() -> void:
 	scroll.follow_focus = true
 	root.add_child(scroll)
 	var pages_box := VBoxContainer.new()
-	pages_box.add_theme_constant_override("separation", 8)
+	pages_box.add_theme_constant_override("separation", GAP)
 	pages_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(pages_box)
 	var pages := VBoxContainer.new()
 	pages_box.add_child(pages)
 	_pages_root = pages
-	# the seven pages, in the order of the tabs
+	# the nine pages, in the order of the tabs
 	var engine := _page(pages, "Engine")
 	var air := _page(pages, "Intake and fuel")
+	var exhaust := _page(pages, "Exhaust")
 	var valves := _page(pages, "Valvetrain")
 	var timing_page := _page(pages, "Ignition")
 	var boost := _page(pages, "Forced induction")
 	var aids := _page(pages, "Rider aids")
 	var vehicle := _page(pages, "Vehicle")
 	var sound := _page(pages, "Sound")
-	_controls["cyl"] = _spin(engine, "Cylinders", 1, 16, 1, 1)
-	_controls["bore"] = _spin(engine, "Bore (mm)", 30, 150, 0.1, 57.3)
-	_controls["stroke"] = _spin(engine, "Stroke (mm)", 20, 150, 0.1, 57.8)
-	_controls["slant"] = _spin(engine, "Slant (°)", -90, 90, 1, 20)
-	_controls["slant"].tooltip_text = "Cylinder lean about the crankshaft; positive leans toward the front."
-	_controls["layout"] = _option(engine, "Layout", ["inline", "V", "W"])
-	_controls["stroke_type"] = _option(engine, "Stroke type", ["four_stroke", "two_stroke"])
-	_controls["stroke_type"].tooltip_text = "Four-stroke: valves, 720° cycle. Two-stroke: ports, 360° cycle, expansion chamber."
+	# Build all schema-driven controls (spin, option, toggle) across every page.
+	# Special controls (bank_angle, shared_pins, twin, custom_pin, crank,
+	# firing_order, compressor_map_view) are created below this block.
+	PanelSchema.set_fuel_items(FuelTank.LABELS)
+	var page_by_category := {
+		"Engine": engine,
+		"Intake and fuel": air,
+		"Exhaust": exhaust,
+		"Valvetrain": valves,
+		"Ignition": timing_page,
+		"Forced induction": boost,
+		"Rider aids": aids,
+		"Vehicle": vehicle,
+		"Sound": sound,
+	}
+	for key in PanelSchema.all_keys():
+		var def: Dictionary = PanelSchema.get_def(key)
+		if (def.type == "special"):
+			continue
+		var grid: GridContainer = page_by_category[def.category]
+		var control: Control
+		if (def.type == "spin"):
+			control = _spin(grid, def.label, def.min, def.max, def.step, def.default)
+		elif (def.type == "option"):
+			var items: Array = def.items
+			if key == "fuel":
+				items = PanelSchema.get_fuel_items()
+			control = _option(grid, def.label, items)
+		elif (def.type == "toggle"):
+			control = ToggleSwitch.new()
+			control.add_item("Off")
+			control.add_item("On")
+			control.custom_minimum_size.y = CONTROL_HEIGHT
+			control.item_selected.connect(func(_i: int) -> void: _emit_changed())
+			_row(grid, def.label, control)
+		if def.has("tooltip"):
+			control.tooltip_text = def.tooltip
+		_controls[key] = control
+		if PanelSchema.is_visible_conditional(key):
+			_visibility_conditions[key] = PanelSchema.visible_condition(key)
+
+	# ---- Engine special controls ----
 	var bank := SpinBox.new()
 	bank.min_value = 1.0
 	bank.max_value = 180.0
 	bank.step = 1.0
 	bank.value = bank_angle
 	bank.custom_minimum_size.y = CONTROL_HEIGHT
-	bank.tooltip_text = "Angle between cylinder banks."
+	bank.tooltip_text = PanelSchema.get_def("bank_angle").tooltip
 	_controls["bank_angle"] = bank
-	_bank_label = _row(engine, "Bank angle (°)", bank)
+	_bank_label = _row(engine, PanelSchema.get_def("bank_angle").label, bank)
 	bank.value_changed.connect(func(value: float) -> void:
 		bank_angle = value
 		_refresh_firing_order()
-		changed.emit())
+		_emit_changed())
+
 	_controls["shared_pins"] = OptionButton.new()
 	_controls["shared_pins"].add_item("Preset / automatic")
 	_controls["shared_pins"].add_item("Shared opposite-bank pairs")
-	_controls["shared_pins"].tooltip_text = "Pair cylinders 1–2, 3–4 and so on on common crankpins; firing angles adjust to the bank angle."
-	_shared_pins_label = _row(engine, "Crankpins", _controls["shared_pins"])
+	_controls["shared_pins"].tooltip_text = PanelSchema.get_def("shared_pins").tooltip
+	_shared_pins_label = _row(engine, PanelSchema.get_def("shared_pins").label, _controls["shared_pins"])
 	_controls["shared_pins"].item_selected.connect(func(_index: int) -> void:
 		_refresh_firing_order()
-		changed.emit())
+		_emit_changed())
+
 	_controls["twin"] = OptionButton.new()
-	for item in ["360", "270", "180", "Custom"]:
+	for item in PanelSchema.get_def("twin").items:
 		_controls["twin"].add_item(item)
 	_controls["twin"].item_selected.connect(_on_twin_selected)
-	_controls["twin"].tooltip_text = "Crank pin angle, 2-cylinder inline only"
-	_twin_label = _row(engine, "Crank pin", _controls["twin"])
+	_controls["twin"].tooltip_text = PanelSchema.get_def("twin").tooltip
+	_twin_label = _row(engine, PanelSchema.get_def("twin").label, _controls["twin"])
+
 	_controls["custom_pin"] = SpinBox.new()
 	_controls["custom_pin"].min_value = 1.0
 	_controls["custom_pin"].max_value = 359.0
 	_controls["custom_pin"].step = 1.0
 	_controls["custom_pin"].value = 270.0
-	_custom_pin_label = _row(engine, "Custom pin (°)", _controls["custom_pin"])
+	_custom_pin_label = _row(engine, PanelSchema.get_def("custom_pin").label, _controls["custom_pin"])
 	_controls["custom_pin"].value_changed.connect(func(_v: float) -> void:
 		if _controls["twin"].get_item_text(_controls["twin"].selected) == "Custom":
 			_on_twin_selected(_controls["twin"].selected))
+
 	_controls["crank"] = OptionButton.new()
-	_crank_label = _row(engine, "Crank", _controls["crank"])
+	_crank_label = _row(engine, PanelSchema.get_def("crank").label, _controls["crank"])
 	_controls["crank"].item_selected.connect(_on_crank_selected)
+
 	_firing_order = LineEdit.new()
 	_firing_order.placeholder_text = "e.g. 1-3-4-2"
-	_firing_order.tooltip_text = "Cylinder numbers in firing order. Applying reassigns the selected firing angles to those cylinders."
-	_firing_rows.append(_row(engine, "Firing order", _firing_order))
+	_firing_order.tooltip_text = PanelSchema.get_def("firing_order").tooltip
+	_firing_rows.append(_row(engine, PanelSchema.get_def("firing_order").label, _firing_order))
 	_firing_rows.append(_firing_order)
 	var apply_order := Button.new()
 	apply_order.text = "Apply firing order"
@@ -323,43 +375,39 @@ func _ready() -> void:
 	_firing_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_firing_rows.append(_row(engine, "", _firing_message))
 	_firing_rows.append(_firing_message)
+
 	_controls["cyl"].value_changed.connect(func(_v: float) -> void:
 		fire_deg = []
 		crossplane = false
 		_refresh_twin()
-		changed.emit())
+		_emit_changed())
 	_controls["layout"].item_selected.connect(func(_i: int) -> void: _refresh_twin())
 	_refresh_twin()
 
-	_controls["header"] = _option(air, "Header", ["stock", "4-1", "4-2-1"])
-	_controls["muffler_style"] = _option(air, "Muffler", ["stock", "sport", "short"])
-	_controls["muffler_style"].tooltip_text = "Estimated four-stroke muffler shapes and lengths; two-stroke expansion chambers are unchanged."
-	_controls["live_exhaust_physics"] = _option(air, "Exhaust physics", ["Off", "Experimental"])
-	_controls["live_exhaust_physics"].tooltip_text = "Experimental live pressure-wave solver; changes torque and uses more CPU. Not yet calibrated to a real exhaust."
+	# Schema-created controls exist; apply remaining special-case setup.
+	# Exhaust: extra header_primary_mm control not in schema.
+	var header_primary_mm := _spin(exhaust, "Primary pipe (mm)", 20.0, 60.0, 0.5, 32.0)
+	header_primary_mm.tooltip_text = "Header primary pipe diameter. Per-bike values are seller or similar-bike estimates, not OEM measurements."
+	_controls["header_primary_mm"] = header_primary_mm
+
+	_controls["live_exhaust_physics"].tooltip_text = PanelSchema.get_def("live_exhaust_physics").tooltip
 	var exhaust_note := Label.new()
 	exhaust_note.text = "Experimental: affects torque; uses more CPU"
 	exhaust_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_row(air, "", exhaust_note)
-	_controls["intake_display"] = _option(air, "Intake appearance", ["Stock", "Velocity stack"])
-	_controls["intake_display"].tooltip_text = "Visual only: stock intake dimensions are estimated; airflow physics is unchanged."
-	_controls["stack_length"] = _spin(air, "Stack length (mm)", 10.0, 200.0, 1.0, 70.0)
-	_controls["stack_length"].tooltip_text = "Aftermarket stack visual length; not a verified factory dimension and does not change engine physics."
+	_row(exhaust, "", exhaust_note)
+	# Four-stroke rows: track valve and runner controls for visibility toggling.
+	for key in ["intake_valve_mm", "runner_length_m"]:
+		var spin: SpinBox = _controls[key]
+		_four_stroke_rows.append(air.get_child(spin.get_index() - 1)) # the label beside the control
+		_four_stroke_rows.append(spin)
+
 	var intake_note := Label.new()
 	intake_note.text = "Visual only · four-stroke fuel injection"
 	intake_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_row(air, "", intake_note)
-	_controls["fuel"] = _option(air, "Fuel", FuelTank.LABELS)
+
 	_controls["fuel"].select(FuelTank.KINDS.find("ron95")) # RON 95 is the default, as before the grades were added
-	_controls["fuel"].tooltip_text = "Higher RON resists knock, so the ignition can run more advance. E85 also cools the intake charge"
-	_controls["lambda"] = _spin(air, "Mixture λ", 0.6, 1.4, 0.01, 1.0)
-	_controls["lambda"].tooltip_text = "1.0 = stoichiometric"
-	_controls["boost_ratio"] = _spin(boost, "Max boost ratio", 1.0, 3.0, 0.01, 1.0)
-	_controls["boost_time"] = _spin(boost, "Boost response (s)", 0.01, 5.0, 0.01, 0.6)
-	_controls["compressor_battery"] = _spin(boost, "Battery (Wh)", 1.0, 500.0, 1.0, 40.0)
-	_controls["compressor_power"] = _spin(boost, "Compressor (W)", 0.0, 10000.0, 50.0, 2000.0)
-	_controls["compressor_charge"] = _spin(boost, "Charging (W)", 0.0, 10000.0, 50.0, 1000.0)
-	for key in ["boost_ratio", "boost_time", "compressor_battery", "compressor_power", "compressor_charge"]:
-		_controls[key].tooltip_text = "Estimated value; Honda has not published the V3R compressor specifications."
+	_controls["lambda"].tooltip_text = PanelSchema.get_def("lambda").tooltip
 	var refuel := Button.new()
 	refuel.text = "Refuel"
 	refuel.focus_mode = Control.FOCUS_NONE
@@ -368,86 +416,32 @@ func _ready() -> void:
 	refuel.pressed.connect(func() -> void: refuel_pressed.emit())
 	_row(air, "Tank", refuel)
 
-	_controls["in_dur"] = _spin(valves, "Intake duration", 150, 300, 0.5, 240)
-	_controls["in_dur"].tooltip_text = "Crank degrees the intake valve is open"
-	_controls["in_lift"] = _spin(valves, "Intake lift (mm)", 2, 15, 0.1, 6.0)
-	_controls["in_centre"] = _spin(valves, "Intake centre", 360, 600, 1, 470)
-	_controls["in_centre"].tooltip_text = "Where the intake event is centred, after firing top dead centre"
-	_controls["ex_dur"] = _spin(valves, "Exhaust duration", 150, 300, 0.5, 230)
-	_controls["ex_dur"].tooltip_text = "Crank degrees the exhaust valve is open"
-	_controls["ex_lift"] = _spin(valves, "Exhaust lift (mm)", 2, 15, 0.1, 5.0)
-	_controls["ex_centre"] = _spin(valves, "Exhaust centre", 120, 360, 1, 255)
-	_controls["ex_centre"].tooltip_text = "Where the exhaust event is centred, after firing top dead centre"
 
-	_controls["timing"] = _spin(timing_page, "Timing (deg)", -10, 10, 0.5, 0)
-	_controls["timing"].tooltip_text = "Advance (+) or retard (-) from the engine's timing map. Too much advance knocks; higher RON and E85 allow more"
+
 	var timing_hint := Label.new()
 	timing_hint.text = "+ advances, - retards. Past the knock limit the engine knocks."
 	timing_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	timing_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
 	timing_page.add_child(timing_hint)
 
-	_controls["redline"] = _spin(vehicle, "Redline (rpm)", 2000, 20000, 50, 10600)
-	_controls["redline"].tooltip_text = "Fuel is cut at this speed"
-	_controls["speed_limit_enabled"] = _toggle(vehicle, "Speed limiter")
-	_controls["speed_limit_enabled"].tooltip_text = "The voluntary 300 km/h limit most makers fit. On: the ECU closes the throttle at the limit and the bike holds it"
-	_controls["speed_limit_kmh"] = _spin(vehicle, "Speed limit (km/h)", 100, 400, 1, 300)
-	_controls["speed_limit_kmh"].tooltip_text = "The speed the limiter holds, km/h"
-	# sound levels: multipliers on the tuned sound, for taste. A preset does not set them, so they stay as the rider left them
-	var sound_levels := [
-		["sound_valvetrain", "Valve ticks", "Valve ticks and cam chain rattle"],
-		["sound_mechanical", "Bottom end", "Bearing rumble"],
-		["sound_gear_whine", "Gear whine", "Primary gear mesh whine, which rises with rpm"],
-		["sound_driveline", "Driveline", "Gear whine, clutch rattle at idle, gear change clunk and chain hum"],
-		["sound_turbo", "Turbo", "Turbine whistle, wastegate flutter and blow-off"],
-		["sound_knock", "Knock pings", "Detonation pings"],
-		["sound_rasp", "Rasp", "The rasp noise on the exhaust pulses"],
-		["sound_intake", "Intake noise", "The intake noise level"],
-	]
-	for entry in sound_levels:
-		_controls[entry[0]] = _spin(sound, entry[1], 0.0, 2.0, 0.05, 1.0)
-		_controls[entry[0]].tooltip_text = entry[2]
-	_controls["idle"] = _spin(timing_page, "Idle speed (rpm)", 400, 6000, 10, 1200)
-	_controls["idle"].tooltip_text = "The rpm the ECU holds at idle with the throttle closed, like the idle screw on a real bike"
-	_controls["flywheel"] = _spin(vehicle, "Flywheel (kg)", 0.5, 10.0, 0.01, 2.5)
-	_controls["flywheel_r"] = _spin(vehicle, "Flywheel radius (mm)", 20, 150, 0.1, 75.0)
-	_controls["power_mode"] = _option(timing_page, "Power mode", ["F", "M", "L"])
-	_controls["power_mode"].tooltip_text = "F = Full power, M = Mid (softer), L = Low (rain/eco). Changes throttle response and ignition timing."
+	_controls["idle"].tooltip_text = PanelSchema.get_def("idle").tooltip
+	_controls["power_mode"].tooltip_text = PanelSchema.get_def("power_mode").tooltip
 
-	# Quickshifter detailed controls
-	_controls["qs_enabled"] = _toggle(aids, "Quickshifter")
-	_controls["qs_enabled"].tooltip_text = "Enable clutchless upshift with ignition/fuel cut"
+	# Rider aids: feature label mappings.
 	_feature_labels["qs_enabled"] = _label_of(_controls["qs_enabled"])
-	_controls["qs_sensitivity"] = _spin(aids, "Shift force", 0.1, 1.0, 0.05, 0.7)
-	_controls["qs_sensitivity"].tooltip_text = "How firm a press the shifter needs before it shifts: higher needs a firmer press. Keys press fully, so this shows with an analogue shifter"
 	_feature_labels["qs_sensitivity"] = _label_of(_controls["qs_sensitivity"])
-	_controls["qs_cut_base"] = _spin(aids, "Base Cut (ms)", 20, 100, 5, 50)
-	_controls["qs_cut_base"].tooltip_text = "Base ignition cut duration at low RPM"
 	_feature_labels["qs_cut_base"] = _label_of(_controls["qs_cut_base"])
-	_controls["qs_blip_time"] = _spin(aids, "Downshift Blip (ms)", 20, 200, 10, 80)
-	_controls["qs_blip_time"].tooltip_text = "Throttle blip duration for clutchless downshift"
 	_feature_labels["qs_blip_time"] = _label_of(_controls["qs_blip_time"])
-	_controls["qs_blip_throttle"] = _spin(aids, "Blip Throttle %", 0.1, 0.5, 0.05, 0.3)
-	_controls["qs_blip_throttle"].tooltip_text = "Throttle fraction during downshift blip"
 	_feature_labels["qs_blip_throttle"] = _label_of(_controls["qs_blip_throttle"])
-	_controls["qs_flat_shift"] = _toggle(aids, "Flat Shift")
-	_controls["qs_flat_shift"].tooltip_text = "Hold throttle cracked during upshift for faster shifts"
 	_feature_labels["qs_flat_shift"] = _label_of(_controls["qs_flat_shift"])
 
-	_feature_switch(aids, "launch_control", "Launch control", "Holds launch RPM while the clutch is pulled and throttle is high.")
-	_feature_switch(aids, "abs_enabled", "ABS", "Anti-lock braking system. Not built yet: it needs the wheel-slip physics, so the switch is locked.")
-	_feature_switch(aids, "traction_control_enabled", "Traction control", "Traction control. Not built yet: it needs the wheel-slip physics, so the switch is locked.")
-	_controls["slipper_clutch"] = ToggleSwitch.new()
-	_controls["slipper_clutch"].add_item("Off")
-	_controls["slipper_clutch"].add_item("On")
-	_controls["slipper_clutch"].item_selected.connect(func(_i: int) -> void: changed.emit())
-	_controls["slipper_clutch"].tooltip_text = "Slipper clutch: reduces clutch capacity during engine braking to prevent rear wheel hop"
-	_row(aids, "Slipper clutch", _controls["slipper_clutch"])
-
-	var map_view = CompressorMapView.new()
-	map_view.custom_minimum_size = Vector2(300, 300)
-	boost.add_child(map_view)
-	_controls["compressor_map_view"] = map_view
+	_controls["launch_control"].tooltip_text = PanelSchema.get_def("launch_control").tooltip
+	_feature_labels["launch_control"] = _label_of(_controls["launch_control"])
+	_controls["abs_enabled"].tooltip_text = PanelSchema.get_def("abs_enabled").tooltip
+	_feature_labels["abs_enabled"] = _label_of(_controls["abs_enabled"])
+	_controls["traction_control_enabled"].tooltip_text = PanelSchema.get_def("traction_control_enabled").tooltip
+	_feature_labels["traction_control_enabled"] = _label_of(_controls["traction_control_enabled"])
+	_controls["slipper_clutch"].tooltip_text = PanelSchema.get_def("slipper_clutch").tooltip
 
 	# a reset on each page: just that category goes back to the preset
 	for i in CATEGORIES.size():
@@ -471,6 +465,8 @@ func _ready() -> void:
 	help.add_theme_font_size_override("font_size", 14)
 	pages_box.add_child(help)
 
+	_refresh_feature_switches()
+
 
 
 func lambda() -> float:
@@ -486,6 +482,9 @@ func _refresh_twin() -> void:
 	var count := int(_controls["cyl"].value)
 	for node in _firing_rows:
 		node.visible = count > 1
+	var four_stroke: bool = _controls["stroke_type"].selected == 0
+	for node in _four_stroke_rows:
+		node.visible = four_stroke
 	var inline := layout.get_item_text(layout.selected) == "inline"
 	_bank_label.visible = not inline
 	_controls["bank_angle"].visible = not inline
@@ -548,7 +547,7 @@ func _on_twin_selected(_index: int) -> void:
 	var angle: float = _controls["custom_pin"].value if text == "Custom" else float(text)
 	fire_deg = [0.0, angle]
 	_refresh_twin()
-	changed.emit()
+	_emit_changed()
 
 
 func _on_crank_selected(index: int) -> void:
@@ -561,7 +560,7 @@ func _on_crank_selected(index: int) -> void:
 	else:
 		fire_deg = Array(FiringOrders.fire_angles(4, 360.0, crossplane))
 	_refresh_firing_order()
-	changed.emit()
+	_emit_changed()
 
 
 func _apply_firing_order() -> void:
@@ -586,7 +585,7 @@ func _apply_firing_order() -> void:
 		fire_deg[order[i] - 1] = angles[i]
 	_refresh_firing_order()
 	_firing_message.text = "Applied; shared crankpin geometry may adjust the order." if _shared_pins_label.visible and _controls["shared_pins"].selected == 1 else "Applied. Cylinder crank pins follow the new order."
-	changed.emit()
+	_emit_changed()
 
 
 # Flips the kill switch, as the K key does.
@@ -595,6 +594,7 @@ func toggle_kill() -> void:
 
 
 func _populate_preset_dropdown(library: Dictionary) -> void:
+	# The dropdown order matches Presets.names() (filename order): tests and _on_preset_selected address presets by that index.
 	var keys := library.keys()
 	if keys == _preset_keys:
 		return
@@ -611,7 +611,7 @@ func _populate_preset_dropdown(library: Dictionary) -> void:
 		_preset_ids.append(id)
 		_preset_button.add_item(display_name)
 	_preset_button.disabled = _preset_button.get_item_count() == 0
-	# Select CBR150R as default
+	# Select CBR150R as the visible default; the controls stay at the spec defaults until a preset is chosen.
 	if _preset_button.get_item_count() > 0:
 		var pick := _preset_ids.find("honda_cbr150r")
 		if pick < 0:
@@ -643,7 +643,7 @@ func _feature_switch(grid: GridContainer, key: String, label_text: String, toolt
 	option.add_item("On")
 	option.custom_minimum_size.y = CONTROL_HEIGHT
 	option.tooltip_text = tooltip
-	option.item_selected.connect(func(_index: int) -> void: changed.emit())
+	option.item_selected.connect(func(_index: int) -> void: _emit_changed())
 	_controls[key] = option
 	_feature_labels[key] = _row(grid, label_text, option)
 
@@ -652,8 +652,8 @@ func _refresh_feature_switches() -> void:
 	# every aid is on every bike: the factory fit only sets its default, which the preset applies.
 	# ABS and traction control stay locked until their wheel-slip physics is built.
 	for key in ["abs_enabled", "traction_control_enabled"]:
-		_controls[key].visible = true
-		_feature_labels[key].visible = true
+		_controls[key].visible = WHEEL_AIDS_AVAILABLE # hidden, not greyed out, until the physics exists
+		_feature_labels[key].visible = WHEEL_AIDS_AVAILABLE
 		_controls[key].disabled = not WHEEL_AIDS_AVAILABLE
 		if not WHEEL_AIDS_AVAILABLE:
 			_controls[key].select(0)
@@ -682,6 +682,19 @@ func _refresh_feature_switches() -> void:
 	_refresh_categories()
 
 
+# Many controls change at once on a preset or a drag. Listeners get one changed per frame, not one per control.
+func _emit_changed() -> void:
+	if _changed_pending:
+		return
+	_changed_pending = true
+	_flush_changed.call_deferred()
+
+
+func _flush_changed() -> void:
+	_changed_pending = false
+	changed.emit()
+
+
 # Shows one category's page and presses its tab.
 func _select_category(index: int) -> void:
 	_category = index
@@ -697,8 +710,8 @@ func _refresh_categories() -> void:
 	if _tabs.size() < CATEGORIES.size():
 		return
 	var boosted := float(_vehicle_settings.get("max_boost_ratio", 1.0)) > 1.0 or bool(_vehicle_settings.get("electric_compressor", false)) or str(_vehicle_settings.get("compressor_map_id", "")) != ""
-	_tabs[4].visible = boosted
-	_tabs[5].visible = true # every bike can use the aids; the factory fit only sets the default
+	_tabs[5].visible = boosted
+	_tabs[6].visible = true # every bike can use the aids; the factory fit only sets the default
 	if not _tabs[_category].visible:
 		_select_category(0)
 
@@ -743,7 +756,7 @@ func _reset_category(index: int) -> void:
 	_on_preset_selected(_preset_button.selected)
 	_restore(snap, keys, index != 0) # the Engine page owns the preset's firing and bank values; the others keep theirs
 	_refresh_feature_switches()
-	changed.emit()
+	_emit_changed()
 
 
 # One section: a column that holds its own grid. The first one is shown; the dropdown switches the others in.
@@ -751,7 +764,7 @@ func _page(host: Control, title: String) -> GridContainer:
 	var page := VBoxContainer.new()
 	page.name = title
 	page.visible = host.get_child_count() == 0
-	page.add_theme_constant_override("separation", 8)
+	page.add_theme_constant_override("separation", GAP)
 	host.add_child(page)
 	var title_label := Label.new()
 	title_label.text = title
@@ -797,7 +810,7 @@ func _spin(grid: GridContainer, label: String, lo: float, hi: float, step: float
 	s.step = step
 	s.value = value
 	s.custom_minimum_size.y = CONTROL_HEIGHT
-	s.value_changed.connect(func(_v: float) -> void: changed.emit())
+	s.value_changed.connect(func(_v: float) -> void: _emit_changed())
 	_row(grid, label, s)
 	return s
 
@@ -808,7 +821,7 @@ func _toggle(grid: GridContainer, label: String) -> ToggleSwitch:
 	toggle.add_item("Off")
 	toggle.add_item("On")
 	toggle.custom_minimum_size.y = CONTROL_HEIGHT
-	toggle.item_selected.connect(func(_i: int) -> void: changed.emit())
+	toggle.item_selected.connect(func(_i: int) -> void: _emit_changed())
 	_row(grid, label, toggle)
 	return toggle
 
@@ -818,7 +831,7 @@ func _option(grid: GridContainer, label: String, items: Array) -> OptionButton:
 	for item in items:
 		o.add_item(item)
 	o.custom_minimum_size.y = CONTROL_HEIGHT
-	o.item_selected.connect(func(_i: int) -> void: changed.emit())
+	o.item_selected.connect(func(_i: int) -> void: _emit_changed())
 	_row(grid, label, o)
 	return o
 
@@ -836,9 +849,9 @@ func _button(text: String, parent: Control) -> Button:
 
 
 func _style_button(b: Button) -> void:
-	b.add_theme_stylebox_override("normal", _box(BUTTON, 8, 8))
-	b.add_theme_stylebox_override("hover", _box(BUTTON.lightened(0.12), 8, 8))
-	b.add_theme_stylebox_override("pressed", _box(ACCENT, 8, 8)) # lit while held, or while Sound is on
+	b.add_theme_stylebox_override("normal", _box(BUTTON, BOX_RADIUS, BOX_RADIUS))
+	b.add_theme_stylebox_override("hover", _box(BUTTON.lightened(0.12), BOX_RADIUS, BOX_RADIUS))
+	b.add_theme_stylebox_override("pressed", _box(ACCENT, BOX_RADIUS, BOX_RADIUS)) # lit while held, or while Sound is on
 
 
 
@@ -870,6 +883,38 @@ func _refresh_builds(selected := "") -> void:
 
 func _save_build() -> void:
 	PanelBuilds.save_build(self)
+
+
+# Asks before a saved build is replaced; the replace happens only on confirm.
+func _confirm_overwrite(build_name: String) -> void:
+	if _overwrite_dialog == null:
+		_overwrite_dialog = ConfirmationDialog.new()
+		_overwrite_dialog.ok_button_text = "Replace"
+		_overwrite_dialog.confirmed.connect(func() -> void: PanelBuilds.write_build(self, _pending_build))
+		add_child(_overwrite_dialog)
+	_pending_build = build_name
+	_overwrite_dialog.dialog_text = "Replace the saved build \"%s\"?" % build_name
+	_overwrite_dialog.popup_centered()
+
+
+func _rename_build() -> void:
+	PanelBuilds.rename_build(self)
+
+
+func _delete_build() -> void:
+	PanelBuilds.confirm_delete(self)
+
+
+# Asks before a saved build is deleted; it goes only on confirm.
+func _confirm_delete(build_name: String) -> void:
+	if _delete_dialog == null:
+		_delete_dialog = ConfirmationDialog.new()
+		_delete_dialog.ok_button_text = "Delete"
+		_delete_dialog.confirmed.connect(func() -> void: PanelBuilds.delete_build(self, _pending_delete))
+		add_child(_delete_dialog)
+	_pending_delete = build_name
+	_delete_dialog.dialog_text = "Delete the saved build \"%s\"? This cannot be undone." % build_name
+	_delete_dialog.popup_centered()
 
 
 func _load_build() -> void:

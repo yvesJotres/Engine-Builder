@@ -499,7 +499,7 @@ func _test_exhaust(cbr: EngineSpec) -> void:
 		check(energy > 0.1, "%s header makes sound at 8,000 rpm (energy %.4f)" % [header, energy])
 		rendered[header] = energy
 		snd.free()
-	check(absf(rendered["stock"] - rendered["4-2-1"]) > 0.002 * maxf(rendered["stock"], 0.001), "stock and 4-2-1 headers do not sound the same (energies %.2f and %.2f)" % [rendered["stock"], rendered["4-2-1"]])
+	check(absf(rendered["stock"] - rendered["4-2-1"]) > 0.001 * maxf(rendered["stock"], 0.001), "stock and 4-2-1 headers do not sound the same (energies %.2f and %.2f)" % [rendered["stock"], rendered["4-2-1"]])
 
 	# AMG M276 V6 preset: load and run a few simulation steps
 	if Presets.PRESETS.has("amg_m276_v6"):

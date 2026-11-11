@@ -4,7 +4,7 @@ extends SceneTree
 func _init() -> void:
 	await process_frame
 	var spec := EngineSpec.new()
-	var p: Dictionary = Presets.PRESETS["Kawasaki ZX-25R (2020)"]
+	var p: Dictionary = Presets.PRESETS["kawasaki_zx25r"]
 	for key in p.keys():
 		spec.set(key, p[key])
 	var sim := EngineSim.new()

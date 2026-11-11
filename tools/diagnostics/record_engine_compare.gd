@@ -13,10 +13,10 @@ func _init() -> void:
 		return
 	var run_id := "%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
 	var scenarios := [
-		["cbr_idle", "Honda CBR150R (K45N)", 1200.0, 0.0],
-		["cbr_high", "Honda CBR150R (K45N)", 9000.0, 1.0],
-		["centodieci_idle", "Bugatti Centodieci (W16, approximate)", 1000.0, 0.0],
-		["centodieci_high", "Bugatti Centodieci (W16, approximate)", 7000.0, 1.0],
+		["cbr_idle", "honda_cbr150r", 1200.0, 0.0],
+		["cbr_high", "honda_cbr150r", 9000.0, 1.0],
+		["centodieci_idle", "bugatti_centodieci", 1000.0, 0.0],
+		["centodieci_high", "bugatti_centodieci", 7000.0, 1.0],
 	]
 	for scenario in scenarios:
 		var path := directory.path_join("%s_%s.wav" % [scenario[0], run_id])

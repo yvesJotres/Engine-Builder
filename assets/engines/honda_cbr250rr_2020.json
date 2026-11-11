@@ -1,0 +1,81 @@
+{
+  "display_name": "Honda CBR250RR MC51 (2020)",
+  "geometry": {
+    "vehicle_mass_includes_rider": false,
+    "throttle_bore_mm": 32.0,
+    "throttle_count": 2,
+    "wheelbase_mm": 1390,
+    "front_tire_width_mm": 110,
+    "front_tire_aspect": 0.7,
+    "front_rim_in": 17,
+    "rear_tire_width_mm": 140,
+    "rear_tire_aspect": 0.7,
+    "rear_rim_in": 17,
+    "cylinders": 2,
+    "displacement_cc": 249.7,
+    "bore_mm": 62.3,
+    "stroke_mm": 41.4,
+    "rod_ratio": 2.0,
+    "layout": "inline",
+    "compression_ratio": 12.1,
+    "twin_pin_deg": 180.0,
+    "split_pin_v4": false,
+    "crossplane": false,
+    "fire_deg": [
+      0.0,
+      180.0
+    ],
+    "vehicle_kg": 165.0,
+    "tyre_kg": 8.0,
+    "rim_kg": 8.0,
+    "slant_deg": 20.0,
+    "piston_kg": 0.09,
+    "rod_kg": 0.2,
+    "rod_big_fraction": 0.4,
+    "balancer_kg": 0.2,
+    "flywheel_kg": 3.6,
+    "flywheel_radius_mm": 103.2,
+    "wheel_radius_m": 0.3139
+  },
+  "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.125,
+    "intake_centre_deg": 470.0,
+    "intake_duration_deg": 255.0,
+    "intake_lift_mm": 6.0,
+    "exhaust_centre_deg": 255.0,
+    "exhaust_duration_deg": 245.0,
+    "exhaust_lift_mm": 5.0,
+    "intake_valve_mm": 24.5,
+    "exhaust_valve_mm": 21.0
+  },
+  "drivetrain": {
+    "redline_rpm": 14000.0,
+    "primary_ratio": 2.781,
+    "final_drive": 2.928,
+    "gear_ratios": [
+      3.272,
+      2.187,
+      1.727,
+      1.421,
+      1.222,
+      1.068
+    ],
+    "header": "stock",
+    "fuel": "ron95",
+    "idle_target_rpm": 1400.0,
+    "ve_scale": 1.0,
+    "ignition_offset_deg": 0.0,
+    "clutch_capacity_nm": 0,
+    "drag_area_m2": 0.4
+  },
+  "ecu": {
+    "binary_path": "res://ecu_bins/CBR250RR-38770-K64-N04_BIN.bin"
+  },
+  "metadata": {
+    "source": "Copy of the 2017 MC51 preset, with the most powerful published 2020 figures: Gaadiwaadi (41.7 PS), Japanese listing (2.5 kgf·m torque), Indian site (25 N·m). Valve timing, lift, valve sizes, runner, ECU binary and drivetrain are still the 2017 values.",
+    "year": 2020,
+    "region": "ID",
+    "notes": "2020 model. Bore 62.3 mm, stroke 41.4 mm, compression 12.1:1, displacement 249.7 cc (moto-data and the Japanese magazine). Published power: 41.7 PS (Gaadiwaadi), 41 PS @ 13,000 rpm (Japanese listing), 40.2 bhp @ 13,000 rpm (Indian site); moto-data lists 36.3 hp. Published torque: 25 N·m @ 11,000 rpm (Indian site), 2.5 kgf·m @ 11,000 rpm (Japanese listing); moto-data lists 23.3 N·m @ 10,500 rpm. Bore × stroke gives about 252 cc, not 249.7 cc, so one of these figures is off. Compression 11.5 vs 12.1 is disputed; the higher value is used. Valve sizes (24.5 / 21.0 mm), valve timing, runner, ECU binary and drivetrain are still the 2017 values and are not verified for 2020."
+  }
+}

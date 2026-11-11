@@ -50,6 +50,7 @@ extends Resource
 @export var bank_angle := 90.0 # V layout only, degrees between banks
 @export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
+@export var header_primary_mm := 0.0 # primary pipe diameter. 0 uses the generic 32 mm tube; per-bike values are sourced or similar-bike estimates
 @export var muffler_style := "stock" # stock | sport | short; approximate dimensions, four-stroke only
 @export var live_exhaust_physics := false # experimental 1D pipe solver; higher CPU cost
 @export var fuel := "ron95" # a FuelTank.KINDS entry: ron90, ron92, ron95, ron98 or e85
@@ -96,6 +97,7 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var has_abs := false
 @export var has_traction_control := false
 # Quickshifter: cuts ignition/fuel during upshift to unload the gearbox for clutchless shift
+@export var decel_cut := true # ECU cuts fuel and spark on overrun (closed throttle, high rpm). Off: the charge keeps burning, as on an ECU without decel cut
 @export var quickshifter := false # rider switch, only valid when has_quickshifter
 @export var quickshifter_cut_time := 0.05 # s, ignition+fuel cut duration during upshift
 @export var quickshifter_cut_profile: Array = [] # per-gear cut time profile: [ [ [rpm, cut_ms], ... ], ... ] for gears 1-6
@@ -125,6 +127,26 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export_range(0.0, 2.0) var sound_knock := 1.0 # detonation pings
 @export_range(0.0, 2.0) var sound_rasp := 1.0 # rasp noise on the exhaust pulses
 @export_range(0.0, 2.0) var sound_intake := 1.0 # intake noise level
+# Acoustic hardware data. These only drive the procedural sound layers; they do not change the torque model.
+# Defaults are documented estimates. A preset overrides them where a service manual or measured part gives the value.
+@export var primary_crank_teeth := 23 # crankshaft pinion teeth at the primary gear mesh
+@export var gearbox_input_teeth := 17 # input-shaft gear teeth at the engaged gearbox mesh
+@export var rear_sprocket_teeth := 42 # rear sprocket teeth, sets the chain link-passing rate
+@export var alternator_drive_ratio := 1.0 # alternator turns per crank turn; 1.0 is a crank-mounted rotor
+@export var alternator_poles := 12 # rotor poles/slots, sets the alternator whine order
+@export var starter_reduction := 4.4 # starter armature turns per crank turn
+@export var starter_segments := 17 # starter commutator segments
+@export var turbo_blade_count := 9 # compressor wheel blades, sets blade-pass frequency
+@export var compressor_blade_count := 9 # electric compressor wheel blades
+@export var supercharger_type := "none" # "none" | "roots" | "centrifugal"
+@export var supercharger_drive_ratio := 1.0 # impeller/rotor turns per crank turn, low stage
+@export var supercharger_high_drive_ratio := 0.0 # second-stage ratio, 0 disables the shift
+@export var supercharger_shift_rpm := 0.0 # rpm where the two-speed drive changes ratio
+@export var supercharger_lobes := 3 # roots blower lobes per rotor
+@export var supercharger_blades := 9 # centrifugal impeller blades
+@export var supercharger_gear_teeth := 0 # drive gear teeth, 0 disables the gear-mesh tone
+@export var dry_clutch := false # dry clutch rattle only when true; most motorcycles are wet
+@export var knock_frequency_hz := 0.0 # 0 derives it from the bore
 @export var abs_enabled := false # rider switch, only valid when has_abs
 @export var traction_control_enabled := false # rider switch, only valid when has_traction_control
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
@@ -341,6 +363,8 @@ func validation_warning() -> String:
 		return "W layout needs a multiple of four cylinders"
 	if layout == "V" and cylinders < 2:
 		return "V layout needs at least two cylinders"
+	if rod_ratio < 1.2 or rod_ratio > 3.5 or not is_finite(rod_ratio):
+		return "Rod ratio must be 1.2 to 3.5"
 	var calc := calc_displacement_cc()
 	if absf(calc - displacement_cc) / displacement_cc > 0.02:
 		return "Bore x stroke gives %.0f cc, not %.0f cc" % [calc, displacement_cc]

@@ -1,5 +1,5 @@
 {
-  "display_name": "Honda V3R 900 E-Compressor (estimated)",
+  "display_name": "Honda V3R 900 E-Compressor (2025)",
   "geometry": {
     "cylinders": 3,
     "displacement_cc": 899.9,
@@ -17,6 +17,8 @@
     "flywheel_radius_mm": 90.0
   },
   "valvetrain": {
+    "header_primary_mm": 48.0,
+    "runner_length_m": 0.146,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,

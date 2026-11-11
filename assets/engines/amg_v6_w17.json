@@ -1,5 +1,5 @@
 {
-  "display_name": "Mercedes-AMG F1 W17 V6 Turbo Hybrid (1.6L)",
+  "display_name": "Mercedes-AMG F1 W17 V6 (2016)",
   "geometry": {
     "cylinders": 6,
     "displacement_cc": 1600.0,
@@ -34,12 +34,15 @@
     "wheel_radius_m": 0.335
   },
   "valvetrain": {
-    "intake_centre_deg": 450.0,
+    "runner_length_m": 0.117,
+    "intake_centre_deg": 470.0,
     "intake_duration_deg": 260.0,
     "intake_lift_mm": 8.0,
-    "exhaust_centre_deg": 230.0,
+    "intake_valve_mm": 33.0,
+    "exhaust_centre_deg": 252.0,
     "exhaust_duration_deg": 250.0,
-    "exhaust_lift_mm": 7.0
+    "exhaust_lift_mm": 7.0,
+    "exhaust_valve_mm": 28.0
   },
   "drivetrain": {
     "redline_rpm": 15000.0,

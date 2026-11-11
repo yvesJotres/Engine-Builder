@@ -1,105 +1,93 @@
 #ifndef EXHAUST_GAS_H
 #define EXHAUST_GAS_H
 
-#include "engine_sim.h"
-#include <godot_cpp/classes/ref_counted.hpp>
-#include <godot_cpp/classes/array.hpp>
-#include <godot_cpp/variant/packed_float32_array.hpp>
-#include <godot_cpp/variant/packed_int32_array.hpp>
-#include <godot_cpp/variant/packed_byte_array.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+// C++ port of scripts/exhaust/exhaust_gas.gd (1D unsteady exhaust gas, HLLE Euler solver).
+// Plain C++ with no godot-cpp dependency; the lead registers the class and provides the layout.
+
+#include <cstdint>
 #include <vector>
-#include <cmath>
-#include <algorithm>
 
 namespace engine_sim {
 
-using namespace godot;
+// Mirrors ExhaustLayout's Vector3 points. Scene units: layout.scene_per_m scene units per metre.
+struct ExhaustPoint {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
 
-class ExhaustLayout;
+// Mirrors ExhaustLayout.Pipe. Requires radii.size() == pts.size().
+struct ExhaustPipe {
+    std::vector<ExhaustPoint> pts;
+    std::vector<float> radii;        // scene units, one per point
+    int cyl = -1;                    // primary pipes only: the cylinder feeding it
+    std::vector<int> feeders;        // pipes that join at this pipe's upstream end
+    float loss = 0.25f;              // 1/m amplitude loss along the pipe
 
-class ExhaustGas : public RefCounted {
-    GDCLASS(ExhaustGas, RefCounted);
+    double length_m(double scene_per_m) const;
+    double area_m2(double scene_per_m) const;
+};
 
+// Mirrors ExhaustLayout: pipes listed upstream first, the last one is the tailpipe.
+struct ExhaustLayoutData {
+    double scene_per_m = 10.0;       // ExhaustLayout.M (Units.M_TO_SCENE)
+    std::vector<ExhaustPipe> pipes;
+};
+
+class ExhaustGas {
 public:
-    static constexpr float GAMMA = 1.3f;
-    static constexpr float R = 287.0f;
-    static constexpr float P0 = 101325.0f;
-    static constexpr float T0 = 300.0f;
-    static constexpr float CELL_M = 0.12f;
-    static constexpr float AUDIO_RATE = 44100.0f;
-    static constexpr float CFL = 0.85f;
+    static constexpr double GAMMA = 1.3;
+    static constexpr double R = 287.0;
+    static constexpr double P0 = 101325.0;
+    static constexpr double T0 = 300.0;
+    static constexpr double CELL_M = 0.24;
+    static constexpr double AUDIO_RATE = 44100.0;
+    static constexpr double CFL = 0.85;
 
-    // Public properties
+    // Tail samples for the sound. The gas step always runs; the valves breathe that pressure.
     bool record_audio = true;
-    bool exhaust_solver = false;
 
-    // Main interface
-    void build(const ExhaustLayout *layout);
-    float port_pressure(int cylinder_index) const;
-    float port_temperature(int cylinder_index) const;
-    void apply_valve(int cylinder_index, float mdot, float power);
-    void add_energy(int cylinder_index, float joules);
-    float station_pressure(int pipe_index) const;
-    float tail_volume_flow() const;
-    PackedFloat32Array take_flow();
-    void advance(float dt);
+    void build(const ExhaustLayoutData &layout);
+    double port_pressure(int cylinder_index) const;
+    double port_temperature(int cylinder_index) const;
+    // mdot > 0 is gas leaving the cylinder into the pipe. power is the enthalpy flux, watts, same sign.
+    void apply_valve(int cylinder_index, double mdot, double power);
+    void add_energy(int cylinder_index, double joules);
+    double station_pressure(int pipe_index) const;
+    double tail_volume_flow() const;
+    std::vector<float> take_flow();
+    void advance(double dt);
 
-protected:
-    static void _bind_methods();
+    static double ambient_sound_speed();
 
 private:
-    // Core state
     int _n = 0;
     int _npipes = 0;
-    PackedFloat32Array _rho;
-    PackedFloat32Array _ru;
-    PackedFloat32Array _re;
-    PackedFloat32Array _area;
-    PackedFloat32Array _dx;
-    PackedFloat32Array _loss;
-    PackedInt32Array _pipe0;
-    PackedInt32Array _pipe_n;
-    PackedInt32Array _parent;
-    PackedInt32Array _cyl_pipe;
-    std::vector<PackedInt32Array> _feeders;
-    PackedFloat32Array _mdot;
-    PackedFloat32Array _power;
-    PackedFloat32Array _flow;
+    double _scene_per_m = 10.0;
+    std::vector<float> _rho, _ru, _re;
+    std::vector<float> _area, _dx, _loss;
+    std::vector<int> _pipe0, _pipe_n, _parent, _cyl_pipe;
+    std::vector<std::vector<int>> _feeders;
+    std::vector<float> _mdot, _power;
+    std::vector<float> _flow;
 
-    // Scratch arrays for stepping
-    PackedFloat32Array _d_rho;
-    PackedFloat32Array _d_ru;
-    PackedFloat32Array _d_re;
-    PackedInt32Array _fl;
-    PackedInt32Array _fr;
-    PackedFloat32Array _sl;
-    PackedFloat32Array _sr;
-    PackedByteArray _fk;
+    std::vector<float> _d_rho, _d_ru, _d_re;
+    std::vector<int> _fl, _fr;
+    std::vector<float> _sl, _sr;
+    std::vector<std::uint8_t> _fk;
     int _nf = 0;
-    float _cfl_dt = 1.0e-4f;
-    float _min_dx = CELL_M;
-    float _audio_left = 0.0f;
+    double _cfl_dt = 1.0e-4;
+    double _min_dx = CELL_M;
+    double _audio_left = 0.0;   // time from the end of the last step to the next sample
+    double _q_prev = 0.0;       // tail volume flow at the end of the last step
 
-    // Helpers
     int _port_cell(int cylinder_index) const;
-    float _area_at(const ExhaustLayout::Pipe *pipe, float dist_m) const;
+    double _area_at(const ExhaustPipe &pipe, double dist_m) const;
     void _build_faces();
-    float _cfl_dt_calc() const;
-    float _pressure(int cell) const;
-    float _velocity(int cell) const;
-    float _sound(int cell) const;
-    float _sound_of(float rho, float p) const;
-    static float _ambient_sound_speed();
+    void _step(double dt);
     void _clamp_cell(int cell);
-    void _step(float h);
-    Vector3 _rusanov(float r_l, float u_l, float p_l, float r_r, float u_r, float p_r) const;
-    Vector3 _flux(float rho, float u, float p) const;
-    Vector3 _face(int left, int right) const;
-    Vector3 _wall_face(int cell) const;
-    Vector3 _open_face(int cell) const;
-    void _friction(int cell, float dt);
-    void _clamp_cell(int cell);
+    double _pressure(int cell) const;
+    double _velocity(int cell) const;
 };
 
 } // namespace engine_sim

@@ -28,7 +28,7 @@ public:
     static constexpr float T0 = 300.0f;
     static constexpr float CD_VALVE = 0.7f;
     static constexpr float COMBUSTION_EFFICIENCY = 0.95f;
-    static constexpr float MISFIRE_LAMBDA = 1.35f;
+    static constexpr float GAS_FUEL_MISFIRE = 24.0f; // gas/fuel where partial burning starts, warm (Shayler et al., SAE 2000-01-1208)
     static constexpr float BURN_DEG_BASE = 45.0f;
     static constexpr float BURN_DEG_PER_RPM = 0.002f;
     static constexpr float CA50_TARGET = 10.0f;

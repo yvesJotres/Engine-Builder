@@ -189,16 +189,17 @@ void Cylinder::_fuel_charge(FuelTank *tank, float lambda, bool spark, bool limit
     last_lambda = 1.0f;
 
     if (limiter_cut) return;
-    if (lambda >= MISFIRE_LAMBDA) return;
 
     float fresh = std::max(mass - _residual_kg, 0.0f);
     float wanted = fresh / (tank->afr * lambda);
+    // too lean to light: the fuel is still injected, but it does not burn and leaves unburnt into the exhaust
+    bool lit = spark && mass / std::max(wanted, 1e-12f) < GAS_FUEL_MISFIRE;
     float supplied = std::min(wanted, tank->mass_kg);
     tank->mass_kg -= supplied;
     mass += supplied;
     _u += supplied * CV * temp;
 
-    if (!spark) {
+    if (!lit) {
         fuel_unburnt_kg = supplied;
         return;
     }

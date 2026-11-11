@@ -25,6 +25,14 @@ func make_ctx(count: int) -> RefCounted:
 	return c
 
 
+func make_layer() -> Variant:
+	var layer = LAYER.new()
+	var spec := EngineSpec.new()
+	spec.bore_mm = 50.0 # ZX25R: 900/(pi*0.5*50) kHz ~= 11.46 kHz
+	layer.configure(spec)
+	return layer
+
+
 func peak(x: PackedFloat32Array, from: int, to: int) -> float:
 	var p := 0.0
 	for i in range(from, to):
@@ -53,17 +61,17 @@ func goertzel(x: PackedFloat32Array, freq: float) -> float:
 
 func _init() -> void:
 	# 1. silent while the count does not change
-	var layer = LAYER.new()
+	var layer = make_layer()
 	var out = layer.render(44100, make_ctx(0))
 	check(peak(out, 0, out.size()) == 0.0, "silent with no knock over one second")
 
 	# 2. a starting count above zero is adopted, not played
-	layer = LAYER.new()
+	layer = make_layer()
 	out = layer.render(1000, make_ctx(5))
 	check(peak(out, 0, out.size()) == 0.0, "a starting knock_count of 5 does not ping")
 
 	# 3. one knock: a ping that decays
-	layer = LAYER.new()
+	layer = make_layer()
 	layer.render(512, make_ctx(5))
 	out = layer.render(4410, make_ctx(6))
 	var p30 := peak(out, 0, 1323)
@@ -72,24 +80,24 @@ func _init() -> void:
 	var last := rms(out, 3528, 4410)
 	check(last < 0.1 * first, "ping decays: last 20 ms rms %f < 10%% of first %f" % [last, first])
 
-	# 4. the ping is high-pitched
+	# 4. the ping is high-pitched and follows the bore: 50 mm gives about 11.46 kHz
 	var head: PackedFloat32Array = out.slice(0, 1323)
-	var p_high := maxf(goertzel(head, 6000.0), maxf(goertzel(head, 5600.0), goertzel(head, 6400.0)))
+	var p_high := maxf(goertzel(head, 11459.0), maxf(goertzel(head, 11000.0), goertzel(head, 11900.0)))
 	var p_low := goertzel(head, 1000.0)
-	check(p_high >= 5.0 * p_low, "6 kHz power %f is at least 5x the 1 kHz power %f" % [p_high, p_low])
+	check(p_high >= 5.0 * p_low, "11.46 kHz power %f is at least 5x the 1 kHz power %f" % [p_high, p_low])
 
 	# 5. a jump of 10 gives at most 4 pings: the output matches a jump of 4 exactly
-	layer = LAYER.new()
+	layer = make_layer()
 	layer.render(512, make_ctx(5))
 	var jump10: PackedFloat32Array = layer.render(4410, make_ctx(15))
-	var jump4_layer = LAYER.new()
+	var jump4_layer = make_layer()
 	jump4_layer.render(512, make_ctx(5))
 	var jump4: PackedFloat32Array = jump4_layer.render(4410, make_ctx(9))
 	check(jump10 == jump4, "a jump of 10 renders the same as a jump of 4")
 	check(peak(jump10, 0, jump10.size()) <= 0.2 + 1e-6, "burst peak stays at or below 0.2")
 
 	# 6. engine off: silent even when knocks happen, and no late ping after it restarts
-	layer = LAYER.new()
+	layer = make_layer()
 	layer.render(512, make_ctx(5))
 	var off = make_ctx(7)
 	off.running = false
@@ -99,8 +107,8 @@ func _init() -> void:
 	check(peak(out, 0, out.size()) == 0.0, "no late ping after running resumes")
 
 	# 7. repeatable: two fresh instances give the same output
-	var a = LAYER.new()
-	var b = LAYER.new()
+	var a = make_layer()
+	var b = make_layer()
 	var oa := PackedFloat32Array()
 	var ob := PackedFloat32Array()
 	for n in [5, 6, 8, 9, 9, 12]:

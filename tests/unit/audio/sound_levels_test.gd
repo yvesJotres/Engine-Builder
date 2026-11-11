@@ -44,5 +44,12 @@ func _init() -> void:
 	context.update_from(sim, spec, 0.5)
 	check(context.valves_per_cylinder == 2, "the valve count comes from the spec, got %d" % context.valves_per_cylinder)
 	check(context.load >= 0.0 and context.load <= 1.0, "load is 0 to 1, got %s" % str(context.load))
+	# A mechanical blower must not be classified as a turbo: it has no wastegate or diverter valve.
+	var blower_spec := EngineSpec.new()
+	blower_spec.max_boost_ratio = 2.4
+	blower_spec.mechanical_blower = true
+	context.update_from(sim, blower_spec, 1.0)
+	check(context.blower and not context.turbo, "mechanical blower is not a turbo")
+	check(is_finite(context.compressor_speed_rpm), "compressor speed is a live context field")
 	print("sound_levels_test: %s" % ("PASSED" if _fails == 0 else "FAILED"))
 	quit(0 if _fails == 0 else 1)

@@ -4,7 +4,7 @@ extends SceneTree
 func _init() -> void:
 	await process_frame
 	var spec := EngineSpec.new()
-	var p: Dictionary = Presets.PRESETS["Honda TRX520 (engine-sim)"]
+	var p: Dictionary = Presets.PRESETS["honda_trx520"]
 	for key in p.keys():
 		spec.set(key, p[key])
 	var sim := EngineSim.new()

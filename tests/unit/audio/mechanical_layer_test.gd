@@ -92,13 +92,17 @@ func _init() -> void:
 	var rms_high := _rms(_render(high, _ctx(9000.0), int(2.0 * RATE_HZ)))
 	check(rms_high > rms_low, "rms at 9000 rpm (%f) is above rms at 1500 rpm (%f)" % [rms_high, rms_low])
 
-	# 4. the whine sits on 2300 Hz at 6000 rpm (23 teeth), not 1900 Hz
+	# 4. the whine sits on rpm / 60 * crank-pinion teeth. The ZX25R primary is 87/30, so 30 teeth and 3000 Hz at 6000 rpm.
+	var spec := EngineSpec.new()
+	spec.primary_crank_teeth = 30
 	var tone: Variant = LAYER.new()
+	tone.configure(spec)
 	var warm := int(0.2 * RATE_HZ)
 	var seg := _render(tone, _ctx(6000.0), warm + int(RATE_HZ)).slice(warm)
-	var p_mesh := _goertzel(seg, 2300.0)
-	var p_off := _goertzel(seg, 1900.0)
-	check(p_mesh >= 3.0 * p_off, "2300 Hz power (%f) is at least 3x the 1900 Hz power (%f)" % [p_mesh, p_off])
+	var p_mesh := _goertzel(seg, 3000.0)
+	var p_off := _goertzel(seg, 2300.0)
+	check(p_mesh >= 3.0 * p_off, "3000 Hz power (%f) is at least 3x the 2300 Hz power (%f)" % [p_mesh, p_off])
+
 
 	# 5. two fresh instances with the same context render the same samples
 	var a: Variant = LAYER.new()

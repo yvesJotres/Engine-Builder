@@ -41,6 +41,8 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
+    "header_primary_mm": 48.0,
+    "runner_length_m": 0.12,
     "intake_valve_mm": 33.0,
     "exhaust_valve_mm": 26.5,
     "intake_centre_deg": 468.0,

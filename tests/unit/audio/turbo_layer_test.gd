@@ -23,6 +23,7 @@ func ctx(rpm: float, throttle: float, boost: float, turbo: bool, running: bool) 
 	c.boost_ratio = boost
 	c.turbo = turbo
 	c.running = running
+	c.compressor_speed_rpm = 50000.0 # 9 blades -> 7500 Hz at this shaft speed
 	return c
 
 

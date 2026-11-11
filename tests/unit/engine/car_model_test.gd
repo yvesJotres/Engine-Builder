@@ -1,6 +1,6 @@
 extends SceneTree
 
-const CAR_MODEL := preload("res://scripts/drivetrain/car_model.gd")
+const CAR_MODEL := preload("res://assets/3d/generated/drivetrain/car_model.gd")
 var _fails := 0
 
 func _init() -> void:

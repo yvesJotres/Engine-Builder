@@ -5,7 +5,7 @@ extends SceneTree
 # Run: godot --headless -s tools/diagnostics/panigale_air_sweep.gd
 func _init() -> void:
 	await process_frame
-	var p: Dictionary = Presets.PRESETS["Ducati Panigale V4 (1,103 cc)"]
+	var p: Dictionary = Presets.PRESETS["ducati_panigale_v4"]
 	for factor in [0.01, 0.03, 0.1, 0.2, 0.4, 0.7, 1.0]:
 		var spec := EngineSpec.new()
 		for key in p.keys():

@@ -1,7 +1,7 @@
 extends SceneTree
 
 # Render Dyno — runs the full dyno test at high physics resolution and exports the engine sound to a WAV file.
-# Run: godot --headless -s tools/diagnostics/render_dyno.gd --preset "Honda CBR150R (K45N)" --physics_dt 1/7200 --output "user://dyno_render.wav"
+# Run: godot --headless -s tools/diagnostics/render_dyno.gd --preset "honda_cbr150r" --physics_dt 1/7200 --output "user://dyno_render.wav"
 #
 # Arguments:
 #   --preset "Name"           Engine preset to use (default: first preset)

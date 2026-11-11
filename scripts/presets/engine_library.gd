@@ -5,7 +5,7 @@ extends RefCounted
 ## Merges server extras on top of built-in Presets.PRESETS.
 
 # v2 caches only the server's data. The old file also stored bundled presets, which went stale when they changed.
-const CACHE_FILE := "user://engine_library_v2.json"
+const CACHE_FILE := "user://engine_library_v3.json" # v3: preset display names renamed; the v2 cache holds the old names
 const FETCH_TIMEOUT := 10.0 # seconds
 const SERVER_SETTINGS := preload("res://scripts/platform/user/server_settings.gd")
 

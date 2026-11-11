@@ -1,0 +1,405 @@
+// Honda CBR250RR SP (K64J, 2020-2022 model year)
+// Parallel-twin DOHC 4-valve, 180-degree crank (uneven firing)
+//
+// Confirmed specs:
+//   Bore x Stroke : 62.0 x 41.4 mm
+//   Displacement  : 249.7 cc (124.85 cc/cyl)
+//   Comp ratio    : 11.5:1  → chamber volume ~11.9 cc
+//   Peak power    : ~38.7 PS (28.5 kW) @ 12,500 rpm
+//   Peak torque   : ~23 Nm               @ 11,000 rpm
+//   Redline       : ~14,000 rpm
+//
+// Estimated specs (marked [EST]):
+//   Rod length          : 75 mm              [EST, R/L ≈ 1.81]
+//   Intake valve diam   : 22.5 mm × 2        [EST]
+//   Exhaust valve diam  : 19.0 mm × 2        [EST]
+//   Intake valve lift   : 8.0 mm             [EST]
+//   Exhaust valve lift  : 7.5 mm             [EST]
+//   IVO/IVC             : 15° BTDC / 45° ABDC @ 1 mm  [EST]
+//   EVO/EVC             : 45° BBDC / 10° ATDC @ 1 mm  [EST]
+//   Intake runner length: 240 mm             [EST]
+//   Intake runner ID    : 26 mm              [EST]
+//   Throttle body ID    : 30 mm              [EST]
+//   Exhaust primary len : 420 mm             [EST]
+//   Exhaust primary ID  : 27 mm              [EST]
+//
+// Tune notes:
+//   - Shift cam timing ±5° to adjust peak position / torque shape
+//   - Adjust intake runner_length and exhaust primary_tube_length
+//     to move acoustic torque peaks up/down the RPM range
+//   - flow_attenuation on the head controls overall VE / peak power
+// ---------------------------------------------------------------
+
+import "engine_sim.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+
+label cycle(2 * 360 * units.deg)
+
+// ── Turbulence-to-flame-speed curve (aggressive high-rev tune) ───────────────
+private node cbr_turbulence_to_flame_speed {
+    alias output __out:
+        function(5.0)
+            .add_sample(0.0,  3.0)
+            .add_sample(5.0,  7.5)
+            .add_sample(10.0, 15.0)
+            .add_sample(15.0, 17.0)
+            .add_sample(20.0, 19.0)
+            .add_sample(25.0, 21.0)
+            .add_sample(30.0, 22.0)
+            .add_sample(35.0, 22.5)
+            .add_sample(40.0, 23.0)
+            .add_sample(45.0, 23.0);
+}
+
+// ── Ignition wires ────────────────────────────────────────────────────────────
+private node wires {
+    output wire1: ignition_wire();   // cylinder 1 (front)
+    output wire2: ignition_wire();   // cylinder 2 (rear)
+}
+
+// ── Cylinder head ─────────────────────────────────────────────────────────────
+// Flow bench values (CFM @ 28 inH2O) estimated for 22.5 mm intake / 19 mm exhaust
+// 4-valve DOHC pent-roof, 8 mm intake lift / 7.5 mm exhaust lift  [EST]
+private node cbr250rr_head {
+    input intake_camshaft;
+    input exhaust_camshaft;
+    input chamber_volume:                  11.9 * units.cc;      // CR 11.5:1 confirmed
+    input intake_runner_volume:            18.0 * units.cc;      // [EST] short high-rev port
+    input intake_runner_cross_section_area: 5.31 * units.cm2;   // [EST] 26 mm ID
+    input exhaust_runner_volume:           9.0  * units.cc;      // [EST]
+    input exhaust_runner_cross_section_area: 5.73 * units.cm2;  // [EST] 27 mm ID
+
+    input flow_attenuation: 1.0;
+    input lift_scale:       1.0;
+    input flip_display:     false;
+    alias output __out: head;
+
+    // Intake flow – 2× 22.5 mm valves, 8 mm lift peak  [EST]
+    function intake_flow(50 * units.thou)
+    intake_flow
+        .add_flow_sample(  0 * lift_scale,   0 * flow_attenuation)
+        .add_flow_sample( 50 * lift_scale,  17 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale,  34 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale,  51 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale,  64 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale,  74 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale,  81 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale,  86 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale,  89 * flow_attenuation)
+
+    // Exhaust flow – 2× 19.0 mm valves, 7.5 mm lift peak  [EST]
+    function exhaust_flow(50 * units.thou)
+    exhaust_flow
+        .add_flow_sample(  0 * lift_scale,   0 * flow_attenuation)
+        .add_flow_sample( 50 * lift_scale,  13 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale,  26 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale,  39 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale,  51 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale,  60 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale,  66 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale,  70 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale,  71 * flow_attenuation)
+
+    generic_cylinder_head head(
+        chamber_volume:                    chamber_volume,
+        intake_runner_volume:              intake_runner_volume,
+        intake_runner_cross_section_area:  intake_runner_cross_section_area,
+        exhaust_runner_volume:             exhaust_runner_volume,
+        exhaust_runner_cross_section_area: exhaust_runner_cross_section_area,
+        intake_port_flow:                  intake_flow,
+        exhaust_port_flow:                 exhaust_flow,
+        valvetrain: standard_valvetrain(
+            intake_camshaft:  intake_camshaft,
+            exhaust_camshaft: exhaust_camshaft
+        ),
+        flip_display: flip_display
+    )
+}
+
+// ── Camshaft ──────────────────────────────────────────────────────────────────
+// Lobe centers derived from:
+//   IVO 15° BTDC, IVC 45° ABDC  → intake center  105° ATDC   [EST]
+//   EVO 45° BBDC, EVC 10° ATDC  → exhaust center 108° BTDC   [EST]
+// duration_at_50_thou ≈ duration_at_1mm − ~4° for harmonic profile
+private node cbr250rr_camshaft {
+    input lobe_profile;
+    input intake_lobe_profile:  lobe_profile;
+    input exhaust_lobe_profile: lobe_profile;
+    input lobe_separation:      105 * units.deg;
+    input intake_lobe_center:   lobe_separation;
+    input exhaust_lobe_center:  108 * units.deg;
+    input advance:              0 * units.deg;
+    input base_radius:          (25.0 / 2) * units.mm;   // [EST] small bike cam
+
+    output intake_cam:  _intake_cam;
+    output exhaust_cam: _exhaust_cam;
+
+    camshaft_parameters params(
+        advance:     advance,
+        base_radius: base_radius
+    )
+
+    camshaft _intake_cam( params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust_cam(params, lobe_profile: exhaust_lobe_profile)
+
+    label rot360(360 * units.deg)
+
+    // 180° crank → cyl 2 fires at 1/4 of the 720° cycle (= 180°)
+    _exhaust_cam
+        .add_lobe(rot360 - exhaust_lobe_center + (0.0 / 4) * cycle)  // cyl 1
+        .add_lobe(rot360 - exhaust_lobe_center + (1.0 / 4) * cycle)  // cyl 2
+
+    _intake_cam
+        .add_lobe(rot360 + intake_lobe_center + (0.0 / 4) * cycle)   // cyl 1
+        .add_lobe(rot360 + intake_lobe_center + (1.0 / 4) * cycle)   // cyl 2
+}
+
+// ── Main engine node ─────────────────────────────────────────────────────────
+public node honda_cbr250rr_sp {
+    alias output __out: engine;
+
+    engine engine(
+        name:                  "Honda CBR250RR SP",
+        starter_torque:        55  * units.lb_ft,
+        starter_speed:         550 * units.rpm,
+        redline:               14000 * units.rpm,
+        fuel: fuel(
+            max_burning_efficiency:       0.92,
+            turbulence_to_flame_speed_ratio: cbr_turbulence_to_flame_speed()
+        ),
+        throttle_gamma:        2.5,
+        hf_gain:               0.001,
+        noise:                 1.0,
+        jitter:                0.25,
+        simulation_frequency:  20000
+    )
+
+    wires wires()
+
+    // ── Geometry ───────────────────────────────────────────────────────────
+    label stroke(41.4 * units.mm)
+    label bore(62.0 * units.mm)
+    label rod_length(75.0 * units.mm)            // [EST]
+    label rod_mass(160 * units.g)                // [EST]
+    label compression_height(27.0 * units.mm)    // [EST] pin-to-crown
+    label crank_mass(2.0 * units.kg)             // [EST] lightweight 250 twin crank
+    label flywheel_mass(1.5 * units.kg)          // [EST] heavier for idle stability
+    label flywheel_radius(55 * units.mm)         // [EST]
+
+    label crank_moment(
+        disk_moment_of_inertia(mass: crank_mass, radius: stroke / 2)
+    )
+    label flywheel_moment(
+        disk_moment_of_inertia(mass: flywheel_mass, radius: flywheel_radius)
+    )
+    label other_moment(   // cams, alternator rotor, clutch basket  [EST]
+        disk_moment_of_inertia(mass: 0.6 * units.kg, radius: 40 * units.mm)
+    )
+
+    // ── Crankshaft ─────────────────────────────────────────────────────────
+    // 180° crank: rod journals 0° (cyl 1) and 180° (cyl 2)
+    crankshaft c0(
+        throw:             stroke / 2,
+        flywheel_mass:     flywheel_mass,
+        mass:              crank_mass,
+        friction_torque:   0.15 * units.lb_ft,
+        moment_of_inertia: crank_moment + flywheel_moment + other_moment,
+        position_x:        0.0,
+        position_y:        0.0,
+        tdc:               180 * units.deg
+    )
+
+    rod_journal rj0(angle:   0.0 * units.deg)   // cylinder 1
+    rod_journal rj1(angle: 180.0 * units.deg)   // cylinder 2 – 180° crank offset
+    c0
+        .add_rod_journal(rj0)
+        .add_rod_journal(rj1)
+
+    // ── Pistons & rods ─────────────────────────────────────────────────────
+    piston_parameters piston_params(
+        mass:               (130 + 45) * units.g,   // piston 130g + pin 45g  [EST]
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement:       0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass:              rod_mass,
+        moment_of_inertia: rod_moment_of_inertia(
+            mass:   rod_mass,
+            length: rod_length
+        ),
+        center_of_mass: 0.0,
+        length:         rod_length
+    )
+
+    // ── Intake system ──────────────────────────────────────────────────────
+    // Single shared airbox → dual throttle bodies (30 mm each)  [EST]
+    intake intake(
+        plenum_volume:               0.5 * units.L,
+        plenum_cross_section_area:   8.0 * units.cm2,
+        intake_flow_rate:            k_carb(80.0),
+        runner_flow_rate:            k_carb(40.0),
+        runner_length:               9.45 * units.inch,  // 240 mm  [EST]
+        idle_flow_rate:              k_carb(0.8),
+        idle_throttle_plate_position: 0.975,
+        velocity_decay:              0.5
+    )
+
+    // ── Exhaust system ─────────────────────────────────────────────────────
+    // 2-into-1 header; one exhaust_system object is enough for audio
+    exhaust_system_parameters es_params(
+        outlet_flow_rate:    k_carb(300.0),
+        primary_tube_length: 16.54 * units.inch,   // 420 mm  [EST]
+        primary_flow_rate:   k_carb(150.0),
+        velocity_decay:      0.5,
+        volume:              0.8 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params,
+        length:           200 * units.mm,
+        audio_volume:     0.5 * 0.028,
+        impulse_response: ir_lib.minimal_muffling_02
+    )
+
+    // ── Cylinder bank ──────────────────────────────────────────────────────
+    cylinder_bank_parameters bank_params(
+        bore:        bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    cylinder_bank b0(bank_params, angle: 0.0 * units.deg)   // upright parallel twin
+    b0
+        .add_cylinder(
+            piston:          piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod:  connecting_rod(cr_params),
+            rod_journal:     rj0,
+            intake:          intake,
+            exhaust_system:  exhaust0,
+            ignition_wire:   wires.wire1,
+            primary_length:  1.5 * units.inch,
+            sound_attenuation: 0.9
+        )
+        .add_cylinder(
+            piston:          piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod:  connecting_rod(cr_params),
+            rod_journal:     rj1,
+            intake:          intake,
+            exhaust_system:  exhaust0,
+            ignition_wire:   wires.wire2,
+            primary_length:  2.0 * units.inch,
+            sound_attenuation: 1.0
+        )
+
+    engine
+        .add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    // ── Cam lobes ──────────────────────────────────────────────────────────
+    // Duration at 50 thou ≈ duration at 1 mm minus ~4°
+    harmonic_cam_lobe intake_lobe(
+        duration_at_50_thou: 224 * units.deg,   // softened for better start/idle stability
+        gamma:               1.8,
+        lift:                8.0 * units.mm,    // [EST]
+        steps:               100
+    )
+
+    harmonic_cam_lobe exhaust_lobe(
+        duration_at_50_thou: 220 * units.deg,   // softened for better start/idle stability
+        gamma:               1.8,
+        lift:                7.5 * units.mm,    // [EST]
+        steps:               100
+    )
+
+    cbr250rr_camshaft camshaft(
+        lobe_profile:        "N/A",
+        intake_lobe_profile: intake_lobe,
+        exhaust_lobe_profile: exhaust_lobe,
+        intake_lobe_center:  105 * units.deg,
+        exhaust_lobe_center: 108 * units.deg,
+        base_radius:         (25.0 / 2) * units.mm
+    )
+
+    b0.set_cylinder_head(
+        cbr250rr_head(
+            flip_display:     false,
+            intake_camshaft:  camshaft.intake_cam,
+            exhaust_camshaft: camshaft.exhaust_cam
+        )
+    )
+
+    // ── Ignition ───────────────────────────────────────────────────────────
+    // 180° crank: fires at 0° and 180° → 180°/540° uneven interval
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample( 0000 * units.rpm, 8 * units.deg)
+        .add_sample( 1000 * units.rpm, 12 * units.deg)
+        .add_sample( 2000 * units.rpm, 22 * units.deg)
+        .add_sample( 3000 * units.rpm, 28 * units.deg)
+        .add_sample( 4000 * units.rpm, 32 * units.deg)
+        .add_sample( 5000 * units.rpm, 35 * units.deg)
+        .add_sample( 6000 * units.rpm, 37 * units.deg)
+        .add_sample( 7000 * units.rpm, 38 * units.deg)
+        .add_sample(14000 * units.rpm, 38 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve:     timing_curve,
+        rev_limit:        14500 * units.rpm,
+        limiter_duration: 0.05              // hard cut – typical for CBR quickshifter ECU
+    )
+    ignition_module
+        .connect_wire(wires.wire1, 0 * units.deg)
+        .connect_wire(wires.wire2, 180 * units.deg)
+
+    engine.add_ignition_module(ignition_module)
+}
+
+// ── Vehicle (CBR250RR SP motorcycle) ─────────────────────────────────────────
+// Primary reduction (crank → clutch basket): ~3.35:1  [EST]
+// Final chain drive:                          41T/14T = 2.929:1 (stock)
+// The diff_ratio below is the sprocket ratio; gear ratios include primary.
+//
+// Confirmed gearbox ratios:
+//   1st 35/13=2.692, 2nd 31/16=1.938, 3rd 29/19=1.526
+//   4th 27/22=1.227, 5th 25/24=1.042, 6th 23/26=0.885
+//
+// Primary reduction folded into gear ratios for correct overall reduction:
+//   (each gearbox ratio × 3.35)
+label motorcycle_mass(166 * units.kg)    // CBR250RR SP wet weight (confirmed)
+
+private node cbr250rr_vehicle {
+    alias output __out:
+        vehicle(
+            mass:                 motorcycle_mass,
+            drag_coefficient:     0.55,
+            cross_sectional_area: (720 * units.mm) * (1100 * units.mm),  // frontal area
+            diff_ratio:           2.929,      // 41T / 14T sprocket (chain final drive)
+            tire_radius:          314 * units.mm,   // 140/70-17 rear tire  [EST]
+            rolling_resistance:   0.015 * motorcycle_mass * 9.81
+        );
+}
+
+private node cbr250rr_transmission {
+    alias output __out:
+        transmission(
+            max_clutch_torque: 90 * units.Nm   // [EST] CBR250RR sport clutch pack
+        )
+        // Ratios = gearbox_ratio × primary_reduction(3.35)
+        .add_gear(9.02)   // 1st: 2.692 × 3.35
+        .add_gear(6.49)   // 2nd: 1.938 × 3.35
+        .add_gear(5.11)   // 3rd: 1.526 × 3.35
+        .add_gear(4.11)   // 4th: 1.227 × 3.35
+        .add_gear(3.49)   // 5th: 1.042 × 3.35
+        .add_gear(2.96);  // 6th: 0.885 × 3.35
+}
+
+// ── Entry point ──────────────────────────────────────────────────────────────
+public node main {
+    set_engine(honda_cbr250rr_sp())
+    set_vehicle(cbr250rr_vehicle())
+    set_transmission(cbr250rr_transmission())
+}

@@ -1,5 +1,5 @@
 {
-  "display_name": "Yamaha MT-07 (CP2, 689 cc)",
+  "display_name": "Yamaha MT-07 (2014)",
   "geometry": {
     "vehicle_mass_includes_rider": false,
     "throttle_bore_mm": 38.0,
@@ -38,6 +38,8 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.167,
     "intake_valve_mm": 31.5,
     "exhaust_valve_mm": 26.5,
     "intake_centre_deg": 470.0,

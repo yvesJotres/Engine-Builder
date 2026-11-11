@@ -4,7 +4,7 @@ extends SceneTree
 # A start, then a throttle sweep from idle to redline in neutral. Output goes to calibration/ as a WAV file.
 # Run with: godot --headless --path . -s tools/diagnostics/render_calibration.gd
 
-const PRESET := "Honda CBR250RR (2017, MC51)"
+const PRESET := "honda_cbr250rr"
 const DT := 1.0 / 60.0
 
 

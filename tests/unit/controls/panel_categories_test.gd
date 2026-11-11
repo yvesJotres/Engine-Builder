@@ -23,30 +23,30 @@ func _init() -> void:
 	root.add_child(panel)
 	await process_frame
 
-	check(panel._tabs.size() == 8, "eight category tabs, got %d" % panel._tabs.size())
-	check(panel._pages_root.get_child_count() == 8, "eight pages, got %d" % panel._pages_root.get_child_count())
-	check(panel._pages_root.get_child(1).name == "Intake and fuel" and panel._pages_root.get_child(4).name == "Forced induction", "pages follow the tab order")
+	check(panel._tabs.size() == 9, "nine category tabs, got %d" % panel._tabs.size())
+	check(panel._pages_root.get_child_count() == 9, "nine pages, got %d" % panel._pages_root.get_child_count())
+	check(panel._pages_root.get_child(1).name == "Intake and fuel" and panel._pages_root.get_child(5).name == "Forced induction", "pages follow the tab order")
 
 	# a plain bike sees neither optional category; a quickshifter bike sees Rider aids; a compressor bike sees Forced induction
 	_pick(panel, "honda_cbr150r")
-	check(not panel._tabs[4].visible, "the CBR150R has no Forced induction tab")
-	check(panel._tabs[5].visible, "the CBR150R has a Rider aids tab: every bike can use the aids")
+	check(not panel._tabs[5].visible, "the CBR150R has no Forced induction tab")
+	check(panel._tabs[6].visible, "the CBR150R has a Rider aids tab: every bike can use the aids")
 	_pick(panel, "kawasaki_zx25r")
-	check(panel._tabs[5].visible, "the ZX-25R has a Rider aids tab")
-	check(not panel._tabs[4].visible, "the ZX-25R has no Forced induction tab")
+	check(panel._tabs[6].visible, "the ZX-25R has a Rider aids tab")
+	check(not panel._tabs[5].visible, "the ZX-25R has no Forced induction tab")
 	_pick(panel, "honda_v3r900")
-	check(panel._tabs[4].visible, "the V3R has a Forced induction tab")
+	check(panel._tabs[5].visible, "the V3R has a Forced induction tab")
 
 	# a hidden category is left for the first page
-	panel._select_category(4)
+	panel._select_category(5)
 	_pick(panel, "honda_cbr150r")
 	check(panel._category == 0, "leaving for a bike without Forced induction returns to the Engine page, got %d" % panel._category)
 
 	# ABS and traction control are shown on every bike but locked until they are built
 	for name in Presets.PRESETS:
 		_pick(panel, name)
-		check(panel._controls["abs_enabled"].visible and panel._controls["abs_enabled"].disabled, "%s: ABS is shown and locked until it is built" % name)
-		check(panel._controls["traction_control_enabled"].visible and panel._controls["traction_control_enabled"].disabled, "%s: traction control is shown and locked until it is built" % name)
+		check(not panel._controls["abs_enabled"].visible, "%s: ABS is hidden until it is built" % name)
+		check(not panel._controls["traction_control_enabled"].visible, "%s: traction control is hidden until it is built" % name)
 
 	# a reset puts back only its own category
 	_pick(panel, "kawasaki_zx25r")
@@ -54,10 +54,10 @@ func _init() -> void:
 	var idle_before: float = panel._controls["idle"].value
 	panel._controls["idle"].value = idle_before + 300.0
 	panel._controls["redline"].value = float(preset["redline_rpm"]) + 1500.0
-	panel._reset_category(6) # Vehicle
+	panel._reset_category(7) # Vehicle
 	check(is_equal_approx(panel._controls["redline"].value, float(preset["redline_rpm"])), "the Vehicle reset restores the redline, got %.0f" % panel._controls["redline"].value)
 	check(is_equal_approx(panel._controls["idle"].value, idle_before + 300.0), "the Vehicle reset leaves the Ignition idle alone, got %.0f" % panel._controls["idle"].value)
-	panel._reset_category(3) # Ignition
+	panel._reset_category(4) # Ignition
 	check(is_equal_approx(panel._controls["idle"].value, idle_before), "the Ignition reset restores the idle, got %.0f" % panel._controls["idle"].value)
 
 	# shift force and flat shift reach the spec

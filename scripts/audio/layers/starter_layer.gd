@@ -33,13 +33,17 @@ var _was_held := false
 var _level := 0.0
 var _noise_lp := 0.0 # low-pass state of the brush and rattle noise
 var _cycle_phase := 0.0 # compression cycles, 0..1
+var _reduction := REDUCTION
+var _segments := SEGMENTS
 
 
 func _init() -> void:
 	reset()
 
 
-func configure(_spec: EngineSpec) -> void:
+func configure(spec: EngineSpec) -> void:
+	_reduction = maxf(spec.starter_reduction, 0.1)
+	_segments = maxf(spec.starter_segments, 1.0)
 	reset()
 
 
@@ -68,7 +72,7 @@ func render(frames: int, c: SoundContext) -> PackedFloat32Array:
 		return out
 
 	var dt := 1.0 / SoundLayer.RATE
-	var seg_rate := c.rpm / 60.0 * REDUCTION * SEGMENTS # segment changes per second
+	var seg_rate := c.rpm / 60.0 * _reduction * _segments # segment changes per second
 	var rattle_rate := c.rpm / 60.0 # one burst per crank turn
 	var ring_decay := exp(-dt / RING_DECAY_S)
 	var rattle_decay := exp(-dt / RATTLE_DECAY_S)

@@ -1,5 +1,5 @@
 {
-  "display_name": "Bugatti Centodieci (W16, approximate)",
+  "display_name": "Bugatti Centodieci W16 (2020)",
   "geometry": {
     "cylinders": 16,
     "displacement_cc": 8000.0,
@@ -42,6 +42,7 @@
     "flywheel_radius_mm": 120.0
   },
   "valvetrain": {
+    "runner_length_m": 0.219,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,

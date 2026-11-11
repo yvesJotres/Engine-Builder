@@ -2,25 +2,26 @@ class_name EngineSound
 extends AudioStreamPlayer3D
 
 # Tail volume-flow from ExhaustGas is the source. Header length and backpressure are already in that flow.
-# The exhaust pulse (edge, rasp, level) is made in ExhaustSound; this file convolves it with a recorded muffler impulse
-# response. The convolution runs at 16 kHz on the first 32 ms of the recording, which is the canister, not the room.
+# The exhaust pulse (edge, rasp, level) is made in ExhaustSound; this file convolves it with a per-engine exhaust body
+# at the output rate: the recorded base is modified by the engine's own pipe geometry (ExhaustIr), or a measured
+# per-bike IR replaces it through EngineSpec.exhaust_ir_path. The earlier version
+# decimated the body to 16 kHz and kept only the first 8 ms (208 taps of a 219 ms recording): 10% of the IR's energy and
+# nothing above 8 kHz. The convolution is native (AudioConvolver, 0.85% of one core at 1152 taps and /O2); the GDScript
+# fallback uses a short kernel so the game still makes sound when the library is missing.
 # Intake noise is mixed in at low level for realism at idle/part-throttle.
 
 const RATE := 44100.0
-const BODY_RATE := 16000.0
-const TAPS := 128 # direct pulse edge retains high-frequency detail; shorter tail keeps live playback smooth
+const MAX_TAPS := 16384 # 372 ms at 44.1 kHz: longer than any bundled impulse response, so none is truncated
+const FALLBACK_TAPS := 64 # GDScript FIR when the native library is missing: short, but audible
 const WET := 0.84
 const BACKFIRE_DURATION := 0.02
 const IR_MUFFLER := "res://assets/ir/mild_exhaust.wav"
 const IR_OPEN := "res://assets/ir/sharp_01.wav"
 const INTAKE_MIX := 0.15 # intake noise level relative to exhaust
 const INTAKE_HZ := 1400.0 # the intake honk, brighter than the muffled exhaust body
-# The intake runner rings as a Helmholtz resonator. A real air filter and throttle body damp it; the model's runner is
-# too lightly damped, so the ring is a clear high tone. This cut is that missing damping, applied to the sound only.
-const RESONANCE_CUT_DB := 0.0 # dB removed at the runner resonance: 0 leaves the sound unchanged (a deeper cut made the firing pulses stand out as pings)
-const RESONANCE_Q := 1.5 # width of the cut: lower is broader
 
 static var _kernels := {}
+static var _generated_irs := {} # per-engine bodies built from the base IR + ExhaustIr
 
 var starved := false
 var rpm := 900.0
@@ -37,30 +38,17 @@ var _dc_a := 0.001
 var _rasp_scale := 1.0 # from the panel: multiplies the rasp noise level
 var _intake_scale := 1.0 # from the panel: multiplies the intake noise level
 var _intake_a := 0.0
-# Peaking cut at the runner resonance (biquad coefficients and its two-sample history)
-var _nb0 := 1.0
-var _nb1 := 0.0
-var _nb2 := 0.0
-var _na1 := 0.0
-var _na2 := 0.0
-var _nx1 := 0.0
-var _nx2 := 0.0
-var _ny1 := 0.0
-var _ny2 := 0.0
 var _ir := PackedFloat32Array()
+var _conv: Object = null # AudioConvolver, the native full-rate convolution; null falls back to the GDScript kernel
 var _hist := PackedFloat32Array()
 var _hp := 0
-var _bucket := 0.0
-var _bucket_n := 0
-var _since := 0.0
-var _mix_prev := 0.0
-var _mix_curr := 0.0
 var _fire_frames := 0.0 # audio frames since the engine started firing
 var _flow_scale := ExhaustSound.BASE_FLOW_SCALE
 var _delay := PackedFloat32Array()
 var _dp := 0
 var compressor_load := 0.0
 var _compressor_phase := 0.0
+var _compressor_blades := 9.0
 var drive := SoundContext.new() # what the sound layers need to know: the game fills it every frame
 var _layers := LayerBank.new() # valve tick, bottom end, driveline, turbo and knock, added to the mix
 
@@ -74,27 +62,27 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	_intake_lp = 0.0
 	_intake_dc = 0.0
 	_hp = 0
-	_bucket = 0.0
-	_bucket_n = 0
-	_since = 0.0
-	_mix_prev = 0.0
-	_mix_curr = 0.0
 	_dp = 0
 	_compressor_phase = 0.0
 	starved = false
 	exh.reset()
+	_compressor_blades = maxf(_spec.compressor_blade_count, 1.0)
 	_dc_a = ExhaustSound.alpha(ExhaustSound.DC_HZ)
 	_intake_a = ExhaustSound.alpha(INTAKE_HZ)
-	_set_resonance_cut(_spec)
-	_layers = LayerBank.standard(OS.has_feature("mobile"))
+	_layers = LayerBank.standard()
 	_layers.configure(_spec)
 	apply_levels(_spec) # the bank exists now, so the panel levels can scale it
 	# The leveler sets the loudness. Volume flow already grows with displacement, and scaling by it
 	# again pushed a large engine past the clipper, which turned the firing ripple into a buzz.
 	_flow_scale = ExhaustSound.BASE_FLOW_SCALE
-	_ir = _kernel(_ir_path(_spec, layout))
+	_ir = _load_ir(_spec, layout)
+	_conv = null
+	if ClassDB.class_exists("AudioConvolver"):
+		_conv = ClassDB.instantiate("AudioConvolver")
+		_conv.set_ir(_ir)
 	_hist = PackedFloat32Array()
-	_hist.resize(TAPS)
+	_hist.resize(_fallback_taps())
+	_hp = 0
 	_delay = PackedFloat32Array()
 	_delay.resize(32)
 	var gen := AudioStreamGenerator.new()
@@ -152,52 +140,72 @@ func render(frames: int) -> PackedVector2Array:
 	out.resize(frames)
 	if not audio_enabled or frames <= 0:
 		return out
-	var step := RATE / BODY_RATE
-	var ir := _ir
 	# time since the engine started firing: the rpm-locked layers fade in over it, so a catch does not sweep like a spaceship
 	_fire_frames = _fire_frames + frames if drive.running else 0.0
 	drive.fire_time = _fire_frames / RATE
 	var layer_mix := _layers.render(frames, drive)
-	var hist := _hist
-	var taps := ir.size()
+	# The body runs at the output rate, so the impulse response is neither decimated nor folded down at 8 kHz.
+	var body := PackedFloat32Array()
+	body.resize(frames)
+	var direct := PackedFloat32Array()
+	direct.resize(frames)
 	for i in frames:
-		_bucket += exh.excite()
+		body[i] = exh.excite()
 		var intake := _intake_sample()
-		_bucket_n += 1
-		_since += 1.0
-		if _since >= step:
-			_since -= step
-			var body := _bucket / float(_bucket_n)
-			_bucket = 0.0
-			_bucket_n = 0
-			hist[_hp] = body
-			var wet := 0.0
-			for k in taps:
-				var at := _hp - k
-				if at < 0:
-					at += TAPS
-				wet += ir[k] * hist[at]
-			_hp += 1
-			if _hp >= TAPS:
-				_hp = 0
-			_mix_prev = _mix_curr
-			# Keep a small direct edge alongside the shorter live convolution tail.
-			_mix_curr = wet * WET + body * (1.0 - WET) + body * 0.40
 		# Estimated electric compressor whine, following load rather than crank speed.
 		var whine := 0.0
 		if compressor_load > 0.0:
-			_compressor_phase = fposmod(_compressor_phase + TAU * (900.0 + 2600.0 * compressor_load) / RATE, TAU)
+			# Electric compressor: use its shaft speed when the model has one; the load-based pitch is only a fallback.
+			var speed := drive.compressor_speed_rpm
+			var whine_hz := speed / 60.0 * _compressor_blades if speed > 1000.0 else 900.0 + 2600.0 * compressor_load
+			whine_hz = clampf(whine_hz, 100.0, RATE * 0.45)
+			_compressor_phase = fposmod(_compressor_phase + TAU * whine_hz / RATE, TAU)
 			whine = sin(_compressor_phase) * compressor_load * 0.012
-		var sample := exh.shape(lerpf(_mix_prev, _mix_curr, _since / step) + intake + whine + layer_mix[i], drive.running)
+		direct[i] = intake + whine + layer_mix[i]
+	var wet := _convolve(body)
+	for i in frames:
+		# Keep a small direct edge alongside the convolved body.
+		var mix := wet[i] * WET + body[i] * (1.0 - WET) + body[i] * 0.40
+		var sample := exh.shape(mix + direct[i], drive.running)
 		_delay[_dp] = sample
 		var side := _delay[(_dp + 18) % 32]
 		_dp = (_dp + 1) % 32
 		out[i] = Vector2(sample, sample * 0.7 + side * 0.3)
-	_hist = hist
 	if exh.starved:
 		starved = true
 		exh.starved = false
 	return out
+
+
+# Convolve the exhaust body with the impulse response. Native when the library is present.
+func _convolve(body: PackedFloat32Array) -> PackedFloat32Array:
+	if _conv != null:
+		return _conv.process(body)
+	var taps := _fallback_taps()
+	if taps <= 0:
+		return body
+	var n := body.size()
+	var wet := PackedFloat32Array()
+	wet.resize(n)
+	var ir := _ir
+	for i in n:
+		_hist[_hp] = body[i]
+		var acc := 0.0
+		var at := _hp
+		for k in taps:
+			acc += ir[k] * _hist[at]
+			at -= 1
+			if at < 0:
+				at = taps - 1
+		wet[i] = acc
+		_hp += 1
+		if _hp >= taps:
+			_hp = 0
+	return wet
+
+
+func _fallback_taps() -> int:
+	return mini(FALLBACK_TAPS, _ir.size())
 
 
 # With no gas solver bound, a backfire is a short volume-flow pulse so the pop is still audible.
@@ -227,11 +235,8 @@ func clear_pending() -> void:
 	_delay.fill(0.0)
 	_hp = 0
 	_dp = 0
-	_bucket = 0.0
-	_bucket_n = 0
-	_since = 0.0
-	_mix_prev = 0.0
-	_mix_curr = 0.0
+	if _conv != null:
+		_conv.reset()
 	starved = false
 	_layers.reset()
 
@@ -261,47 +266,28 @@ func _intake_sample() -> float:
 		_intake_q = 0.0
 	_intake_lp += _intake_a * (_intake_q - _intake_lp)
 	_intake_dc += _dc_a * (_intake_lp - _intake_dc)
-	var flow := _resonance_cut((_intake_lp - _intake_dc) * _flow_scale * INTAKE_MIX * _intake_scale)
+	var flow := (_intake_lp - _intake_dc) * _flow_scale * INTAKE_MIX * _intake_scale
 	return flow * exh.air_factor(fresh)
 
 
-# Helmholtz frequency of the intake runner: f = c / (2 pi) * sqrt(A / (L V)), with the same runner and port values as the sim
-func _set_resonance_cut(spec: EngineSpec) -> void:
-	var length := spec.runner_length_m if spec != null and spec.runner_length_m > 0.0 else 0.25
-	var f0 := 343.0 / TAU * sqrt(Cylinder.RUNNER_AREA / (length * Cylinder.PORT_VOLUME))
-	var a := pow(10.0, RESONANCE_CUT_DB / 40.0)
-	var w0 := TAU * f0 / RATE
-	var alpha := sin(w0) / (2.0 * RESONANCE_Q)
-	var b0 := 1.0 + alpha * a
-	var b1 := -2.0 * cos(w0)
-	var b2 := 1.0 - alpha * a
-	var a0 := 1.0 + alpha / a
-	var a1 := -2.0 * cos(w0)
-	var a2 := 1.0 - alpha / a
-	_nb0 = b0 / a0
-	_nb1 = b1 / a0
-	_nb2 = b2 / a0
-	_na1 = a1 / a0
-	_na2 = a2 / a0
-	_nx1 = 0.0
-	_nx2 = 0.0
-	_ny1 = 0.0
-	_ny2 = 0.0
-
-
-func _resonance_cut(x: float) -> float:
-	var y := _nb0 * x + _nb1 * _nx1 + _nb2 * _nx2 - _na1 * _ny1 - _na2 * _ny2
-	_nx2 = _nx1
-	_nx1 = x
-	_ny2 = _ny1
-	_ny1 = y
-	return y
-
-
-func _ir_path(spec: EngineSpec, layout: ExhaustLayout) -> String:
-	# Per-preset IR override takes priority
+# Measured per-bike override wins. Otherwise the recorded base is modified by the engine's own pipe geometry,
+# so every engine gets a distinct effective body instead of sharing one muffler can.
+static func _load_ir(spec: EngineSpec, layout: ExhaustLayout) -> PackedFloat32Array:
 	if spec.exhaust_ir_path != "":
-		return spec.exhaust_ir_path
+		return _kernel(spec.exhaust_ir_path)
+	var base_path := _base_ir_path(layout)
+	var key := _ir_key(spec, layout, base_path)
+	if _generated_irs.has(key):
+		return _generated_irs[key]
+	var base := _kernel(base_path)
+	var body := ExhaustIr.modify(base, spec, layout)
+	if body.is_empty():
+		body = base
+	_generated_irs[key] = body
+	return body
+
+
+static func _base_ir_path(layout: ExhaustLayout) -> String:
 	if layout == null:
 		return IR_MUFFLER
 	for pipe in layout.pipes:
@@ -310,34 +296,47 @@ func _ir_path(spec: EngineSpec, layout: ExhaustLayout) -> String:
 	return IR_OPEN
 
 
+static func _ir_key(spec: EngineSpec, layout: ExhaustLayout, base_path: String) -> String:
+	var layout_key := ""
+	if layout != null:
+		for pipe in layout.pipes:
+			layout_key += "%s:%.4f:%.6f;" % [pipe.kind, pipe.length_m(), pipe.area_m2()]
+	return "%s|%d|%.2f|%.2f|%.2f|%s|%.2f|%s|%.1f|%s" % [
+		base_path, spec.cylinders, spec.displacement_cc, spec.bore_mm, spec.stroke_mm, spec.header,
+		spec.header_primary_mm, spec.muffler_style, spec.redline_rpm, layout_key,
+	]
+
+
+static func generated_ir_count() -> int:
+	return _generated_irs.size()
+
+
+static func clear_generated_irs() -> void:
+	_generated_irs.clear()
+
+
 static func _kernel(path: String) -> PackedFloat32Array:
 	if _kernels.has(path):
 		return _kernels[path]
 	var pcm := _read_wav(path)
+	var taps := MAX_TAPS
+	if not pcm.is_empty():
+		taps = mini(pcm.size(), MAX_TAPS)
 	var kernel := PackedFloat32Array()
-	kernel.resize(TAPS)
+	kernel.resize(taps)
 	if pcm.is_empty():
-		for i in TAPS:
-			var t := float(i) / BODY_RATE
+		for i in taps:
+			var t := float(i) / RATE
 			kernel[i] = exp(-t * 90.0) * sin(TAU * 240.0 * t)
 	else:
-		var keep := mini(pcm.size(), int(0.032 * RATE))
-		keep = maxi(keep, 1)
-		for i in TAPS:
-			var start := float(i) * float(keep) / float(TAPS)
-			var span_end := float(i + 1) * float(keep) / float(TAPS)
-			var acc := 0.0
-			var n := 0
-			var last := mini(ceili(span_end), keep)
-			for j in range(int(start), maxi(last, int(start) + 1)):
-				acc += pcm[j]
-				n += 1
-			kernel[i] = acc / float(n)
+		# the recording plays at the output rate: every sample is a tap, up to MAX_TAPS
+		for i in taps:
+			kernel[i] = pcm[i]
 	var weight := 0.0
-	for i in TAPS:
+	for i in taps:
 		weight += absf(kernel[i])
 	if weight > 0.0:
-		for i in TAPS:
+		for i in taps:
 			kernel[i] /= weight
 	_kernels[path] = kernel
 	return kernel
@@ -379,9 +378,11 @@ static func _read_wav(path: String) -> PackedFloat32Array:
 		if value >= 32768:
 			value -= 65536
 		samples[i] = float(value)
-		if abs(value) > 100:
+		if value != 0:
 			end = i + 1
-	end = clampi(end, 0, mini(count, 10000))
+	# keep the whole recording: the quiet tail is the sound of the canister and the room, and trimming it at an
+	# absolute level (-50 dBFS here) was throwing away the part that gives the pipe its depth
+	end = clampi(end, 0, mini(count, MAX_TAPS))
 	if end == 0:
 		return PackedFloat32Array()
 	return samples.slice(0, end)

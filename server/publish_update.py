@@ -136,6 +136,7 @@ GATE_TESTS.extend(["integration/dyno/dyno_measurement_test", "integration/dyno/d
 GATE_TESTS.extend(["unit/engine/r1_runner_test", "unit/engine/engine_library_test", "unit/engine/build_save_test"])
 GATE_TESTS.extend(["unit/engine/cbr1000rrr_test", "integration/dyno/online_dyno_test"])
 GATE_TESTS.append("unit/drivetrain/vehicle_dimensions_test")
+GATE_TESTS.append("unit/fuel/authored_tank_test")
 
 
 def run_tests() -> bool:

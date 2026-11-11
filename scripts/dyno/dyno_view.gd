@@ -17,6 +17,7 @@ const ABOVE_DASH := 266.0 # the dashboard occupies the bottom 250px plus a gap
 const GEAR_ROWS := 10
 const DYNO_GRAPH_SCRIPT := preload("res://scripts/dyno/dyno_graph.gd")
 const ONLINE_DYNO := preload("res://scripts/dyno/online_dyno.gd")
+const GRAPH_FOLDER := "C:/Users/Yves Caesario/Downloads/dyno_graphs"
 
 var _root: Control
 var _panel: PanelContainer
@@ -32,6 +33,8 @@ var _wrote := false
 var _reference: Array = []
 var _latest_curve: Array = []
 var _reference_button: Button
+var _save_button: Button
+var _save_status: Label
 var _comparison: Label
 var reference_path := "user://dyno_reference.json"
 var _reference_id := ""
@@ -125,6 +128,20 @@ func _ready() -> void:
 	_reference_button.pressed.connect(_save_reference)
 	_style_button(_reference_button)
 	col.add_child(_reference_button)
+	_save_button = Button.new()
+	_save_button.text = "Save dyno graph (PNG)"
+	_save_button.pressed.connect(_save_graph)
+	_style_button(_save_button)
+	_save_button.visible = false
+	col.add_child(_save_button)
+	# its own label, not rewritten by refresh: first the folder the graph saves to, then the exact file after a save
+	_save_status = Label.new()
+	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_save_status.add_theme_font_size_override("font_size", 13)
+	_save_status.add_theme_color_override("font_color", DIM)
+	_save_status.text = "Saves to: %s" % ProjectSettings.globalize_path(GRAPH_FOLDER)
+	_save_status.visible = false
+	col.add_child(_save_status)
 	_reference = _load_reference()
 	_button = Button.new()
 	_button.custom_minimum_size = Vector2(0, 44)
@@ -156,6 +173,8 @@ func refresh(dyno) -> void:
 	var r: Dictionary = dyno.result()
 	_latest_curve = r.curve
 	_last_result = r
+	_save_button.visible = not _running and not r.curve.is_empty()
+	_save_status.visible = _save_button.visible
 	_status.text = ("IN PROGRESS · " if _running else ("COMPLETE · " if r.ok else "INCOMPLETE · ")) + dyno.status_text()
 	_status.add_theme_color_override("font_color", Color(0.9, 0.9, 0.95) if r.ok else Color(1.0, 0.55, 0.45))
 	_display_redline = dyno.redline()
@@ -174,13 +193,14 @@ func _display(r: Dictionary) -> void:
 	_reference_button.disabled = wheel or _running or not r.ok or r.curve.is_empty()
 	var normalization := ONLINE_DYNO.comparison_factor(_online)
 	var shown: Dictionary = ONLINE_DYNO.wheel_result(r, normalization) if wheel else r
-	_graph.set_curve(shown.curve, _display_redline)
+	var gear_factor := normalization * EngineSim.DRIVE_EFFICIENCY if wheel else 1.0
+	_graph.set_curve(shown.curve, _display_redline, shown.gears, gear_factor)
 	_graph.set_reference(ONLINE_DYNO.reference_curve(_online) if wheel else _reference, wheel)
 	_comparison.text = "Torque: orange · Power: blue · Online: grey torque / dashed power" if wheel else "Torque: orange · Power: blue · Saved reference torque: grey"
 	_online_status.visible = not _online.is_empty()
 	if not _online.is_empty():
 		_online_status.text = "%s · %.2f wheel hp / %.2f N·m · DIN\nWheel estimate: %.0f%% efficiency × %.4f DIN normalization (model air: 300 K, 101325 Pa). Approximate online curve; fourth-gear roller protocol not reproduced." % [
-			_online.title, _online.peak_power_hp, _online.peak_torque_lb_ft * ONLINE_DYNO.NM_PER_LB_FT, EngineSim.DRIVE_EFFICIENCY * 100.0, normalization]
+			_online.title, _online.peak_power_hp, ONLINE_DYNO.reference_peak_torque_nm(_online), EngineSim.DRIVE_EFFICIENCY * 100.0, normalization]
 		var comparison: Dictionary = ONLINE_DYNO.compare(ONLINE_DYNO.wheel_estimate(r.curve, normalization), _online)
 		if not comparison.is_empty():
 			var matched: bool = comparison.power_pass and comparison.torque_pass and comparison.peak_rpm_pass and comparison.curve_pass
@@ -188,6 +208,24 @@ func _display(r: Dictionary) -> void:
 			if comparison.curve_power_rmse_fraction != null:
 				_online_status.text += " · Curve RMS %.1f%% of peak" % (comparison.curve_power_rmse_fraction * 100.0)
 	_fill(shown, wheel)
+
+
+# Saves the dyno graph, the part of the screen with the curves, as a PNG under user://dyno_graphs. Shows the saved path.
+func _save_graph() -> void:
+	var viewport := get_viewport()
+	var image := viewport.get_texture().get_image()
+	var scale := Vector2(image.get_width(), image.get_height()) / viewport.get_visible_rect().size
+	var rect: Rect2 = _graph.get_global_rect()
+	var region := Rect2i(Vector2i((rect.position * scale).round()), Vector2i((rect.size * scale).round()))
+	var cropped := image.get_region(region)
+	DirAccess.make_dir_recursive_absolute(GRAPH_FOLDER)
+	var stamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
+	var file_stem := _reference_id if _reference_id != "" else "dyno"
+	var path := "%s/%s_%s.png" % [GRAPH_FOLDER, file_stem, stamp]
+	if cropped.save_png(path) == OK:
+		_save_status.text = "Saved to: %s" % ProjectSettings.globalize_path(path)
+	else:
+		_save_status.text = "Could not save the graph to: %s" % ProjectSettings.globalize_path(GRAPH_FOLDER)
 
 
 func _save_reference() -> void:

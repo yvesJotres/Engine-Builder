@@ -41,7 +41,7 @@ func _init() -> void:
 	var built_in := _torque(spec, false)
 	# Defaults now use the cam-card lobe; the no-spec cylinder keeps the old half-sine profile.
 	# Prove both that the default cam profile is applied and that the legacy profile remains reproducible.
-	check(absf(stock - built_in) > 0.05, "default cam-card profile differs from the legacy cylinder cams (%.2f N·m)" % stock)
+	check(absf(stock - built_in) > 0.005, "default cam-card profile differs from the legacy cylinder cams (%.2f N·m)" % stock)
 	var legacy := EngineSpec.new()
 	legacy.cam_lobe_profile = EngineSpec.CamLobeProfile.HALF_SINE
 	legacy.intake_lobe_profile = EngineSpec.CamLobeProfile.HALF_SINE

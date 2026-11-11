@@ -1,5 +1,5 @@
 {
-  "display_name": "Honda CBR150R (K45N)",
+  "display_name": "Honda CBR150R K45N (2017)",
   "geometry": {
     "wheelbase_mm": 1309,
     "front_tire_width_mm": 100,
@@ -34,6 +34,8 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
+    "header_primary_mm": 32.0,
+    "runner_length_m": 0.165,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,
@@ -70,7 +72,7 @@
     "drag_area_m2": 0.4
   },
   "ecu": {
-    "binary_path": "res://ecu_bins/38770-K64-N01.bin"
+    "binary_path": ""
   },
   "metadata": {
     "revision": 1,

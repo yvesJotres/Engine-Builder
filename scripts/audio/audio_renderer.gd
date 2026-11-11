@@ -2,7 +2,7 @@ class_name AudioRenderer
 extends Node
 
 # Renders the engine exhaust sound to a WAV file offline, at the highest simulation
-# refresh (physics_dt = 1/3600). Runs the sim and the sound engine in a tight loop,
+# refresh (physics_dt = 1/28800). Runs the sim and the sound engine in a tight loop,
 # yielding each chunk so the UI stays responsive.
 #
 # Usage:
@@ -20,15 +20,17 @@ const DEFAULT_SAMPLE_RATE := 44100 # Hz
 const DEFAULT_BIT_DEPTH := 16 # bits per sample
 const DEFAULT_THROTTLE := 1.0 # 0..1, wide open
 const WAV_WRITER_SCRIPT := preload("res://scripts/audio/wav_writer.gd")
+const PROGRESS_INTERVAL_MS := 50 # how often the render reports progress and yields to the frame
 
 # Renders `duration` seconds of exhaust audio to a WAV file.
-# Runs at physics_dt = 1/3600 (highest accuracy), ignoring MAX_FRAME_TIME caps.
+# Runs at physics_dt = 1/28800 (highest accuracy), ignoring MAX_FRAME_TIME caps.
 func render(spec: EngineSpec, layout: ExhaustLayout = null,
 			duration: float = DEFAULT_DURATION,
 			sample_rate: int = DEFAULT_SAMPLE_RATE,
 			bit_depth: int = DEFAULT_BIT_DEPTH,
 			throttle: float = DEFAULT_THROTTLE,
-			output_directory: String = "") -> void:
+			output_directory: String = "",
+			output_path: String = "") -> void:
 
 	if sample_rate != int(EngineSound.RATE):
 		render_failed.emit("Audio rendering currently supports 44,100 Hz only.")
@@ -39,14 +41,16 @@ func render(spec: EngineSpec, layout: ExhaustLayout = null,
 	if layout == null:
 		layout = ExhaustLayout.build(spec)
 
-	# Output path in the user data folder
-	var dir := ProjectSettings.globalize_path("user://renders") if output_directory == "" else output_directory
-	var dir_access := DirAccess.open(dir)
-	if dir_access == null or not dir_access.dir_exists(dir):
+	# An explicit file path (from the Save As dialog) wins. Otherwise the file goes in the user data folder with a timestamp.
+	var path := output_path
+	if path == "":
+		var dir := ProjectSettings.globalize_path("user://renders") if output_directory == "" else output_directory
+		var timestamp := Time.get_datetime_string_from_system()
+		timestamp = timestamp.replace(" ", "_").replace(":", "-")
+		path = dir.path_join("engine_render_%s.wav" % [timestamp])
+	var dir := path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(dir):
 		DirAccess.make_dir_recursive_absolute(dir)
-	var timestamp := Time.get_datetime_string_from_system()
-	timestamp = timestamp.replace(" ", "_").replace(":", "-")
-	var path := dir.path_join("engine_render_%s.wav" % [timestamp])
 
 	var sim := EngineSim.new()
 	sim.exhaust_solver = true # the pipe solver is for this offline render, not the live frame
@@ -87,6 +91,8 @@ func render(spec: EngineSpec, layout: ExhaustLayout = null,
 	sim.take_intake_flow()
 
 	var render_start := Time.get_ticks_msec()
+	var last_progress_ms := render_start
+	render_progress.emit(0.0)
 	var backfires_heard := sim.backfire_count
 
 	while samples_written < total_samples:
@@ -116,12 +122,14 @@ func render(spec: EngineSpec, layout: ExhaustLayout = null,
 		writer.store_samples(frames)
 		samples_written += frames_for_step
 
-		# Report progress and yield so the UI stays responsive
-		var progress := float(samples_written) / float(total_samples)
-		if samples_written % (sample_rate * 4) < frames_for_step: # roughly every 4 seconds of audio
-			render_progress.emit(progress)
+		# Report progress and yield so the UI stays responsive: about every 50 ms of wall-clock time
+		var now := Time.get_ticks_msec()
+		if now - last_progress_ms >= PROGRESS_INTERVAL_MS:
+			last_progress_ms = now
+			render_progress.emit(float(samples_written) / float(total_samples))
 			await get_tree().process_frame
 
+	render_progress.emit(1.0) # the bar ends full, even when the last report fell just short
 	writer.finish()
 	sound.free()
 

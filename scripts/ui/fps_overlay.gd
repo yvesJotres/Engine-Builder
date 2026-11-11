@@ -15,16 +15,23 @@ func _ready() -> void:
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	layer = 3 # above the pause menu, so the readout stays up while the game is paused
 	label = Label.new()
-	label.anchor_left = 0.0
+	# Top-right corner on desktop, away from the setup panel on the left; the strip grows leftward with its text.
+	label.anchor_left = 1.0
 	label.anchor_right = 1.0
 	label.anchor_top = 0.0
 	label.anchor_bottom = 0.0
-	label.offset_left = 372.0 # clear of the setup panel
+	label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	label.offset_left = -16.0
 	label.offset_top = 16.0
 	label.offset_right = -16.0
 	label.offset_bottom = 52.0
 	if OS.has_feature("mobile"):
 		# Below the top controls and the collapsed ENGINE STATS box (its bottom edge is 118).
+		label.anchor_left = 0.0
+		label.anchor_right = 1.0
+		label.grow_horizontal = Control.GROW_DIRECTION_END
+		label.offset_left = 372.0 # clear of the setup panel
+		label.offset_right = -16.0
 		label.offset_top = 124.0
 		label.offset_bottom = 160.0
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE

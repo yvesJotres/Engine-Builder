@@ -4,7 +4,7 @@ extends SceneTree
 func _init() -> void:
 	await process_frame
 	var spec := EngineSpec.new()
-	var preset: Dictionary = Presets.PRESETS["Ducati Panigale V4 (1,103 cc)"]
+	var preset: Dictionary = Presets.PRESETS["ducati_panigale_v4"]
 	for key in preset:
 		spec.set(key, preset[key])
 	var model := EngineModel.new()

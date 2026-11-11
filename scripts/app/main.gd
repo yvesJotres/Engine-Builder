@@ -5,10 +5,10 @@ extends Node3D
 # the screen in scripts/ui; the floor in scripts/world.
 
 const THROTTLE_SPEED := 1.5 # full travel per second while held open
-const CAR_MODEL := preload("res://scripts/drivetrain/car_model.gd")
+const CAR_MODEL := preload("res://assets/3d/generated/drivetrain/car_model.gd")
 const DYNO_TEST_SCRIPT := preload("res://scripts/dyno/dyno_test.gd")
 const DYNO_VIEW_SCRIPT := preload("res://scripts/dyno/dyno_view.gd")
-const DYNO_CELL_SCRIPT := preload("res://scripts/dyno/dyno_cell.gd")
+const DYNO_CELL_SCRIPT := preload("res://assets/3d/generated/dyno/dyno_cell.gd")
 const AUDIO_RENDERER_SCRIPT := preload("res://scripts/audio/audio_renderer.gd")
 const ENGINE_STATS_SCRIPT := preload("res://scripts/ui/engine_stats.gd")
 const SHIFT_SENSOR := preload("res://scripts/ecu/shift_sensor.gd")
@@ -71,6 +71,16 @@ var _cell_status: Label
 var _cell_load := 0.5
 var _dyno_view
 var _audio_renderer
+var _render_dialog: FileDialog = null # the Save As window for the render, built on first use
+var _render_folder := "" # the folder the last render was saved to, so the next dialog opens there
+var _pending_render_layout: ExhaustLayout = null # the layout captured when Render was pressed
+var _render_settings: ConfirmationDialog = null # length, throttle and bit depth, asked before the file
+var _render_duration_box: SpinBox = null
+var _render_throttle_box: OptionButton = null
+var _render_bits_box: OptionButton = null
+var _render_progress_popup: PopupPanel = null # shown while a render runs
+var _render_progress_bar: ProgressBar = null
+var _render_progress_label: Label = null
 var _pending_shift := 0
 var _shift_time := 0.0
 var _shift_target := -1
@@ -141,9 +151,12 @@ func _ready() -> void:
 	_audio_renderer = AUDIO_RENDERER_SCRIPT.new()
 	add_child(_audio_renderer)
 	_audio_renderer.render_completed.connect(func(path: String) -> void:
+		_show_render_progress(false)
 		_hud.flash("RENDER SAVED: %s" % [path.get_file()]))
 	_audio_renderer.render_failed.connect(func(msg: String) -> void:
+		_show_render_progress(false)
 		_hud.flash("RENDER FAILED: %s" % [msg]))
+	_audio_renderer.render_progress.connect(_on_render_progress)
 	_audio_renderer.render_progress.connect(func(p: float) -> void:
 		_hud.flash("RENDERING: %d%%" % [roundi(p * 100)]))
 
@@ -357,15 +370,15 @@ func _process(delta: float) -> void:
 	if spec.electric_compressor:
 		_stats._engine_data.text += "\nE-compressor: %.2f×  Battery %.0f%% (estimated)" % [_sim.intake.boost_ratio, _sim.intake.compressor_charge * 100.0]
 	# Update compressor map view if turbo section is available
-	if _panel._controls.has("compressor_map_view") and _sim.intake.compressor_map != null:
+	if _panel._controls.has("compressor_map_view") and _sim.intake.has_map():
 		var map_view = _panel._controls["compressor_map_view"]
-		var corr_flow = _sim.intake.compressor_map.correct_flow(_sim.intake.pressure * _sim.intake.manifold_volume_scale / (EngineAir.R_AIR * EngineAir.T0), EngineAir.T0, EngineAir.P0)
+		var corr_flow = _sim.intake.map_correct_flow(_sim.intake.pressure * spec.manifold_volume_scale / (EngineAir.R_AIR * EngineAir.T0), EngineAir.T0, EngineAir.P0)
 		# Use engine mass flow as approximation
 		var m_dot = 0.0
 		for c in _sim.cylinders:
 			m_dot += c.runner_q * (EngineAir.P0 / (EngineAir.R_AIR * EngineAir.T0))
-		corr_flow = _sim.intake.compressor_map.correct_flow(m_dot, EngineAir.T0, EngineAir.P0)
-		var corr_speed = _sim.intake.compressor_map.correct_speed(_sim.intake.compressor_speed_rpm, EngineAir.T0)
+		corr_flow = _sim.intake.map_correct_flow(m_dot, EngineAir.T0, EngineAir.P0)
+		var corr_speed = _sim.intake.map_correct_speed(_sim.intake.compressor_speed_rpm, EngineAir.T0)
 		map_view.set_operating_point(corr_flow, _sim.intake.compressor_pr, corr_speed)
 	# the sensors: chamber temperature (hottest gas each cylinder reached last cycle), exhaust port span, O2
 	var hottest := 0.0
@@ -620,9 +633,108 @@ func _on_render_pressed() -> void:
 	if not _ignition:
 		_hud.flash("KILL SWITCH IS ON: SET IT TO RUN FOR THE RENDER")
 		return
-	# Rebuild the current layout so the render uses the same pipes as the live engine
-	var layout := ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _car.rear_axle if spec.vehicle_type == "car" else _drivetrain.rear_axle)
-	_audio_renderer.render(spec, layout) # defaults: 10s, 44.1kHz, 16-bit, WOT
+	# Rebuild the current layout now, so the render uses the same pipes as the live engine when the file is chosen
+	_pending_render_layout = ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _car.rear_axle if spec.vehicle_type == "car" else _drivetrain.rear_axle)
+	_build_render_settings()
+	_render_settings.popup_centered()
+
+
+# The render settings: length, throttle and bit depth. The sample rate is fixed at 44.1 kHz (the renderer supports only that).
+func _build_render_settings() -> void:
+	if _render_settings != null:
+		return
+	_render_settings = ConfirmationDialog.new()
+	_render_settings.title = "Render settings"
+	_render_settings.ok_button_text = "Next: choose file"
+	var box := VBoxContainer.new()
+	_render_settings.add_child(box)
+	_render_duration_box = SpinBox.new()
+	_render_duration_box.min_value = 1
+	_render_duration_box.max_value = 60
+	_render_duration_box.step = 1
+	_render_duration_box.value = 10
+	_render_duration_box.suffix = " s"
+	box.add_child(_render_row("Length", _render_duration_box))
+	_render_throttle_box = OptionButton.new()
+	_render_throttle_box.add_item("Idle (closed throttle)")
+	_render_throttle_box.add_item("Half throttle")
+	_render_throttle_box.add_item("Wide open")
+	_render_throttle_box.select(2)
+	box.add_child(_render_row("Throttle", _render_throttle_box))
+	_render_bits_box = OptionButton.new()
+	_render_bits_box.add_item("16-bit")
+	_render_bits_box.add_item("24-bit")
+	_render_bits_box.add_item("32-bit float")
+	_render_bits_box.select(0)
+	box.add_child(_render_row("Bit depth", _render_bits_box))
+	_render_settings.confirmed.connect(_open_render_file_dialog)
+	add_child(_render_settings)
+
+
+func _render_row(label_text: String, control: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(110, 0)
+	row.add_child(label)
+	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(control)
+	return row
+
+
+# The Save As window, opened after the settings are confirmed.
+func _open_render_file_dialog() -> void:
+	if _render_dialog == null:
+		_render_dialog = FileDialog.new()
+		_render_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+		_render_dialog.access = FileDialog.ACCESS_FILESYSTEM
+		_render_dialog.use_native_dialog = true # the operating system's own Save As window
+		_render_dialog.title = "Save engine render"
+		_render_dialog.add_filter("*.wav", "WAV audio")
+		_render_dialog.file_selected.connect(_on_render_file_chosen)
+		add_child(_render_dialog)
+	_render_dialog.current_dir = _render_folder if _render_folder != "" else OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS)
+	_render_dialog.current_file = "engine_render.wav"
+	_render_dialog.popup_centered_ratio(0.6)
+
+
+# The file is chosen: start the render with the settings, and show its progress.
+func _on_render_file_chosen(path: String) -> void:
+	_render_folder = path.get_base_dir()
+	if not path.to_lower().ends_with(".wav"):
+		path += ".wav"
+	var throttle: float = [0.0, 0.5, 1.0][_render_throttle_box.selected]
+	var bit_depth: int = [16, 24, 32][_render_bits_box.selected]
+	_show_render_progress(true)
+	_audio_renderer.render(spec, _pending_render_layout, _render_duration_box.value, 44100, bit_depth, throttle, "", path)
+
+
+# A small window with a progress bar, shown while the render runs and hidden when it finishes or fails.
+func _show_render_progress(on: bool) -> void:
+	if _render_progress_popup == null:
+		_render_progress_popup = PopupPanel.new()
+		var box := VBoxContainer.new()
+		_render_progress_popup.add_child(box)
+		_render_progress_label = Label.new()
+		_render_progress_label.text = "Rendering engine sound..."
+		box.add_child(_render_progress_label)
+		_render_progress_bar = ProgressBar.new()
+		_render_progress_bar.min_value = 0.0
+		_render_progress_bar.max_value = 100.0
+		_render_progress_bar.custom_minimum_size = Vector2(360, 24)
+		box.add_child(_render_progress_bar)
+		add_child(_render_progress_popup)
+	if on:
+		_render_progress_bar.value = 0.0
+		_render_progress_popup.popup_centered()
+	else:
+		_render_progress_popup.hide()
+
+
+func _on_render_progress(progress: float) -> void:
+	if _render_progress_bar != null:
+		_render_progress_bar.value = progress * 100.0
+		_render_progress_label.text = "Rendering engine sound... %d%%" % [int(progress * 100.0)]
 
 
 func _set_setup_open(open: bool) -> void:
@@ -687,6 +799,10 @@ func _on_panel_changed() -> void:
 	_sim.gear.gear_ratios = spec.gear_ratios
 	_sim.gear.gear = mini(_sim.gear.gear, spec.gear_ratios.size())
 	_model.build(spec)
+	var selected_id := ""
+	var selected_index := _panel._preset_button.selected
+	if selected_index >= 0 and selected_index < _panel._preset_ids.size():
+		selected_id = str(_panel._preset_ids[selected_index]).validate_filename()
 	var is_car := spec.vehicle_type == "car"
 	_drivetrain.visible = not is_car
 	_clutch.visible = not is_car
@@ -697,11 +813,17 @@ func _on_panel_changed() -> void:
 	if is_car:
 		_car.build(spec, Ground.Y)
 	else:
+		var tank_scene: PackedScene = null
+		if not selected_id.is_empty():
+			var asset_path := "res://assets/models/%s/tank.glb" % selected_id
+			if ResourceLoader.exists(asset_path, "PackedScene"):
+				tank_scene = load(asset_path) as PackedScene
+		_tank.set_shell_scene(tank_scene)
 		_tank.set_capacity(spec.fuel_capacity_l)
 		_tank.place(_model.highest_y() + 0.4, (_model.crank_position().z + _model.throttle_position().z) * 0.5)
 		var engine_bounds := _model.chassis_envelope()
 		var frame_half_width := maxf(0.85, maxf(absf(engine_bounds.position.x), absf(engine_bounds.end.x)) + 0.25)
-		_drivetrain.build(Ground.Y, GearboxModel.countershaft_position(_model.crank_position(), spec), _tank.outlet_position(), frame_half_width, spec.has_abs, engine_bounds, spec)
+		_drivetrain.build(Ground.Y, GearboxModel.countershaft_position(_model.crank_position(), spec), _tank.outlet_position(), frame_half_width, spec.has_abs, engine_bounds, spec, selected_id)
 		_build_cell_equipment()
 		if spec.v3r_style:
 			_drivetrain.add_v3r_bodywork(_tank.outlet_position())
@@ -720,7 +842,12 @@ func _on_panel_changed() -> void:
 		_car_mode = is_car
 	# only sound inputs reset the stream, so bore/stroke tweaks don't cut the sound
 	var layout := ExhaustLayout.build(spec, _model.exhaust_ports(), _model.crank_position(), Ground.Y, _car.rear_axle if is_car else _drivetrain.rear_axle)
-	_exhaust.build(layout)
+	var muffler_scene: PackedScene = null
+	if not selected_id.is_empty():
+		var muffler_path := "res://assets/models/%s/muffler_%s.glb" % [selected_id, spec.muffler_style.validate_filename()]
+		if ResourceLoader.exists(muffler_path, "PackedScene"):
+			muffler_scene = load(muffler_path) as PackedScene
+	_exhaust.build(layout, muffler_scene)
 	_tail_tip = _tailpipe_tip(layout)
 	# the pipes set the sound, so a layout change of more than a couple of centimetres rebuilds it
 	var path_key := []

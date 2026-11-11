@@ -13,18 +13,20 @@ const IDLE_THROTTLE := 0.02 # throttle fraction below which the ECU is in idle c
 const ACTIVE_RPM := 300.0 # rpm above which the ECU takes over; just below the firing speed, so a just-fired engine is carried to idle
 const RELEASE_RATE := 20.0 # degrees per second the trim fades when the ECU lets go
 
-const KP_AIR := 0.0005 # log units of air per rpm below the target
-const KI_AIR := 0.0005 # log units of air per rpm of error per second
+const KP_AIR := 0.8 # log units of air per unit of relative speed error below the target: the same response for a 700 rpm V6 and a 1500 rpm four
+const KI_AIR := 1.2 # log units of air per unit of relative error per second
 const AIR_RELEASE_RATE := 2.0 # log units per second the idle valve returns to neutral when the ECU lets go
-const START_BOOST_BELOW := 0.8 # fraction of the idle target below which the start boost applies
+const START_BOOST_RPM := 600.0 # below this crank speed the start air opens: a cold engine cannot hold itself yet, and above it the idle loop has the authority
 const START_BOOST_LOG := 1.5 # log units of extra air at the start boost, about 4.5 times the engine's own idle air
+const AIR_BAND := 0.4 # relative error band the idle loop integrates inside: outside it the valve holds, so a cold-start overspeed cannot wind it shut
 const AIR_LIMIT := 5.0 # log units either way: the idle valve can open or close a long way
-const OVERRUN_CUT := 1.7 # closed throttle above this multiple of the idle target cuts the fuel
+const OVERRUN_CUT := 2.2 # closed throttle above this multiple of the idle target cuts the fuel: above a start overspeed, so the cut cannot fight the idle loop
 const OVERRUN_RESUME := 1.25 # fuel returns here, still above the target, so the idle valve can catch it
+const CATCH_RPM_FRAC := 0.25 # below this fraction of the target the valve opens wide with start air until the engine catches
 # Launch control constants
 const LAUNCH_RAMP_RATE := 500.0 # rpm/s, how fast the launch RPM target ramps up once moving
 const LAUNCH_SLIP_RATE := 0.3 # clutch slip target during launch (0-1)
-const LAUNCH_HOLD_GAIN := 5.0 # throttle closed per unit of rpm error relative to the launch target, proportional, estimate
+const LAUNCH_HOLD_GAIN := 10.0 # throttle closed per unit of rpm error relative to the launch target, proportional, estimate
 
 var target_rpm := 1200.0
 var trim := 0.0 # degrees of spark advance added by the ECU right now
@@ -159,21 +161,28 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 			_integral = 0.0 # the idle trim only belongs at a closed throttle: with it left on, a big engine stalls as the throttle opens
 		else:
 			_integral = move_toward(_integral, 0.0, RELEASE_RATE * dt)
-		_air_integral = move_toward(_air_integral, 0.0, AIR_RELEASE_RATE * dt)
-		_air_log = _air_integral # the idle valve goes back to the engine's own setting, so a restart is not starved of air
+		# A stalled engine or an open throttle releases the idle valve to neutral, because the engine is no longer being
+		# idled. An engine that is still turning below the active rpm (cranking up to catch) keeps the air the idle loop
+		# learned: releasing it there starves the last bit of a start and the engine dies instead of catching.
+		if not running or throttle > IDLE_THROTTLE:
+			_air_integral = move_toward(_air_integral, 0.0, AIR_RELEASE_RATE * dt)
+		_air_log = _air_integral
 		trim = _integral
-		return -1.0  # no throttle override
+		return -1.0
 	
 	# A shut throttle still burns enough to hold a larger engine several thousand rpm up. Cut the fuel until it
 	# is near idle. The rpm error while cutting is huge, so the valve and the spark stay at a normal idle
 	# instead of slamming shut, and the engine can catch when the fuel returns.
-	if rpm > target_rpm * OVERRUN_CUT:
+	# decel_cut is a per-bike setting; a bike whose ECU does not cut on decel keeps injecting and firing on overrun
+	var cut_on_overrun := spec == null or spec.decel_cut
+	if cut_on_overrun and rpm > target_rpm * OVERRUN_CUT:
 		_overrun = true
-	elif rpm < target_rpm * OVERRUN_RESUME:
+	elif rpm < target_rpm * OVERRUN_RESUME or not cut_on_overrun:
 		_overrun = false
 	if _overrun:
-		# The fuel is cut, so the idle loops hold what they have learned. Letting them drift back to neutral here opened the
-		# valve again, and the engine hunted between the cut and the catch instead of settling at the target.
+		# The fuel is cut, so the idle loops hold what they have learned. The proportional term would slam the valve shut
+		# against the huge overrun error; keep the valve where the idle loop left it so the engine can catch when the fuel
+		# returns instead of hunting between the cut and the catch.
 		_air_log = _air_integral
 		trim = _integral
 		return -1.0
@@ -184,12 +193,20 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 		effective_target = _launch_target_rpm
 	
 	var error := effective_target - rpm
-	# the idle-air valve: below the target it opens, above it closes
-	_air_integral = clampf(_air_integral + KI_AIR * error * dt, -AIR_LIMIT, AIR_LIMIT)
-	_air_log = clampf(KP_AIR * error + _air_integral, -AIR_LIMIT, AIR_LIMIT)
-	# start boost: a just-fired engine is well below the idle speed, so the valve opens wide at once, as an ECU's start air does
-	if rpm < effective_target * START_BOOST_BELOW:
+	# the idle-air valve: below the target it opens, above it closes. The error is relative to the target, so the loop gains
+	# the same response at a 700 rpm V6 idle and a 1500 rpm four.
+	var error_frac := error / maxf(effective_target, 1.0)
+	_air_integral = clampf(_air_integral + KI_AIR * error_frac * dt, -AIR_LIMIT, AIR_LIMIT)
+	_air_log = clampf(KP_AIR * error_frac + _air_integral, -AIR_LIMIT, AIR_LIMIT)
+	# start boost: a just-fired engine is well below the idle speed, so the valve opens wide at once, as an ECU's start air does.
+	# It is held to a crank speed the engine cannot sustain on its own: above that the idle loop must do the work, or the boost
+	# and the idle loop fight and the speed hunts between them.
+	if rpm < START_BOOST_RPM:
 		_air_log = maxf(_air_log, START_BOOST_LOG)
+	# catch: an engine that has fallen well under the target is about to stop firing altogether, and in that state the idle
+	# loop is measuring a speed it can no longer control. Open the valve all the way until the charge lights again.
+	if rpm < effective_target * CATCH_RPM_FRAC:
+		_air_log = AIR_LIMIT
 	_integral = clampf(_integral + KI * error * dt, TRIM_MIN, TRIM_MAX) # clamped so it cannot wind up
 	trim = clampf(KP * error + _integral, TRIM_MIN, TRIM_MAX)
 	# Add power mode timing offset

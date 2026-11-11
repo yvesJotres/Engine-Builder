@@ -28,3 +28,20 @@ tools/diagnostics/out/*
 tools/diagnostics/samples/*
 !tools/diagnostics/samples/.gdignore
 sound/*.wav
+
+# Local agent/session state and scratch output
+.agents/
+.hermes/
+.playwright-mcp/
+.vscode/
+tmp/
+# Generated reports and temporary backups
+reports/
+server/patches_backup_*/
+gdextension/.sconsign.dblite
+gdextension/bin/*.pdb
+gdextension/bin/~*
+conv_bench.obj*
+cross_check*.png*
+assets/Voice*.mpeg
+assets/engines/*.blend1

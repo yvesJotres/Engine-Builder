@@ -2,7 +2,16 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
+#include "audio_convolver.h"
 #include "cylinder_kernel.h"
+#include "ecu_native.h"
+#include "exhaust_native.h"
+#include "firing_native.h"
+#include "fuel_native.h"
+#include "gearbox_native.h"
+#include "intake_native.h"
+#include "physics_misc_native.h"
+#include "two_stroke_kernel.h"
 
 using namespace godot;
 
@@ -10,7 +19,16 @@ void initialize_engine_sim_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
 		return;
 	}
+	GDREGISTER_CLASS(AudioConvolver);
 	GDREGISTER_CLASS(CylinderKernel);
+	GDREGISTER_CLASS(ExhaustNative);
+	GDREGISTER_CLASS(FiringNative);
+	GDREGISTER_CLASS(FuelNative);
+	GDREGISTER_CLASS(GearboxNative);
+	GDREGISTER_CLASS(IntakeNative);
+	GDREGISTER_CLASS(PhysicsMiscNative);
+	GDREGISTER_CLASS(EcuNative);
+	GDREGISTER_CLASS(TwoStrokeKernel);
 }
 
 void uninitialize_engine_sim_module(ModuleInitializationLevel p_level) {

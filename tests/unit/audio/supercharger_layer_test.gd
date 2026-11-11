@@ -25,6 +25,16 @@ func ctx(rpm: float, load: float, blower: bool, running: bool) -> SoundContext:
 	return c
 
 
+func supercharger_spec(type: String = "roots") -> EngineSpec:
+	var s := EngineSpec.new()
+	s.supercharger_type = type
+	s.supercharger_drive_ratio = 2.0
+	s.supercharger_lobes = 3
+	s.supercharger_blades = 9
+	s.supercharger_shift_rpm = 0.0
+	return s
+
+
 func render(layer: SoundLayer, seconds: float, c: SoundContext) -> PackedFloat32Array:
 	var total := int(seconds * SoundLayer.RATE)
 	var out := PackedFloat32Array()
@@ -58,21 +68,34 @@ func goertzel(s: PackedFloat32Array, hz: float) -> float:
 func _init() -> void:
 	# 1. silent without the blower or with the engine stopped
 	var off: SoundLayer = LAYER.new()
+	off.configure(supercharger_spec())
 	check(rms(render(off, 0.2, ctx(9000.0, 1.0, false, true))) == 0.0, "zeros without a blower")
 	var stopped: SoundLayer = LAYER.new()
+	stopped.configure(supercharger_spec())
 	check(rms(render(stopped, 0.2, ctx(9000.0, 1.0, true, false))) == 0.0, "zeros when the engine is stopped")
 
-	# 2. the tone is locked to speed: 12 cycles per crank turn, so 9000 rpm gives 1800 Hz
+	# 2. roots: 2:1 drive x 3 lobes -> 6 cycles per crank turn, so 9000 rpm gives 900 Hz
 	var locked: SoundLayer = LAYER.new()
+	locked.configure(supercharger_spec("roots"))
 	var w := render(locked, 1.0, ctx(9000.0, 1.0, true, true))
 	var tail := w.slice(22050)
-	var at := goertzel(tail, 1800.0)
-	var off_tone := goertzel(tail, 1300.0)
-	check(at >= 10.0 * off_tone, "1800 Hz power %s should dominate 1300 Hz power %s" % [str(at), str(off_tone)])
+	var at := goertzel(tail, 900.0)
+	var off_tone := goertzel(tail, 500.0)
+	check(at >= 10.0 * off_tone, "900 Hz power %s should dominate 500 Hz power %s" % [str(at), str(off_tone)])
+	# centrifugal: 2:1 drive x 9 blades -> 18 cycles per crank turn, so 9000 rpm gives 2700 Hz
+	var centrifugal: SoundLayer = LAYER.new()
+	centrifugal.configure(supercharger_spec("centrifugal"))
+	var cw := render(centrifugal, 1.0, ctx(9000.0, 1.0, true, true))
+	var ctail := cw.slice(22050)
+	var cat := goertzel(ctail, 2700.0)
+	var coff := goertzel(ctail, 1800.0)
+	check(cat >= 5.0 * coff, "2700 Hz power %s should dominate 1800 Hz power %s" % [str(cat), str(coff)])
 
 	# 3. louder under load, and finite
 	var light: SoundLayer = LAYER.new()
+	light.configure(supercharger_spec())
 	var heavy: SoundLayer = LAYER.new()
+	heavy.configure(supercharger_spec())
 	var quiet := rms(render(light, 0.5, ctx(9000.0, 0.0, true, true)))
 	var loud := rms(render(heavy, 0.5, ctx(9000.0, 1.0, true, true)))
 	check(loud > quiet * 2.0, "full load %f should be well above zero load %f" % [loud, quiet])

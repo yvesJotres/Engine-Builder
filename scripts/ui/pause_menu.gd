@@ -7,7 +7,7 @@ extends CanvasLayer
 signal resume_requested
 signal quality_changed(index: int) # 0 = Low, 1 = High
 signal accuracy_changed(index: int) # index into PHYSICS_RATES
-const PHYSICS_RATES := [1200, 2400, 3600, 7200] # physics steps per second the player can choose from
+const PHYSICS_RATES := [1200, 2400, 3600, 7200, 10800, 14400, 28800] # physics steps per second the player can choose from
 signal blur_toggled(on: bool) # frame blend motion blur, off by default
 signal sound_toggled(on: bool) # the engine sound, on or off
 signal fps_toggled(on: bool) # the frame-rate strip, on by default
@@ -171,6 +171,15 @@ func _ready() -> void:
 		_save_setting("hud_mode", i)
 		hud_changed.emit(i))
 	options_box.add_child(_hud_mode)
+	var credits := _button("Credits", box, Color(0.16, 0.17, 0.21))
+	var credits_text := Label.new()
+	credits_text.name = "CreditsText"
+	credits_text.text = "Caliper visual reference: KALIPER by nika23, CC BY 4.0.\nRecreated as a simplified model.\nsketchfab.com/3d-models/kaliper-a381d3f640b34dbf8ec48b01f16dc222\ncreativecommons.org/licenses/by/4.0/"
+	credits_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	credits_text.custom_minimum_size.x = 360
+	credits_text.visible = false
+	box.add_child(credits_text)
+	credits.pressed.connect(func() -> void: credits_text.visible = not credits_text.visible)
 
 	# Quit takes two taps, so one stray tap cannot end the session
 	var quit := _button("Quit", box, Color(0.45, 0.16, 0.16))

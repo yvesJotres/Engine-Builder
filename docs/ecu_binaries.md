@@ -4,7 +4,7 @@ A preset can point at an ECU calibration dump with `ecu.binary_path`. The path i
 
 ## What is parsed
 
-`scripts/ecu/ecu_binary_parser.gd` (`ECUBinaryParser`) reads one layout: the Keihin N04 layout used by the Honda CBR250RR ECU (`38770-K64-N04`). It identifies the layout from the file, then decodes tables with `parse_all()`. The limiter it returns as `limiter_1` is the one the sim uses. The fuel and ignition map accessors (`get_fuel_map`, `get_ignition_map`) are for diagnostics.
+`scripts/ecu/ecu_binary_parser.gd` (`ECUBinaryParser`) reads one layout: the Keihin N04 layout used by the Honda CBR250RR ECU (`38770-K64-N04`). The addresses are verified only for the Indonesia N04 flash. Other K64 flashes are rejected with an unsupported-layout warning rather than decoded, because applying the N04 addresses to them gave invalid values. It identifies the layout from the file, then decodes tables with `parse_all()`. The limiter it returns as `limiter_1` is the one the sim uses. The fuel and ignition map accessors (`get_fuel_map`, `get_ignition_map`) are for diagnostics.
 
 Usage:
 

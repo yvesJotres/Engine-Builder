@@ -1,0 +1,34 @@
+{
+  "preset_id": "honda_cbr250rr_sp_qs",
+  "title": "Honda CBR250RR, average of SuperFlow stock and Dynojet Sport+ wheel curves (points read by eye)",
+  "source_url": "",
+  "source_note": "SuperFlow WinDyn stock curve (blue) and Dynojet Research Sport+ curve (CBR250RRSportPlus.drf, 31.06 hp max, 19.16 Nm max) from images supplied by the user. Power points are read by eye from the images, about 1 hp accuracy. Averaged on purpose; the two tests differ in mode and conditions.",
+  "year": 2017,
+  "market": "ID",
+  "basis": "rear_wheel",
+  "correction": "not stated on either chart",
+  "peak_power_hp": 33.1,
+  "peak_power_rpm": 13250.0,
+  "peak_torque_nm": 21.5,
+  "peak_torque_rpm": 10000.0,
+  "curve_method": "Average of two wheel curves at 1000 rpm steps, 7,000 to 13,000 rpm. Stock SuperFlow alone peaks at about 35 hp near 13,000 rpm; Dynojet Sport+ peaks at 31.06 hp. The 5,000 and 6,000 rpm readings were removed: they implied 27 and 23 N·m, far above the rest of the curve. Peak torque is the torque implied by the averaged power points (hp × 7127 / rpm), which peaks at about 21.5 N·m at 10,000 rpm. The Dynojet Sport+ run alone reported 19.16 N·m.",
+  "power_samples": [
+    [7000, 20.5],
+    [8000, 23.0],
+    [9000, 26.3],
+    [10000, 30.1],
+    [11000, 31.1],
+    [12000, 31.6],
+    [13000, 33.0]
+  ],
+  "per_gear_top_speed_kmh": {
+    "6": {
+      "kmh": 167.4,
+      "rpm": 12500.0,
+      "measurement": "V-box true speed, 6th gear, Sport+ mode",
+      "source": "Otomotifnet road test as reported by indianautosblog.com; model year and MC51/SP variant not confirmed",
+      "source_url": "https://m.indianautosblog.com/honda-cbr250rr-registers-top-speed-of-179-kmph-report-p249165"
+    }
+  },
+  "notes": "Gears 1 to 5 have no true-speed reference. Speedo readings (179 km/h in 6th, motoroids.com) are excluded. The earlier manufacturer crank figures (42 hp at 13,000 rpm, 25 N·m at 11,000 rpm) are no longer the target."
+}

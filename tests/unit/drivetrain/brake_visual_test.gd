@@ -9,6 +9,8 @@ func _init() -> void:
 		for part in ["FrontCaliper", "RearCaliper", "FrontReservoir", "RearReservoir", "FrontBrakeHose0", "RearBrakeHose0"]:
 			assert(brakes.has_node(part), "Missing " + part)
 		assert(brakes.has_node("ABSModule") == fitted)
+		assert(brakes.has_node("FrontCaliper/ImportedCaliper"), "front caliper model is mounted to stationary brake hardware")
+		assert(brakes.get_node("FrontCaliper").get_parent() == brakes)
 		assert(brakes.has_node("FrontABSSensor") == fitted and brakes.has_node("RearABSSensor") == fitted)
 		for wheel in [bike._front_wheel, bike._wheel_pivot]:
 			assert(wheel.has_node("BrakeRotor") and wheel.has_node("RotorCarrier"))

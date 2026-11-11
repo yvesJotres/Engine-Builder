@@ -1,5 +1,5 @@
 {
-  "display_name": "Honda CBR250RR (2017, MC51)",
+  "display_name": "Honda CBR250RR MC51 (2017)",
   "geometry": {
     "vehicle_mass_includes_rider": false,
     "throttle_bore_mm": 32.0,
@@ -38,6 +38,8 @@
     "wheel_radius_m": 0.3139
   },
   "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.125,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 255.0,
     "intake_lift_mm": 6.0,

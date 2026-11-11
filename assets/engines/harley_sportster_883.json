@@ -1,5 +1,5 @@
 {
-  "display_name": "Harley-Davidson Sportster 883 (Evolution, estimated)",
+  "display_name": "Harley-Davidson Sportster 883 (2018)",
   "geometry": {
     "cylinders": 2,
     "displacement_cc": 883.0,
@@ -20,6 +20,8 @@
     "flywheel_radius_mm": 100.0
   },
   "valvetrain": {
+    "header_primary_mm": 44.5,
+    "runner_length_m": 0.292,
     "intake_centre_deg": 460.0,
     "intake_duration_deg": 230.0,
     "intake_lift_mm": 8.0,

@@ -26,9 +26,16 @@ var _ph1 := PackedFloat64Array() # oscillator phases, carried across blocks
 var _ph2 := PackedFloat64Array()
 var _w1 := PackedFloat64Array() # phase step per sample
 var _w2 := PackedFloat64Array()
+var _f1 := FREQ_1
+var _f2 := FREQ_2
 
 
-func configure(_spec: EngineSpec) -> void:
+func configure(spec: EngineSpec) -> void:
+	# Bore-direction knock resonance: f = 900 / (pi * 0.5 * bore_mm) kHz (HP Academy/patent baseline).
+	# A per-engine override wins; the second partial is the 1.58 ratio already used by the layer.
+	_f1 = spec.knock_frequency_hz if spec.knock_frequency_hz > 0.0 else 900000.0 / (PI * 0.5 * maxf(spec.bore_mm, 1.0))
+	_f1 = clampf(_f1, 1000.0, RATE * 0.45)
+	_f2 = clampf(_f1 * 1.58, 1000.0, RATE * 0.45)
 	reset()
 
 
@@ -116,8 +123,8 @@ func _trigger(delay: int) -> void:
 	_env2[slot] = 1.0
 	_ph1[slot] = 0.0
 	_ph2[slot] = 0.0
-	_w1[slot] = TAU * FREQ_1 * (1.0 + _rng.randf_range(-JITTER, JITTER)) / RATE
-	_w2[slot] = TAU * FREQ_2 * (1.0 + _rng.randf_range(-JITTER, JITTER)) / RATE
+	_w1[slot] = TAU * _f1 * (1.0 + _rng.randf_range(-JITTER, JITTER)) / RATE
+	_w2[slot] = TAU * _f2 * (1.0 + _rng.randf_range(-JITTER, JITTER)) / RATE
 
 
 # Frees every ping, so none resumes when the engine starts again.

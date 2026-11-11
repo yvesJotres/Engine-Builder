@@ -1,0 +1,528 @@
+/* 
+My work is using come calculation in the background,
+so you can just slap the numbers in and my code will do the job
+*/
+
+//Inputs
+    // Engines
+        label cylinder_count    (2.0)
+        // The cylinder-bank count of the engine, just for the air flow calculation
+        label rpm_v             (14000.0)
+        // Redline, which also determines rev-limiter, in this case is set at 500rpm above redline
+        label bore_v            (62.0)
+        // Individual cylinder-bank diameter
+        label stroke_v          (41.3)
+        // Stroke lenght
+        label compression_height(28.6)
+        // Compression height. 
+        // This number is already the optimum height
+        label v_angle           (0.0)
+        // To set the angle between banks for the engine of V or W configuration. For inline or straight engine set the value to 0
+        label splay_angle       (0.0 * units.deg)
+        // If applicable. Otherwise set the value 0
+
+    // Ratios
+        label compression_ratio (12.0)
+        // Refers to the ratio of the volume being compressed in each cylinder-bank
+        // 91+ octane works best with 14:1, but try to experiment on it, good luck!
+        label airfuel_ratio     (14.7) 
+        // 12:1 for maximum power, 14.7:1 for perfect balance, 15.4 for best fuel economy 
+        // Best to only use airfuel in the range of 12:1 to 15.4:1
+        label rod_ratio         (2.0)
+        // The ratio between the conrod and stroke lenght
+        // The "ideal" rod ratio is 1.75:1
+        // For low RPM city cars set to 1.5 - 1.6
+        // For performance engine and motorbikes set to 1.7 - 2.2
+    
+    // Dimensions: Affects the drag coefficient
+        label vehicle_mass      (165 * units.kg)
+        // Heavier vehicle have more momentum, hence harder to accelerate and stop
+        label vehicle_lenght    (206.0 * units.cm)
+        // Lenght
+        label vehicle_width     (72.4 * units.cm)
+        // Width
+        label vehicle_height    (109.8)
+        // Height
+
+    // Tyres
+        label tyre_width        (140.0)
+        // The width of your tyre
+        label tyre_aspect_ratio (70.0)
+        // The ratio between the tyre's height and width, in percent
+        label rim_size          (17.0)
+        // The diameter of the wheel rim
+
+        //HOW TO READ TYRES SIZE
+        //Ex: 295/35/R30
+        //295 is the tyre width, 35 is the tyre aspect ratio, R30 is the rim size
+
+    // Cams and Valves
+        label lobe_separation_angle (105.0 * units.deg)
+        // The average centerline between both lobes
+        // LSA ranging from 95 - 120 degrees
+        // Lower LSA for higher maximum torque, and moves peak torque to lower RPM, and vice versa
+        label advances              (0.0 * units.deg)
+        // Offset from centerline, dont go too crazy with the numbers, 0-5 degrees is enough
+        label intake_cam_lift       (10.0 * units.mm)
+        // Dictates how far the intake cams will lift the intake valves, more lift more air get into the chamber
+        // and more air means more BOOM!
+        label exhaust_cam_lift      (10.0 * units.mm)
+        // Dictates how far the exhaust cams will lift the exhaust valves, more lift more air can pushed out from the chamber
+        label cam_duration          (180 * units.deg)
+        // How long the cam holds the valves open
+        // Performance ranging from 220 upto 280, for best performance around 240
+        // Higher duration generate more peak power, but rougher idle
+        label cam_base_radius       (14 * units.mm)
+        // The base radius of the cam
+
+    // Materials and Mass
+        label piston_density    (2710.0) // Kg/m3
+        // The density of the material (alumunum alloys) used for the current piston
+        label rod_mass          (90.0 * units.g)
+        // The mass of the conrods (connecting rods)
+        label flywheel_mass     (3.6 * units.kg)
+        // The mass of the flywheel
+        label flywheel_radius   (10.32 * units.cm)
+        // The radius of the flywheel
+        label crank_mass        (0.75 * cylinder_count * units.kg)
+        // The mass of the crankshaft
+
+    // Airflow/Intakes/Exhausts
+        label idle_throttle_plate_position(0.997)
+        // For tuning the idle throttle plate position
+        label ve_value(100.0)                             
+        // Volumetric efficiency: 85 - 115 (recomended)
+        label ambient_psi(14.7)
+        // The ambient atmospheric pressure at sea level is 14.7psi
+        // Increase in Altitude result in decrease of atmospheric pressure
+        label boost_psi(0.0)
+        // To set how much additional pressure added to the engine. If your engine is naturally aspirated set to 0
+
+//Calculations lines: you dont need to input anything here
+    //Geometry Calculation
+        label engine_cc(((0.7854 * (bore_v * bore_v) * stroke_v * cylinder_count) / 1000.0))
+        // Calculates the Engine Displacement volume in CC
+        // (0.7854 x (Bore x Bore) x Stroke Lenght x cylinder bank counts / 1000)
+        label chamber_cc((engine_cc/cylinder_count)/compression_ratio * units.cc)
+        // Calculate the volume of each combustion chamber 
+        //(Engine displacement / cylinder bank counts / compression ratio)
+        label piston_radius(bore_v/2)
+        // Calculate the radius of the Pistone head radius 
+        //(bore/2)
+        label piston_volume(constants.pi * (piston_radius * piston_radius) * compression_height)
+        // Calculate the volume of a cylinder 
+        //(3.14 x (Piston head radius x Piston head radius) x Compression height)
+        label piston_mass(piston_volume * piston_density * 0.000001 * units.g)
+        // Calculate the mass of a Piston head 
+        //(Volume x Density)
+        label rod_length(stroke_v * rod_ratio * units.mm)
+        // Calculate the lenght of a Conrod 
+        //(Stroke Lenght x Rod ratio)
+        
+    //Unit Conversion
+        // Adding units
+            label stroke(stroke_v * units.mm)
+            label bore(bore_v * units.mm)
+            label rpm(rpm_v * units.rpm)
+        label engine_ci(engine_cc * 0.061023744094732)
+        // Convert unit of the Engine Displacement from CC to Cubic Inch, used for calculating total CFM required
+        // (Engine Displacements x 0.061)
+    
+    //Airflow/Intakes/Exhausts
+        label stock_cfm((engine_ci * rpm_v * (ve_value/100)) / 6456.3253)
+        // Calculates the amount of air flow generated in Cubic Feet per meter (CFM) // Calculate
+        // (Displacements in CI x Redline x Volumetric efficiency / 6456.3253)
+
+            // Forced Induction Air Flows
+                label boost_ratio(boost_psi/ambient_psi)
+                // The ratio between Compressed air pressure with ambient atmospheric pressure
+                label boost_cfm((ve_value/100) * rpm_v * boost_ratio * (engine_cc / 1000) / 2000)
+                // Calculates the additional amount of air flow generated in Cubic Feet per meter (CFM)
+                // (Volumetric efficientcy x Redline x Boost Ratio x (Displacements / 1000) / 2000)
+        
+        label cfm_value((stock_cfm + boost_cfm))
+        // Total amount of air flow get into the engine
+
+//.......
+
+import "engine_sim.mr"
+import "../../part-library/part_library.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node turbulence_to_flame_speed_ratio {
+    alias output __out:
+        function(20.0)
+            .add_sample(0.0, 1.0 * 3.0)
+            .add_sample(5.0, 1.0 * 1.5 * 5.0)
+            .add_sample(10.0, 1.0 * 1.5 * 10.0)
+            .add_sample(15.0, 1.1 * 1.5 * 15.0)
+            .add_sample(20.0, 1.25 * 1.5 * 20.0)
+            .add_sample(25.0, 1.25 * 1.5 * 25.0)
+            .add_sample(30.0, 1.25 * 1.5 * 30.0)
+            .add_sample(35.0, 1.25 * 1.5 * 35.0)
+            .add_sample(40.0, 1.25 * 1.5 * 40.0)
+            .add_sample(45.0, 1.25 * 1.5 * 45.0)
+            .add_sample(50.0, 1.55 * 1.5 * 50.0)
+            .add_sample(55.0, 1.55 * 1.5 * 55.0)
+            .add_sample(60.0, 1.55 * 1.5 * 60.0)
+            .add_sample(65.0, 1.55 * 1.5 * 65.0);
+}
+
+private node wires {
+    output wire1: ignition_wire();
+    output wire2: ignition_wire();
+}
+
+public node cbr250rr_distributor {
+    input wires;
+    input timing_curve;
+    input rev_limit;
+    alias output __out:
+        ignition_module(timing_curve: timing_curve, rev_limit: rev_limit, limiter_duration: 0.08 * units.sec)
+            .connect_wire(wires.wire1, (0.0))
+            .connect_wire(wires.wire2, (180) * units.deg);
+}
+
+public node cbr250rr_intake_lobe_profile {
+    alias output __out:
+        harmonic_cam_lobe(
+            duration_at_50_thou: cam_duration,
+            lift: intake_cam_lift,
+            steps: 256
+        );
+}
+
+public node cbr250rr_exhaust_lobe_profile {
+    alias output __out:
+        harmonic_cam_lobe(
+            duration_at_50_thou: cam_duration,
+            lift: exhaust_cam_lift,
+            steps: 256
+        );
+}
+
+public node cbr250rr_camshaft_builder {
+    input lobe_profile: cbr250rr_intake_lobe_profile();
+	input ex_lobe_profile: cbr250rr_exhaust_lobe_profile();
+    input intake_lobe_profile: lobe_profile;
+    input exhaust_lobe_profile: ex_lobe_profile;
+    input lobe_separation: lobe_separation_angle;
+    input intake_lobe_center: lobe_separation_angle;
+    input exhaust_lobe_center: lobe_separation_angle;
+    input advance: advances;
+    input base_radius: cam_base_radius;
+
+    output intake_cam_0: _intake_cam_0;
+    output exhaust_cam_0: _exhaust_cam_0;
+
+    camshaft_parameters params(
+        advance: advance,
+        base_radius: base_radius
+    )
+
+    label rot360(360 * units.deg)
+
+    camshaft _intake_cam_0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust_cam_0(params, lobe_profile: exhaust_lobe_profile)
+
+    _intake_cam_0
+        .add_lobe(rot360 + intake_lobe_center + 0.0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + (180) * units.deg)
+
+	_exhaust_cam_0
+        .add_lobe(rot360 - exhaust_lobe_center + 0.0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + (180) * units.deg)
+}
+
+private node add_flow_sample {
+    input lift;
+    input flow;
+    input this;
+    alias output __out: this;
+
+    this.add_sample(lift * units.thou, k_28inH2O(flow))
+}
+
+label intake_runner_volume_cc(149.0 * units.cc)
+
+public node cbr250rr_head {
+    input intake_camshaft;
+    input exhaust_camshaft;
+    input chamber_volume: chamber_cc;
+    input intake_runner_volume: intake_runner_volume_cc;
+    input intake_runner_cross_section_area: 10.0 * units.cm2 * 2.0;
+    input exhaust_runner_volume: intake_runner_volume * 2;
+    input exhaust_runner_cross_section_area: 15.0 * units.cm2 * 2.0;
+    
+    
+    input flow_attenuation: 1.0;
+    input lift_scale: 1.0;
+    input flip_display: true;
+    alias output __out: head;
+
+    function intake_flow(50 * units.thou)
+    intake_flow
+        .add_flow_sample(0 * lift_scale, 0 * flow_attenuation)
+        .add_flow_sample(50 * lift_scale, 58 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale, 103 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale, 156 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale, 214 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale, 249 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale, 268 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale, 280 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale, 280 * flow_attenuation)
+        .add_flow_sample(450 * lift_scale, 281 * flow_attenuation)
+        .add_flow_sample(500 * lift_scale, 301 * flow_attenuation)
+
+    function exhaust_flow(50 * units.thou)
+    exhaust_flow
+        .add_flow_sample(0 * lift_scale, 0 * flow_attenuation)
+        .add_flow_sample(50 * lift_scale, 37 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale, 72 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale, 113 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale, 160 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale, 196 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale, 222 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale, 235 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale, 245 * flow_attenuation)
+        .add_flow_sample(450 * lift_scale, 246 * flow_attenuation)
+        .add_flow_sample(500 * lift_scale, 251 * flow_attenuation)
+
+    generic_cylinder_head head(
+        chamber_volume: chamber_volume,
+        intake_runner_volume: intake_runner_volume,
+        intake_runner_cross_section_area: intake_runner_cross_section_area,
+        exhaust_runner_volume: exhaust_runner_volume,
+        exhaust_runner_cross_section_area: exhaust_runner_cross_section_area,
+
+        intake_port_flow: intake_flow,
+        exhaust_port_flow: exhaust_flow,
+        valvetrain: standard_valvetrain(
+            intake_camshaft: intake_camshaft,
+            exhaust_camshaft: exhaust_camshaft
+        ),
+        flip_display: flip_display
+    )
+}
+
+label hf_gain(0.003)
+label lf_noise(0.5)
+label hf_noise(0.3)
+label simulation_frequency(15000)
+
+public node cbr250rr {
+    alias output __out: engine;
+
+    engine engine(
+        name: "Honda CBR250RR",
+        starter_torque: 100 * units.lb_ft,
+        starter_speed: 500 * units.rpm,
+        redline: rpm,
+        throttle_gamma: 1.0,
+        fuel: fuel(
+            max_turbulence_effect: 5.0,
+            max_dilution_effect: 5.0,
+            burning_efficiency_randomness: 0.4,
+            turbulence_to_flame_speed_ratio: turbulence_to_flame_speed_ratio(),
+            max_burning_efficiency: 1.2
+        ),
+        hf_gain: hf_gain,
+        noise: lf_noise,
+        jitter: hf_noise,
+        simulation_frequency: simulation_frequency
+    )
+
+    wires wires()
+
+    label crank_moment(
+        disk_moment_of_inertia(mass: crank_mass, radius: stroke)
+    )
+    label flywheel_moment(
+        disk_moment_of_inertia(mass: flywheel_mass, radius: flywheel_radius)
+    )
+    label other_moment( // Moment from cams, pulleys, etc [estimated]
+        disk_moment_of_inertia(mass: 1 * units.kg, radius: 1.0 * units.cm)
+    )
+
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: flywheel_mass,
+        mass: crank_mass,
+        friction_torque: 0.01 * units.Nm,
+        moment_of_inertia:
+            (crank_moment + flywheel_moment + other_moment),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: constants.pi / 2
+    )
+
+    rod_journal rj0(angle: 0 * units.deg)
+    rod_journal rj1(angle: 180 * units.deg)
+    
+    c0
+        .add_rod_journal(rj0)
+        .add_rod_journal(rj1)
+
+    piston_parameters piston_params(
+        mass: piston_mass,
+        compression_height:  (compression_height * units.mm),
+        wrist_pin_position: 0.0,
+        displacement: 0.0 * units.cc
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: rod_mass,
+        moment_of_inertia: rod_moment_of_inertia(
+            mass: rod_mass,
+            length: rod_length
+        ),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: (stroke / 2 + rod_length + (compression_height  * units.mm))
+    )
+
+    intake intake(
+        plenum_volume: 1.5 * units.L,
+        plenum_cross_section_area: 10.0 * units.cm2,
+        intake_flow_rate: k_carb(cfm_value),
+        runner_flow_rate: k_carb(cfm_value/1.0),
+        runner_length: 12.00 * units.cm,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: idle_throttle_plate_position,
+        molecular_afr: airfuel_ratio,
+        velocity_decay: 0.5,
+        throttle_gamma: 1.0
+    )
+
+    label exhaust_count(1.0)
+    label outlet_flow_rate(((cfm_value) * 5 / exhaust_count))
+    label primary_flow_rate((outlet_flow_rate) / 1)
+
+    exhaust_system_parameters es_params0(
+        outlet_flow_rate: k_carb(outlet_flow_rate),
+        primary_tube_length: 50 * units.cm,
+        primary_flow_rate: k_carb(primary_flow_rate),
+        velocity_decay: 0.5,
+        volume: 10.0 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params0,
+        audio_volume: 0.25,
+        length: 110 * units.cm,
+        impulse_response: ir_lib.mild_exhaust_1
+    )
+
+    label spacing(5 * units.inch)
+
+    cylinder_bank b0(bank_params, angle: 0.0 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.0)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj0,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            sound_attenuation: 0.98,
+            primary_length: 10 * units.cm
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.0)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj1,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire2,
+            sound_attenuation: 0.99,
+            primary_length: 10 * units.cm
+        )
+        .set_cylinder_head(
+            cbr250rr_head(
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0,
+                flip_display: true,
+                flow_attenuation: 1.0)
+        )
+        
+    engine.add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    cbr250rr_camshaft_builder camshaft(
+        lobe_profile: cbr250rr_intake_lobe_profile(),
+		ex_lobe_profile: cbr250rr_exhaust_lobe_profile()
+    )
+
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 0 * units.deg)
+		.add_sample(1000 * units.rpm, 14 * units.deg)
+		.add_sample(2000 * units.rpm, 22 * units.deg)
+		.add_sample(3000 * units.rpm, 26 * units.deg)
+		.add_sample(4000 * units.rpm, 33 * units.deg)
+		.add_sample(5000 * units.rpm, 34 * units.deg)
+		.add_sample(6000 * units.rpm, 35 * units.deg)
+		.add_sample(7000 * units.rpm, 36 * units.deg)
+		.add_sample(8000 * units.rpm, 40 * units.deg)
+		.add_sample(9000 * units.rpm, 45 * units.deg)
+		.add_sample(10000 * units.rpm, 50 * units.deg)
+        .add_sample(11000 * units.rpm, 55 * units.deg)
+        .add_sample(12000 * units.rpm, 60 * units.deg)
+        .add_sample(13000 * units.rpm, 65 * units.deg)
+        .add_sample(14000 * units.rpm, 70 * units.deg)
+
+        engine.add_ignition_module(
+        cbr250rr_distributor(
+            wires: wires,
+            timing_curve: timing_curve,
+            rev_limit: rpm
+        )
+    )
+}
+
+label diff_ratio(4.7)
+
+public node cbr250rr_vehicle {
+    alias output __out: vehicle;
+    input tire_size: ((tyre_width * tyre_aspect_ratio / 2540.0 * 2.0) + rim_size) * 2.54;
+    input tyre_radius: tire_size/2.0 * units.cm;
+	vehicle vehicle(
+            mass: vehicle_mass,
+            drag_coefficient: vehicle_height / vehicle_mass * 0.8,
+            cross_sectional_area: vehicle_lenght * vehicle_width,
+            diff_ratio: diff_ratio,
+            tire_radius: tyre_radius,
+            rolling_resistance: 0.015 * vehicle_mass * 9.81 
+		)
+}
+
+public node cbr250rr_transmission {
+    alias output __out: trans;
+    transmission trans(
+        max_clutch_torque: 500 * units.lb_ft
+        )
+
+    trans
+        .add_gear(3.181 * 2)
+        .add_gear(2.459 * 2)
+        .add_gear(1.967 * 2)
+        .add_gear(1.576 * 2)
+        .add_gear(1.265 * 2)
+        .add_gear(1.068 * 2)
+}
+
+public node main {
+    set_engine(cbr250rr())
+	set_transmission(cbr250rr_transmission())
+    set_vehicle(cbr250rr_vehicle())
+}
+
+main()

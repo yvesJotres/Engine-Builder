@@ -1,5 +1,5 @@
 {
-  "Honda CBR150R (K45N)": {
+  "Honda CBR150R K45N (2017)": {
     "cylinders": 1,
     "displacement_cc": 149.2,
     "bore_mm": 57.3,
@@ -13,7 +13,7 @@
     "flywheel_kg": 2.5,
     "flywheel_radius_mm": 75.0
   },
-  "Honda CBR250RR (2017, MC51)": {
+  "Honda CBR250RR MC51 (2017)": {
     "cylinders": 2,
     "displacement_cc": 249.3,
     "bore_mm": 62.0,
@@ -43,15 +43,18 @@
     "layout": "inline",
     "header": "stock",
     "fuel": "ron95",
+    "idle_target_rpm": 1500.0,
+    "preset_revision": 1,
     "redline_rpm": 17000.0,
     "fire_deg": [0.0, 180.0, 540.0, 360.0],
-    "flywheel_kg": 1.0,
-    "flywheel_radius_mm": 53.2,
+    "flywheel_kg": 2.0,
+    "flywheel_radius_mm": 80.0,
     "primary_ratio": 2.9,
+    "primary_crank_teeth": 30,
     "final_drive": 3.429,
     "gear_ratios": [2.929, 2.056, 1.619, 1.333, 1.154, 1.037]
   },
-  "Ducati Panigale V4 (1,103 cc)": {
+  "Ducati Panigale V4 (2020)": {
     "cylinders": 4,
     "displacement_cc": 1102.7,
     "bore_mm": 81.0,
@@ -89,7 +92,7 @@
     "gear_ratios": [2.600, 2.176, 1.842, 1.579, 1.381, 1.250],
     "vehicle_kg": 200.0
   },
-  "Yamaha MT-07 (CP2, 689 cc)": {
+  "Yamaha MT-07 (2014)": {
     "cylinders": 2,
     "displacement_cc": 689.0,
     "bore_mm": 80.0,
@@ -109,7 +112,7 @@
     "gear_ratios": [2.692, 2.063, 1.667, 1.400, 1.227, 1.100],
     "vehicle_kg": 182.0
   },
-  "Honda TRX520 (engine-sim)": {
+  "Honda TRX520 (2015)": {
     "cylinders": 1,
     "displacement_cc": 517.4,
     "bore_mm": 96.0,

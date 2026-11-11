@@ -16,24 +16,87 @@ static func refresh(panel: ControlPanel, selected := "") -> void:
 	panel._builds.disabled = names.is_empty()
 
 
+# Saves the bike on screen under the typed name. A name that is already saved asks first, and is replaced only on yes.
 static func save_build(panel: ControlPanel) -> void:
 	var build_name := panel._build_name.text.strip_edges()
 	if build_name.is_empty() or build_name.contains("]") or build_name.contains("[") or build_name.contains("\n"):
 		panel._build_status.text = "Enter a build name without brackets."
 		return
+	var config := ConfigFile.new()
+	config.load(panel.builds_path)
+	if config.has_section(build_name):
+		panel._confirm_overwrite(build_name)
+		return
+	write_build(panel, build_name)
+
+
+# Renames the selected build to the name typed above. Refuses a name that is already saved, so nothing is lost.
+static func rename_build(panel: ControlPanel) -> void:
+	if panel._builds.selected < 0:
+		panel._build_status.text = "Select a build to rename."
+		return
+	var old_name := panel._builds.get_item_text(panel._builds.selected)
+	var new_name := panel._build_name.text.strip_edges()
+	if new_name.is_empty() or new_name.contains("]") or new_name.contains("[") or new_name.contains("\n"):
+		panel._build_status.text = "Enter a build name without brackets."
+		return
+	var config := ConfigFile.new()
+	config.load(panel.builds_path)
+	if new_name == old_name:
+		return
+	if config.has_section(new_name):
+		panel._build_status.text = "A build named %s already exists." % new_name
+		return
+	for key in config.get_section_keys(old_name):
+		config.set_value(new_name, key, config.get_value(old_name, key))
+	config.erase_section(old_name)
+	var err := config.save(panel.builds_path)
+	panel._build_status.text = "Renamed to " + new_name if err == OK else "Could not rename build (error %d)." % err
+	if err == OK:
+		panel._refresh_builds(new_name)
+
+
+# Asks before a build is deleted; the delete happens only on confirm.
+static func confirm_delete(panel: ControlPanel) -> void:
+	if panel._builds.selected < 0:
+		panel._build_status.text = "Select a build to delete."
+		return
+	panel._confirm_delete(panel._builds.get_item_text(panel._builds.selected))
+
+
+static func delete_build(panel: ControlPanel, build_name: String) -> void:
+	var config := ConfigFile.new()
+	config.load(panel.builds_path)
+	config.erase_section(build_name)
+	var err := config.save(panel.builds_path)
+	panel._build_status.text = "Deleted: " + build_name if err == OK else "Could not delete build (error %d)." % err
+	if err == OK:
+		panel._refresh_builds()
+
+
+static func write_build(panel: ControlPanel, build_name: String) -> void:
 	var values := {}
-	for key in panel._controls:
+	for key in PanelSchema.all_keys():
+		var def: Dictionary = PanelSchema.get_def(key)
+		if (def.type == "special"):
+			continue
 		var control: Control = panel._controls[key]
-		if control is SpinBox:
-			values[key] = control.value
-		elif control is OptionButton or control is ToggleSwitch:
-			values[key] = control.get_item_text(control.selected)
+		if (def.type == "spin"):
+			values[key] = (control as SpinBox).value
+		elif (def.type == "option"):
+			var option: OptionButton = control as OptionButton
+			if key == "live_exhaust_physics":
+				values[key] = option.selected == 1
+			else:
+				values[key] = option.get_item_text(option.selected)
+		elif (def.type == "toggle"):
+			values[key] = (control as ToggleSwitch).selected
 	var config := ConfigFile.new()
 	config.load(panel.builds_path)
 	config.set_value(build_name, "controls", values)
 	config.set_value(build_name, "preset_data", panel._vehicle_settings)
 	config.set_value(build_name, "preset_id", panel._preset_ids[panel._preset_button.selected] if panel._preset_button.selected >= 0 else "")
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
+	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
 		config.set_value(build_name, key, panel.get(key))
 	var err := config.save(panel.builds_path)
 	panel._build_status.text = "Saved: " + build_name if err == OK else "Could not save build (error %d)." % err
@@ -75,22 +138,31 @@ static func load_build(panel: ControlPanel) -> void:
 		values["qs_enabled"] = values["quickshifter"]
 	for key in ["qs_enabled", "launch_control", "abs_enabled", "traction_control_enabled"]:
 		panel._controls[key].select(0)
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "intake_valve_mm", "exhaust_valve_mm", "runner_length_m", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
+	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
 		var value: Variant = config.get_value(build_name, key, panel.get(key))
 		if typeof(value) == typeof(panel.get(key)):
 			panel.set(key, value)
+	# Builds saved before the intake valve and runner were controls kept them as plain values: move them across.
+	for key in ["intake_valve_mm", "runner_length_m"]:
+		if not values.has(key) and config.has_section_key(build_name, key):
+			values[key] = config.get_value(build_name, key)
 	panel._set_quiet(panel._controls["bank_angle"], panel.bank_angle)
 	panel._controls["shared_pins"].select(0)
-	for key in panel._controls:
+	for key in PanelSchema.all_keys():
+		var def: Dictionary = PanelSchema.get_def(key)
+		if (def.type == "special"):
+			continue
 		if not values.has(key):
 			continue
 		if key == "crank":
 			panel._refresh_twin()
 		var control: Control = panel._controls[key]
-		if control is SpinBox and (values[key] is float or values[key] is int):
-			panel._set_quiet(control, values[key])
-		elif (control is OptionButton or control is ToggleSwitch) and values[key] is String:
+		if (def.type == "spin") and (values[key] is float or values[key] is int):
+			panel._set_quiet(control, float(values[key]))
+		elif (def.type == "option") and values[key] is String:
 			panel._select_text(control, values[key])
+		elif (def.type == "toggle") and values[key] is bool:
+			control.select(1 if values[key] else 0)
 	panel.bank_angle = panel._controls["bank_angle"].value
 	var preset_index := panel._preset_ids.find(str(config.get_value(build_name, "preset_id", "")))
 	if preset_index >= 0:

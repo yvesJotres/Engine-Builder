@@ -8,7 +8,7 @@ extends Node
 const GAME_SCENE := "res://scenes/main.tscn"
 const LAUNCHER_SCENE := "res://scenes/launcher.tscn"
 # The version code of this APK. Keep it equal to version/code in export_presets.cfg when you build an APK.
-const APK_VERSION_CODE := 4
+const APK_VERSION_CODE := 7
 
 
 func _ready() -> void:

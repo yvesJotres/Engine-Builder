@@ -1,5 +1,5 @@
 {
-  "display_name": "Ducati Panigale V4 (1,103 cc)",
+  "display_name": "Ducati Panigale V4 (2020)",
   "geometry": {
     "wheelbase_mm": 1469,
     "front_tire_width_mm": 120,
@@ -38,6 +38,8 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
+    "header_primary_mm": 52.0,
+    "runner_length_m": 0.123,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
     "intake_lift_mm": 6.0,

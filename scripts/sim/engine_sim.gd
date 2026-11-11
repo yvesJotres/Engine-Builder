@@ -11,10 +11,12 @@ const MAIN_BEARING_FRICTION := 0.01 # N·m per main bearing, two bearings, estim
 const BALANCER_FRICTION := 0.005 # N·m, balancer shaft bearings and gear, estimate
 const FRICTION_PER_CYLINDER := 0.1 # N·m per cylinder at a 57.3 mm bore (the CBR150R), piston rings and bores; estimate, see the friction note in the plan
 const FRICTION_PER_RPM := 0.00012 # N·m per rpm, bearings and oil shear: about 1.2 N·m at 7,000 rpm (about 1 bar FMEP for a 150 cc single), estimate
+const REITZ_FMEP_C := 0.25 # bar, constant part of FMEP; Reitz (2018) lecture, Chen–Flynn form
+const REITZ_PF := 0.005 # per bar of peak cylinder pressure; Reitz (2018)
+const REITZ_MPSF := 0.1 # bar per (m/s) of mean piston speed; Reitz (2018), unit decided by the offline check (docs/engine_physics/09)
 const SUBSTEPS := 1 # each fixed physics step is taken once
-var physics_dt := 1.0 / 1200.0 # s per physics step, set from the pause menu: Fast 1/1200, Normal 1/2400, Accurate 1/3600, Ultra 1/7200
+var physics_dt := 1.0 / 1200.0 # s per physics step, set from the pause menu: Fast 1/1200, Normal 1/2400, Accurate 1/3600, Ultra 1/7200, Extreme 1/10800, Insane 1/14400, Ludicrous 1/28800
 const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch must not make the sim run in fast-forward
-const MAX_STEPS_PER_FRAME := 120 # one 60 Hz frame at the finest pause-menu rate (1/7200); a hitch past this is dropped
 var _accumulator := 0.0 # real time not yet simulated, s
 const STARTER_TORQUE := 20.0 # N·m per 150 cc at zero speed, fades to zero at CRANK_RPM; scaled from the CBR150R calibration, estimate
 const CRANK_RPM := 900.0 # the starter's help fades to zero here, about the speed where the engine holds itself up
@@ -40,7 +42,7 @@ const CLUTCH_LEVER_TIME := 0.03 # s, the plates follow the lever with only this 
 const CLUTCH_BITE_START := 0.5 # lever pull where the plates start to slip, estimate: the friction zone begins here
 const CLUTCH_BITE_END := 0.9 # lever pull where the plates are fully apart, estimate: the friction zone ends here
 const LAUNCH_CLUTCH_GAIN := 4.0 # per second, how fast the launch clutch closes or opens per unit of slip error, estimate
-const DRIVE_EFFICIENCY := 0.93 # gearbox mesh (6 gears, ~1.5% each), primary drive and chain (~3%) together, estimate
+const DRIVE_EFFICIENCY := 0.93 # crank to rear wheel, one value for every vehicle. The researched chain-driven bike range is 0.85 to 0.92 (docs/engine_physics/10); 0.93 is one point above it. It is kept because it also sets the clutch/driveline coupling, and moving it to 0.92 dropped the Bugatti's measured crank torque 8.7% (838 to 765 N·m) with no evidence that the new figure is right. Per-vehicle efficiency is the fix, not a global number
 const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
 # Slipper clutch: reduces clutch capacity during engine braking (negative gearbox load) to prevent rear wheel hop
@@ -67,11 +69,13 @@ var cell_mass_kg := 0.0
 var fuel_flow := 0.0 # g/s, averaged over the last frame and smoothed over about two engine cycles
 var torque := 0.0 # N·m at the crank, shaft torque averaged over the last step
 var gear := Gearbox.new()
-var intake := EngineAir.new()
+var intake := IntakeNative.new() # native C++ intake and turbo (gdextension/src/intake_native.cpp)
 var fuel := FuelTank.new()
 var cylinders: Array[RefCounted] = [] # Cylinder (four-stroke) or TwoStrokeCylinder: they share the fields the sim reads
-var exhaust: ExhaustGas # one column for every header; null until the cylinders are built
+var exhaust: ExhaustNative # one column for every header; null until the cylinders are built. Native C++ solver (gdextension/src/exhaust_gas.cpp)
 var _cyl_key := ""
+var _intake_map_id := "" # the compressor map the intake last loaded
+var _intake_loaded := false # the intake has had its full setup (spec and map) for this run
 var _limiter_time := 0.0
 var ecu := ECU.new()
 var _ecu_binary_path := ""
@@ -139,6 +143,14 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 	last_starter_held = starter_held # the sound reads this: the starter motor is turning
 	_sync_ecu_calibration(spec)
 	_build_cylinders(spec)
+	# the turbo's compressor map loads once per map id; without it the intake never boosts
+	# the spec is refreshed every frame (the panel edits it in place); the map is only reloaded when its id changes
+	if not _intake_loaded or spec.compressor_map_id != _intake_map_id:
+		_intake_loaded = true
+		_intake_map_id = spec.compressor_map_id
+		intake.setup(_intake_spec_dict(spec), _intake_map_dict(spec.compressor_map_id))
+	else:
+		intake.set_spec(_intake_spec_dict(spec))
 	if omega == 0.0 and rpm == 0.0 and speed == 0.0 and not running and not starter_held and absf(_gas_torque) < 0.0001 and absf(intake.pressure - Cylinder.P0) <= Cylinder.P0 * 0.01:
 		intake.boost_ratio = 1.0
 		intake.compressor_load = 0.0
@@ -156,12 +168,10 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 	_accumulator = minf(_accumulator + delta, MAX_FRAME_TIME)
 	var fuel_start := fuel.mass_kg
 	var n := 0
-	while _accumulator >= physics_dt and n < MAX_STEPS_PER_FRAME:
+	while _accumulator >= physics_dt:
 		_advance(physics_dt, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
 		_accumulator -= physics_dt
 		n += 1
-	if _accumulator >= physics_dt:
-		_accumulator = 0.0 # still behind after the step limit: drop the backlog rather than fast-forward
 	# Fuel is injected once per engine cycle, so one physics step sees either all of it or none. The flow is the fuel used over
 	# the whole frame, smoothed over about two engine cycles, so the sound and the readouts get a steady value.
 	if n > 0:
@@ -239,9 +249,9 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var intake_temp := EngineAir.T0 - (charge_cooling_k(fuel.latent, fuel.afr, target_lambda) if running else 0.0)
 	for _i in SUBSTEPS:
 		_update_limiter(h, effective_limiter_rpm(spec))
-		# piston rings and bores: each cylinder's ring face grows with its bore. Scaled so a 57.3 mm bore gives FRICTION_PER_CYLINDER.
-		var friction := FRICTION_BASE + 2.0 * MAIN_BEARING_FRICTION + BALANCER_FRICTION + FRICTION_PER_RPM * rpm
-		friction += spec.cylinders * FRICTION_PER_CYLINDER * (spec.bore_mm / 57.3)
+		# Reitz (2018) FMEP: constant + peak-pressure term + mean-piston-speed term (bar), with the last cycle's peak pressure.
+		var fmep_pa_now := (REITZ_FMEP_C + REITZ_PF * peak_pressure_pa() / 1e5 + REITZ_MPSF * 2.0 * spec.stroke_mm * 0.001 * rpm / 60.0) * 1e5
+		var friction := fmep_pa_now * (spec.displacement_cc * 1e-6) / (4.0 * PI)
 		# constant crankshaft friction: full strength once the crank turns, fading to nothing as it stops
 		friction += spec.crank_friction_nm * minf(rpm / 50.0, 1.0)
 		friction *= oil_friction_scale(oil_c, spec.oil_operating_c)
@@ -291,9 +301,12 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					t_ex = exhaust.port_temperature(ci)
 				# limiter cuts both spark AND fuel to prevent unburnt mixture in exhaust
 				var cut := intake.limiter_cut or ecu.overrun() or qs_cut
+				# The overrun (decel) cut takes the fuel only. Cutting the spark too would leave a loaded charge unlit,
+				# and that charge pops the exhaust: the spark stays on through a closed-throttle decel.
+				var spark_cut := intake.limiter_cut or qs_cut
 				# Power mode lambda multiplier
 				var mode_lambda := target_lambda * ecu.get_power_mode_lambda_mult()
-				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, mode_lambda, running and not cut, cut, p_ex, t_ex)
+				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, mode_lambda, running and not spark_cut, cut, p_ex, t_ex)
 				gas += res.x / sub
 				drawn += res.y
 				if exhaust_solver and exhaust != null:
@@ -305,7 +318,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 						exhaust.add_energy(ci, c.backfire_j * 0.05)
 					c.backfire_j = 0.0
 			if exhaust_solver and exhaust != null:
-				exhaust.record_audio = audio_enabled
+				exhaust.set_record_audio(audio_enabled)
 				exhaust.advance(sub_h)
 			elif audio_enabled:
 				var blow_mdot := 0.0
@@ -330,7 +343,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 					# Normalize by cylinder count
 					_emit_intake((intake_mdot / rho) / spec.cylinders, sub_h)
 			intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * spec.idle_air_scale * ecu.air_factor() # idle air scales with displacement; the ECU's idle valve sets the rest
-			intake.manifold_update(sub_h, calibrated_throttle, drawn / sub_h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
+			intake.manifold_update(sub_h, calibrated_throttle, drawn / sub_h, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
 		gas *= 1.0 - knock_loss
 		_gas_torque = gas
 		_accumulate_cycle(gas - friction, step_deg, h, 720.0)
@@ -422,12 +435,12 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 					exhaust.apply_valve(ci, c.exhaust_mdot, c.exhaust_power)
 			# the chambers and pipes move on one step, with every cylinder's flow in
 			if exhaust != null:
-				exhaust.record_audio = audio_enabled
+				exhaust.set_record_audio(audio_enabled)
 				exhaust.advance(sub_h)
 		
 		# Intake manifold update with 2-stroke crankcase pumping
 		intake.bypass_area = EngineAir.BYPASS_AREA * spec.displacement_cc / 149.2 * spec.idle_air_scale * ecu.air_factor() # idle air, as the four-stroke
-		intake.manifold_update(h, throttle, drawn / h, spec, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
+		intake.manifold_update(h, throttle, drawn / h, rpm, running, speed if cell_mass_kg <= 0.0 else 0.0)
 		
 		gas *= 1.0 - knock_loss
 		_gas_torque = gas
@@ -458,7 +471,7 @@ func set_audio_layout(layout: ExhaustLayout, count: int) -> void:
 	_audio_layout = layout
 	# the solver runs the same pipes the drawing shows, so the sound, the pressures and the picture agree
 	if exhaust != null and layout != null:
-		exhaust.build(layout)
+		exhaust.build(layout.to_native_dict())
 	_blowdown = PackedFloat32Array()
 	_blowdown_left = 0.0
 	var dt := physics_dt / maxi(1, ceili(physics_dt / Cylinder.MAX_FLOW_DT))
@@ -816,8 +829,8 @@ func _build_cylinders(spec: EngineSpec) -> void:
 			c.set_cams(spec)
 			c.start_at(-fire[i])
 			cylinders.append(c)
-	exhaust = ExhaustGas.new()
-	exhaust.build(_audio_layout if _audio_layout != null else ExhaustLayout.build(spec))
+	exhaust = ExhaustNative.new()
+	exhaust.build((_audio_layout if _audio_layout != null else ExhaustLayout.build(spec)).to_native_dict())
 
 
 # Cold oil shears harder. At and above the operating temperature the scale is 1, which is the friction the dyno was calibrated with.
@@ -888,9 +901,12 @@ func _advance_driveline(dt: float, spec: EngineSpec, net: float, inertia: float,
 	var free_speed := maxf(speed - (road_load + BRAKE_FORCE * brake + cell_load_n) * dt / effective_mass, 0.0)
 	var free_omega := maxf(omega + net / inertia * dt, 0.0)
 	if ecu.is_launch_active() and ratio > 0.0:
-		# launch control: the clutch closes while the slip is above its target and opens while it is below, so the engine holds its rpm
-		var slip := 1.0 - speed * ratio / radius / maxf(omega, 1.0)
-		clutch_engage = clampf(clutch_engage + LAUNCH_CLUTCH_GAIN * (slip - ECU.LAUNCH_SLIP_RATE) * dt, 0.0, 1.0)
+		if clutch_pull > 0.5:
+			clutch_engage = 0.0
+		else:
+			var target_omega := ecu.get_launch_target_rpm() * TAU / 60.0
+			var rpm_err := (omega - target_omega) / maxf(target_omega, 1.0)
+			clutch_engage = clampf(clutch_engage + LAUNCH_CLUTCH_GAIN * rpm_err * dt, 0.0, 1.0)
 	var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
 	var transfer := clutch_transfer_torque(free_omega, free_speed, inertia, effective_mass, ratio, radius, cap, dt, CLUTCH_STIFFNESS)
 	gearbox_load = transfer
@@ -1002,3 +1018,25 @@ func residual_fraction() -> float:
 
 func _mean_angle(pick: Callable) -> float:
 	return EngineMetrics._mean_angle(self, pick)
+
+
+# The IntakeSpec fields the native intake reads, from the engine spec. Keys match IntakeSpec in gdextension/src/intake_native.cpp.
+func _intake_spec_dict(s: EngineSpec) -> Dictionary:
+	return {
+		"electric_compressor": s.electric_compressor, "compressor_map_id": s.compressor_map_id,
+		"max_boost_ratio": s.max_boost_ratio, "compressor_battery_wh": s.compressor_battery_wh,
+		"compressor_power_w": s.compressor_power_w, "compressor_charge_w": s.compressor_charge_w,
+		"boost_spool_time": s.boost_spool_time, "compressor_inertia_kgm2": s.compressor_inertia_kgm2,
+		"wastegate_type": s.wastegate_type, "wastegate_pressure_ratio": s.wastegate_pressure_ratio,
+		"turbine_efficiency": s.turbine_efficiency, "intake_area_scale": s.intake_area_scale,
+		"throttle_bore_mm": s.throttle_bore_mm, "throttle_count": s.throttle_count,
+		"manifold_volume_scale": s.manifold_volume_scale,
+	}
+
+
+# The compressor map JSON as a dictionary (the layout IntakeNative.setup reads). Empty when the engine has no map.
+func _intake_map_dict(map_id: String) -> Dictionary:
+	if map_id == "":
+		return {}
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://assets/compressor_maps/%s.json" % map_id))
+	return parsed if parsed is Dictionary else {}

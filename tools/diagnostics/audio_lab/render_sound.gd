@@ -53,7 +53,7 @@ func _init() -> void:
 	var layout := ExhaustLayout.build(spec)
 	var sim := EngineSim.new()
 	sim.exhaust_solver = offline
-	sim.physics_dt = 1.0 / 3600.0
+	sim.physics_dt = 1.0 / 28800.0
 	sim.fuel.set_kind(spec.fuel)
 	var sound := EngineSound.new()
 	sound.setup(spec, layout)

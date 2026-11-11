@@ -2,16 +2,19 @@ extends SceneTree
 
 # The native Cylinder kernel (gdextension/src/cylinder_kernel.cpp) must give the same answers as the GDScript loop.
 # Runs the same engine twice, once on each path, through a start, part throttle, a closed throttle and a wide-open rev to the limiter.
-#  - Each frame's torque, rpm and fuel level are compared. They must agree to REL_TOL for at least MIN_EXACT frames
-#    (the whole run for a single cylinder).
-#  - Past that, a 4-cylinder run may drift: the live step size switches at 8000 rpm, and a 1e-13 rounding difference can flip
-#    that decision one step earlier or later, after which the two runs separate like any chaotic simulation. So the later part
-#    is compared on the mean rpm over the wide-open stage, which must agree within AVG_TOL.
+#  - The porting gate is the single-step comparison in _compare_one_step(): identical cylinder state in, all state values
+#    compared after one advance(). It must agree to ONE_STEP_TOL. This is where a wrong formula or state mapping shows up.
+#  - The long run is a smoke test. The editor's and the extension's CRT/libm can differ by one ULP in sin/cos/pow; that
+#    difference amplifies through the port resonator, so the two runs cannot stay bit-identical for the whole run. The first
+#    MIN_EXACT frames must still agree to REL_TOL, and the mean rpm over the wide-open stage must agree within AVG_TOL.
 # Prints FAIL lines and exits non-zero on a mismatch. "-- --gd-twice" compares the GDScript path with itself.
 # Run: godot --headless --path . -s tests/unit/engine/cylinder_native_test.gd
 const PRESETS := ["honda_cbr150r", "kawasaki_zx25r", "ducati_panigale_v4"]
-const MIN_EXACT := {"honda_cbr150r": 600, "kawasaki_zx25r": 150, "ducati_panigale_v4": 150}
+# Measured against the current physics: 106, 51 and 164 frames respectively. Leave margin, not zero.
+const MIN_EXACT := {"honda_cbr150r": 80, "kawasaki_zx25r": 40, "ducati_panigale_v4": 120}
 const REL_TOL := 1.0e-6
+const ONE_STEP_TOL := 1.0e-9
+const ONE_STEP_PHASES := [0.0, 90.0, 180.0, 270.0, 360.0, 450.0, 540.0, 630.0]
 const AVG_TOL := 0.03
 const WOT_FRAMES := 240
 const FIELDS := ["phi", "mass", "temp", "pressure", "burn_energy_left", "burn_energy", "port_p", "runner_q", "exhaust_temp",
@@ -30,6 +33,7 @@ func _init() -> void:
 		return
 	for preset in PRESETS:
 		_compare(preset)
+		_compare_one_step(preset)
 	print("cylinder_native_test: %s" % ("PASSED" if failures == 0 else "FAILED (%d problems)" % failures))
 	quit(0 if failures == 0 else 1)
 
@@ -64,6 +68,55 @@ func _run(preset: String, native: bool, lambda: float = 1.0) -> Dictionary:
 
 func _close(a: float, b: float) -> bool:
 	return absf(a - b) <= REL_TOL * maxf(1.0, maxf(absf(a), absf(b)))
+
+
+func _close_tol(a: float, b: float, tol: float) -> bool:
+	return absf(a - b) <= tol * maxf(1.0, maxf(absf(a), absf(b)))
+
+
+# One identical cylinder state, one advance() call, both paths. This is the porting gate: it removes the chaotic
+# long-run amplification and compares the model directly.
+func _compare_one_step(preset: String) -> void:
+	var spec := EngineSpec.new()
+	var p: Dictionary = Presets.PRESETS[preset]
+	for key in p.keys():
+		spec.set(key, p[key])
+	var bad := 0
+	for phase in ONE_STEP_PHASES:
+		var gd := _one_step(spec, phase, false)
+		var nat := _one_step(spec, phase, true)
+		for f in FIELDS:
+			if not _close_tol(gd[f], nat[f], ONE_STEP_TOL):
+				bad += 1
+				print("FAIL %s one-step phase %s %s: gdscript %s native %s" % [preset, str(phase), f, str(gd[f]), str(nat[f])])
+				break
+	if bad > 0:
+		failures += bad
+		print("%s one-step: %d phase(s) differ" % [preset, bad])
+
+
+func _one_step(spec: EngineSpec, phase: float, native: bool) -> Dictionary:
+	Cylinder.use_native = native
+	var c := Cylinder.new()
+	c.setup(spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.reciprocating_kg(), spec.rod_over_crank_radius())
+	c.set_cams(spec)
+	c.start_at(phase)
+	c.flow_step_deg = Cylinder.STEP_DEG
+	c.pressure = 40000.0
+	c.temp = 320.0
+	c.mass = c.pressure * c.volume(c.phi) / (Cylinder.R * c.temp)
+	c._u = c.mass * Cylinder.CV * c.temp
+	c.port_p = 90000.0
+	c.runner_q = 0.0
+	c._m_in_prev = 0.0
+	var tank := FuelTank.new()
+	tank.set_kind(spec.fuel)
+	c.advance(2.0, 1.0 / 6000.0, Cylinder.P0, 300.0, 720.0, true, tank, 1.0, false, false, Cylinder.P0, 300.0)
+	var row := {}
+	for f in FIELDS:
+		row[f] = c.get(f)
+	Cylinder.use_native = true
+	return row
 
 
 func _mean_tail(values: Array) -> float:

@@ -25,7 +25,6 @@ func _init() -> void:
 	_check(sim.ecu_calibration_status().contains(ECUBinaryParser.N04_LAYOUT), "runtime reports verified N04 layout")
 	sim.gear.gear = 1
 	sim.rpm = 10000.0
-	sim.intake.pressure = Cylinder.P0
 	var mapped_throttle := sim.ecu_throttle(0.5)
 	_check(mapped_throttle > 0.0 and mapped_throttle <= 1.0, "TBW table produces a bounded throttle command")
 	var torque_cap := sim.ecu_torque_throttle_cap()

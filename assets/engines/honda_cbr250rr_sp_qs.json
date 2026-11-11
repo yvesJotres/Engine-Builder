@@ -1,5 +1,5 @@
 {
-  "display_name": "Honda CBR250RR SP QS (2023, Indonesia)",
+  "display_name": "Honda CBR250RR SP QS (2023)",
   "geometry": {
     "wheelbase_mm": 1385,
     "front_tire_width_mm": 110,
@@ -35,6 +35,8 @@
     "wheel_radius_m": 0.3139
   },
   "valvetrain": {
+    "header_primary_mm": 42.0,
+    "runner_length_m": 0.125,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 255.0,
     "intake_lift_mm": 6.0,

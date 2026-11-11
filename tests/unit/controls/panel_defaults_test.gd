@@ -57,11 +57,15 @@ func _init() -> void:
 			# a two-stroke has no valves or cams, so its valve controls are not compared
 			if got.stroke_type == "two_stroke" and field in VALVE_FIELDS:
 				continue
-			check(_same(got.get(field), want.get(field)), "%s: %s is %s from the panel, %s from the preset" % [name, field, str(got.get(field)), str(want.get(field))])
+			var expected = want.get(field)
+			# ABS and traction control are forced off until the wheel physics exists, so the spec is off whatever the preset says
+			if field in ["abs_enabled", "traction_control_enabled"] and not ControlPanel.WHEEL_AIDS_AVAILABLE:
+				expected = false
+			check(_same(got.get(field), expected), "%s: %s is %s from the panel, %s from the preset" % [name, field, str(got.get(field)), str(expected)])
 		check(panel._controls["qs_enabled"].visible, "%s: quickshifter switch is on every bike" % name)
 		check(panel._controls["launch_control"].visible, "%s: launch-control switch is on every bike" % name)
-		check(panel._controls["abs_enabled"].visible and panel._controls["abs_enabled"].disabled == (not ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: ABS is on every bike, locked until the wheel physics is built" % name)
-		check(panel._controls["traction_control_enabled"].visible and panel._controls["traction_control_enabled"].disabled == (not ControlPanel.WHEEL_AIDS_AVAILABLE), "%s: traction control is on every bike, locked until the wheel physics is built" % name)
+		check(panel._controls["abs_enabled"].visible == ControlPanel.WHEEL_AIDS_AVAILABLE, "%s: ABS is shown only once the wheel physics is built" % name)
+		check(panel._controls["traction_control_enabled"].visible == ControlPanel.WHEEL_AIDS_AVAILABLE, "%s: traction control is shown only once the wheel physics is built" % name)
 		check(got.validation_warning() == "", "%s: the panel's settings pass validation (%s)" % [name, got.validation_warning()])
 		index += 1
 	var frame := panel.get_child(0) as PanelContainer

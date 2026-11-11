@@ -13,21 +13,29 @@ const CP := G * R / (G - 1.0)
 const CV_BURNT := 960.0 # J/(kg·K), combustion products (gamma about 1.3), estimate; air's CV is 717.5
 const P0 := 101325.0 # atmosphere, Pa
 const T0 := 300.0 # intake and ambient temperature, K
-const CD_VALVE := 0.7 # discharge coefficient for valve curtain flow, estimate
+const CD_VALVE := 0.7 # reference discharge coefficient: valve_cd is scaled against it, so the default preset flow is unchanged
+# Discharge coefficient against lift-to-diameter ratio L/D: low at small lift, rising to the knee (SAE 820154; SAE 962527). Values from those sources, not fitted.
+const CD_CURVE_LOW := 0.30 # Cd at L/D 0
+const CD_CURVE_KNEE := 0.42 # Cd at the knee, from the published figure near L/D 0.25
+const LD_KNEE := 0.25
 const COMBUSTION_EFFICIENCY := 0.95 # estimate
-const MISFIRE_LAMBDA := 1.35
+const MISFIRE_LAMBDA := 1.35 # too lean to light: fuel is not injected at all
+const GAS_FUEL_MISFIRE := 24.0 # gas/fuel ratio (trapped gas incl. residual over fuel) where partial burning starts, warm engine. Shayler et al., SAE 2000-01-1208. Above it the fuel is injected but stays unlit
 const BURN_DEG_BASE := 45.0 # crank degrees of burn at zero rpm, estimate
 const BURN_DEG_PER_RPM := 0.002 # the flame takes about the same time in ms, so the burn spans more crank degrees as rpm rises, estimate
-const CA50_TARGET := 10.0 # deg after TDC where half the charge is burnt, near best torque (typical 8 to 12)
+const CA50_TARGET := 10.0 # deg after TDC where half the charge is burnt. Inside the researched 7-12 deg window (docs/engine_physics/07). The SAE papers put best torque at 7-8; 8 was tried and pops at idle and starves the fuel flow read, so it needs an idle/cruise split with dyno evidence, not a constant change
 const WIEBE_CA50 := 0.465 # Wiebe point where 50% is burnt, as a share of the burn duration
 const WIEBE_A := 6.908 # Wiebe efficiency factor, 99.9% burnt at the end of the burn duration
 const WIEBE_M := 2.0 # Wiebe form factor, slow start, fast middle, slow end
 const STEP_DEG := 10.0 # cylinder integration step, deg, coarse enough to run at 60 fps
 const LIVE_HIGH_RPM_STEP_DEG := 20.0 # live four-cylinder fallback; offline rendering retains STEP_DEG
 const LARGE_RUNNER_STEP_DEG := 1.0 # large-port filling needs this resolution; see R1M convergence audit
-const WALL_HEAT := 1000.0 # W/(m²·K), average heat transfer to the walls at WALL_REF_W, typical engine value
-const WALL_REF_W := 314.0 # rad/s, 3000 rpm, the speed WALL_HEAT applies at
-const WALL_TEMP := 420.0 # K, cylinder wall temperature, estimate
+# Woschni (1967, SAE 670931) gas-side heat transfer, SI form as in Heywood's Internal Combustion Engine Fundamentals
+const WOSCHNI_H := 3.26 # W/(m²·K) coefficient, with B^-0.2 p^0.8 T^-0.55 w^0.8 (B m, p kPa, T K, w m/s)
+const WOSCHNI_C1 := 2.28 # gas speed per mean piston speed, compression and expansion
+const WOSCHNI_C1_GAS := 6.18 # gas speed per mean piston speed, gas exchange
+const WOSCHNI_C2 := 0.00324 # m/(s·K), pressure-rise term during combustion and expansion
+const WALL_TEMP := 420.0 # K, mean wall temperature; estimate inside the 400-450 K typical liquid-cooled range
 
 # valve timing (deg, phi): intake open 350 to close 580, exhaust open 140 to close 370
 const INTAKE_OPEN := 350.0
@@ -99,6 +107,7 @@ var burn_energy_left := 0.0 # J still to release in this cycle
 var burn_energy := 0.0 # J released by the charge in this cycle, total
 var port_p := P0 # Pa, gas pressure at the intake valve
 var runner_q := 0.0 # kg/s, flow along the runner toward the cylinder
+var _m_in_prev := 0.0 # kg/s, fresh air through the intake valve last step: sets the port's dynamic loss
 var exhaust_temp := 300.0 # K, the gas temperature when the exhaust valve last opened: the exhaust temperature sensor
 var peak_temp := 300.0 # K, the hottest gas in the current cycle so far
 var last_peak_temp := 300.0 # K, the hottest gas in the last complete cycle: the chamber temperature sensor reads it
@@ -109,6 +118,7 @@ var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: i
 var _port_heat := T0 # K, the exhaust port's heat from the last firing; an unlit charge can catch from it, and it is spent once used
 var backfire_j := 0.0 # J released by backfires since the engine last read it
 var _residual_kg := 0.0 # kg of burnt gas left in the cylinder when the exhaust valve closed
+var _residual_temp := T0 # K, that gas's temperature when the exhaust valve closed: it is hot, not fresh charge
 var _overlap_out := 0.0 # kg pushed back out the intake while the exhaust valve was still open; it is burnt gas, not fresh air
 var _burnt := 0.0 # share of this cycle's fuel energy released so far, 0 = fresh air, 1 = all burnt
 var wall_loss_j := 0.0 # J of heat lost to the walls since the cylinder was made
@@ -135,6 +145,9 @@ var last_ca90 := -1.0
 var last_burn_10_90 := 0.0 # crank degrees from 10% to 90% burnt
 var last_fresh_kg := 0.0 # air trapped at intake closing, residuals removed
 var last_ivc_temp := T0 # K, charge temperature at intake closing
+var _ivc_p := P0 # Pa, cylinder pressure at intake closing, the motored reference for Woschni
+var _ivc_v := 0.0 # m³, cylinder volume at intake closing
+var _ivc_t := T0 # K, cylinder temperature at intake closing
 var last_residual_fraction := 0.0 # share of the trapped mass that is leftover exhaust
 
 
@@ -348,7 +361,12 @@ const S_TANK_MASS := 43
 const S_OUT_TORQUE := 44
 const S_OUT_DRAWN := 45
 const S_FILM_KG := 46 # fuel on the port wall, kg (in and out)
+const S_INTAKE_MDOT := 47 # fresh air through the intake valve last step, kg/s (in and out): sets the port's dynamic loss
 const S_BINS := 48
+const S_IVC_P := 138 # intake-closing pressure, volume and temperature (Woschni reference state)
+const S_IVC_V := 139
+const S_IVC_T := 140
+const S_RESIDUAL_TEMP := 141 # K, temperature of the burnt gas left at exhaust closing
 var _st := PackedFloat64Array()
 var _cfg := PackedFloat64Array()
 var _icurve := PackedFloat64Array()
@@ -379,8 +397,8 @@ func _advance_native(dphi: float, dt: float, pm: float, tm: float, ign_phi: floa
 		tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool, p_ex: float, t_ex: float) -> Vector2:
 	if _cfg_dirty:
 		_build_native_config()
-	if _st.size() != 138:
-		_st.resize(138)
+	if _st.size() != 142:
+		_st.resize(142)
 	if not _native_bins: # first native call, or back from the GDScript path: the bins move into the state array
 		for i in EXHAUST_FLOW_BINS:
 			_st[S_BINS + i] = _exhaust_flow_cycle[i] if i < _exhaust_flow_cycle.size() else 0.0
@@ -427,13 +445,19 @@ func _advance_native(dphi: float, dt: float, pm: float, tm: float, ign_phi: floa
 	_st[39] = last_burn_10_90
 	_st[40] = last_fresh_kg
 	_st[41] = last_ivc_temp
+	_st[S_IVC_P] = _ivc_p
+	_st[S_IVC_V] = _ivc_v
+	_st[S_IVC_T] = _ivc_t
+	_st[S_RESIDUAL_TEMP] = _residual_temp
 	_st[42] = last_residual_fraction
 	_st[S_TANK_MASS] = tank.mass_kg
 	_st[S_FILM_KG] = film_kg
+	_st[S_INTAKE_MDOT] = _m_in_prev
 	_st = CylinderKernel.advance(_st, _cfg, _icurve, _ecurve, dphi, dt, pm, tm, ign_phi, firing, tank.afr, tank.lhv, lambda,
 		spark, limiter_cut, p_ex, t_ex, flow_step_deg)
 	phi = _st[0]
 	film_kg = _st[S_FILM_KG]
+	_m_in_prev = _st[S_INTAKE_MDOT]
 	mass = _st[1]
 	temp = _st[2]
 	pressure = _st[3]
@@ -475,6 +499,10 @@ func _advance_native(dphi: float, dt: float, pm: float, tm: float, ign_phi: floa
 	last_burn_10_90 = _st[39]
 	last_fresh_kg = _st[40]
 	last_ivc_temp = _st[41]
+	_ivc_p = _st[S_IVC_P]
+	_ivc_v = _st[S_IVC_V]
+	_ivc_t = _st[S_IVC_T]
+	_residual_temp = _st[S_RESIDUAL_TEMP]
 	last_residual_fraction = _st[42]
 	tank.mass_kg = _st[S_TANK_MASS]
 	return Vector2(_st[S_OUT_TORQUE], _st[S_OUT_DRAWN])
@@ -494,6 +522,25 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 	return _advance_gd(dphi, dt, pm, tm, ign_phi, firing, tank, lambda, spark, limiter_cut, p_ex, t_ex)
 
 
+# Discharge coefficient at this lift, scaled by the preset's valve_cd. Flat above the knee.
+# shortcut: flat above L/D 0.25; SAE 820154 says Cd falls at high lift, upgrade when a measured curve is available
+static func discharge_cd(lift: float, d: float) -> float:
+	var ld := lift / maxf(d, 1e-6)
+	return lerpf(CD_CURVE_LOW, CD_CURVE_KNEE, clampf(ld / LD_KNEE, 0.0, 1.0))
+
+
+# Woschni (1967) gas-side heat transfer coefficient, W/(m²·K), from this step's state (Heywood, SI form).
+# Gas speed w = C1 Sp + C2 (Vd Tr)/(pr Vr) (p - p0): Sp mean piston speed; p0 motored pressure, isentropic from intake closing.
+# Pressure ratios are dimensionless, so Pa can be used directly in the C2 term.
+func woschni_h(w_rad: float, p_pa: float, t: float, v: float, burning: bool, gas_exchange: bool) -> float:
+	var sp := stroke * w_rad / PI # mean piston speed, m/s
+	var gas_speed := (WOSCHNI_C1_GAS if gas_exchange else WOSCHNI_C1) * sp
+	if burning and not gas_exchange and _ivc_v > 0.0:
+		var p0 := _ivc_p * pow(_ivc_v / v, G) # motored pressure, Pa
+		gas_speed += WOSCHNI_C2 * swept * _ivc_t / (_ivc_p * _ivc_v) * (p_pa - p0)
+	return WOSCHNI_H * pow(bore, -0.2) * pow(p_pa / 1000.0, 0.8) * pow(t, -0.55) * pow(maxf(gas_speed, 1.0), 0.8)
+
+
 # Advances the cylinder by dphi degrees, taking dt seconds. pm and tm: manifold pressure and temperature.
 # ign_phi: spark phase. firing: the engine is running. tank: fuel is drawn when the intake valve closes.
 # limiter_cut: true when the rev limiter has cut spark for this cycle - if true, fuel is cut to prevent unburnt mixture.
@@ -510,7 +557,6 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 	var w := deg_to_rad(dphi) / dt if dt > 0.0 else 0.0 # crank speed, rad/s
 	var crank_r := stroke * 0.5
 	var burn_deg := burn_duration_deg(w * 60.0 / TAU)
-	var h_wall := WALL_HEAT * wall_heat_scale * pow(maxf(w, 1.0) / WALL_REF_W, 0.8)
 	var previous_volume := volume(phi)
 	var ex_mass := 0.0
 	var ex_energy := 0.0
@@ -529,9 +575,15 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		# engine) that an explicit step drives unstable at the finer steps. The implicit solve is stable at any step length.
 		var v_run := runner_q / (runner_area * 1.2)
 		var drag := 0.5 * RUNNER_LOSS * 1.2 * v_run * absf(v_run) # lagged from the last step
-		var m_in := mass_flow(minf(2.0 * PI * intake_valve_d * _lift(p0, intake_open, intake_close, intake_lift,
+		# fresh air through the intake port loses its dynamic pressure, as the runner does, lagged from the last step
+		var port_v := maxf(_m_in_prev, 0.0) / (1.2 * INTAKE_PORT_AREA)
+		var port_loss := 0.5 * RUNNER_LOSS * 1.2 * port_v * port_v
+		var intake_lift_now := _lift(p0, intake_open, intake_close, intake_lift,
 			_intake_profile, _intake_lift_curve, _intake_flat_frac,
-			_intake_open_ramp, _intake_close_ramp, _intake_duration_050), 0.5 * PI * intake_valve_d * intake_valve_d) * valve_cd / CD_VALVE, port_p, tm, pressure, temp) * sdt
+			_intake_open_ramp, _intake_close_ramp, _intake_duration_050)
+		var m_in := mass_flow(minf(2.0 * PI * intake_valve_d * intake_lift_now, 0.5 * PI * intake_valve_d * intake_valve_d) * valve_cd * discharge_cd(intake_lift_now, intake_valve_d) / (CD_VALVE * CD_VALVE), port_p - port_loss, tm, pressure, temp) * sdt
+		if sdt > 0.0:
+			_m_in_prev = m_in / sdt
 		var exhaust_lift_now := _lift(p0, exhaust_open, exhaust_close, exhaust_lift,
 				_exhaust_profile, _exhaust_lift_curve, _exhaust_flat_frac,
 				_exhaust_open_ramp, _exhaust_close_ramp, _exhaust_duration_050)
@@ -544,7 +596,7 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		var dp := (port_c * sdt * runner_q + k * (pm - port_p - drag) - port_c * m_in) / (1.0 + k)
 		runner_q += air_a * (pm - port_p - drag - dp)
 		port_p = clampf(port_p + dp, 1000.0, 3.0 * P0)
-		var m_out := mass_flow(minf(2.0 * PI * exhaust_valve_d * exhaust_lift_now, 0.5 * PI * exhaust_valve_d * exhaust_valve_d) * valve_cd / CD_VALVE, pressure, temp, p_ex, t_ex) * sdt
+		var m_out := mass_flow(minf(2.0 * PI * exhaust_valve_d * exhaust_lift_now, 0.5 * PI * exhaust_valve_d * exhaust_valve_d) * valve_cd * discharge_cd(exhaust_lift_now, exhaust_valve_d) / (CD_VALVE * CD_VALVE), pressure, temp, p_ex, t_ex) * sdt
 		if sdt > 0.0:
 			var first_bin := floori(p0 * EXHAUST_FLOW_BINS / 720.0)
 			var last_bin := floori(p1 * EXHAUST_FLOW_BINS / 720.0)
@@ -564,9 +616,14 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 			_port_heat = temp # the exhaust port is hot from a firing: this is what an unlit charge can catch from
 		if _crossed(p0, p1, exhaust_close):
 			_residual_kg = mass
+			# the gas left at exhaust closing is burnt products, not air, and it is hot: carry its temperature
+			_residual_temp = temp
 
 		# intake valve closes: the fresh air that came in sets how much fuel is injected and burned
 		if _crossed(p0, p1, intake_close):
+			_ivc_p = pressure
+			_ivc_v = next_volume
+			_ivc_t = temp
 			_fired = false
 			if firing:
 				_fuel_charge(tank, lambda, spark, limiter_cut, pm)
@@ -588,7 +645,8 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		# heat lost to the walls: head plus piston crown plus the liner exposed by the piston
 		var liner := (next_volume - clearance) / piston_area
 		var wall_area := 2.0 * piston_area + PI * bore * maxf(liner, 0.0)
-		# wall heat transfer grows with gas motion (Woschni-like, speed^0.8), so it is small when cranking
+		var gas_exchange := _in_window(p0, intake_open, intake_close - intake_open) or _in_window(p0, exhaust_open, exhaust_close - exhaust_open)
+		var h_wall := woschni_h(w, pressure, temp, next_volume, _burnt > 0.0, gas_exchange)
 		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt
 		wall_loss_j += q_loss # running total, for the combustion checks
 
@@ -673,6 +731,7 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool 
 		return # too lean to light
 	var fresh := last_fresh_kg # the burnt gas left from the last cycle, including what overlap pushed into the port, takes no fuel
 	var wanted := fresh / (tank.afr * lambda)
+	var lit := spark
 	var sprayed := minf(wanted, tank.mass_kg)
 	tank.mass_kg -= sprayed
 	# port injection: a share of the spray lands on the port wall, and that film evaporates back into the charge over a few cycles
@@ -681,7 +740,18 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool 
 	var supplied := (1.0 - FILM_DEPOSIT) * sprayed + evap
 	mass += supplied # the fuel joins the charge, so the gas carries the mass it releases energy from
 	_u += supplied * CV * temp # at the gas temperature, so the mix stays at the same temperature
-	if not spark:
+	# The residual is burnt gas at exhaust temperature, not cold air. Mixing the whole charge at one temperature charges the
+	# residual to the fresh gas temperature, so at intake closing the chamber reads far colder (and so far denser) than it
+	# really is. That error is small at a steady idle and lethal on the first cycles of a start, which then read too lean to
+	# light. Put the residual's own enthalpy back into the mixed state (air-gas mixture of the same heat capacity).
+	var mixed := mass
+	if mixed > 1.0e-12:
+		var air_before := maxf(mixed - _residual_kg, 0.0)
+		var held := air_before * temp + _residual_kg * _residual_temp
+		var fixed := held / mixed
+		_u += mixed * CV * (fixed - temp)
+		temp = clampf(fixed, 200.0, 4000.0)
+	if not lit:
 		fuel_unburnt_kg = supplied # injected but not lit: it stays unburnt and leaves with the exhaust
 		return
 	fuel_unburnt_kg = 0.0
