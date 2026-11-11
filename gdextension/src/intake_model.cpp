@@ -37,7 +37,7 @@ void IntakeModel::manifold_update(double dt, double throttle, double drawn_kg_s,
         double speed_factor = clampd((rpm - 1500.0) / 3500.0, 0.0, 1.0);
         compressor_load = 0.0;
 
-        if (spec->electric_compressor || !spec->compressor_map_id.empty()) {
+        if (!spec->compressor_map_id.empty()) {
             // Map-based compressor model
             turbo::update_map(*this, dt, *spec, drawn_scaled, throttle, engine_running);
             target_boost = compressor_pr;
@@ -45,6 +45,13 @@ void IntakeModel::manifold_update(double dt, double throttle, double drawn_kg_s,
         } else {
             // Legacy electric compressor model
             const double available = clampd(compressor_charge / 0.1, 0.0, 1.0);
+            if (spec->electric_compressor) {
+                // Stopped, the motor is off. Running, it holds the configured pressure ratio until the battery runs low,
+                // and then it can only hold what charge is left.
+                target_boost = engine_running
+                    ? 1.0 + std::max(spec->max_boost_ratio - 1.0, 0.0) * available
+                    : 1.0;
+            }
             compressor_load = engine_running ? clampd(throttle, 0.0, 1.0) * available : 0.0;
             speed_factor = engine_running ? available : 0.0;
             const double draw = compressor_load * std::max(spec->compressor_power_w, 0.0);

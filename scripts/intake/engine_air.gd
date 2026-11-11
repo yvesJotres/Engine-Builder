@@ -72,16 +72,26 @@ func manifold_update(dt: float, throttle: float, drawn_kg_s: float, spec: Engine
 		var speed_factor := clampf((rpm - 1500.0) / 3500.0, 0.0, 1.0)
 		compressor_load = 0.0
 
-		if spec.electric_compressor or spec.compressor_map_id != "":
+		if spec.compressor_map_id != "":
 			# Map-based compressor model
 			Turbo.update_map(self, dt, spec, drawn_scaled, throttle, engine_running)
 			target_boost = compressor_pr
 			speed_factor = 1.0 # map handles speed dependence
 		else:
-			# Legacy electric compressor model
+			# A motor-driven compressor whose pressure ratio is the configured one. It needs no shaft inertia: the drive
+			# holds the pressure independent of engine speed, and the battery pays for the compression work.
 			var available := clampf(compressor_charge / 0.1, 0.0, 1.0)
+			if spec.electric_compressor:
+				# Stopped, the motor is off. Running, it holds the configured pressure ratio until the battery runs low,
+				# and then it can only hold what charge is left.
+				if not engine_running:
+					target_boost = 1.0
+				else:
+					target_boost = 1.0 + maxf(spec.max_boost_ratio - 1.0, 0.0) * available
+			# Legacy electric compressor model
 			compressor_load = clampf(throttle, 0.0, 1.0) * available if engine_running else 0.0
 			speed_factor = available if engine_running else 0.0
+			# at full load the drive takes its rated electrical power; at part load it takes less
 			var draw := compressor_load * maxf(spec.compressor_power_w, 0.0)
 			var charging := maxf(spec.compressor_charge_w, 0.0) if engine_running else 0.0
 			compressor_charge = clampf(compressor_charge + (charging - draw) * dt / (maxf(spec.compressor_battery_wh, 0.1) * 3600.0), 0.0, 1.0)

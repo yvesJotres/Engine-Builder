@@ -7,6 +7,7 @@ env.Append(CPPPATH=["src/", "include/"])
 sources = [
     "src/register_types.cpp",
     "src/cylinder_kernel.cpp",
+    "src/engine_sim_clock.cpp",
 ]
 # Not built: src/cylinder.cpp and src/exhaust_gas.cpp are an older, unfinished port that no longer matches the GDScript.
 

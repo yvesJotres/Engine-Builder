@@ -38,7 +38,7 @@
     "electric_compressor": true,
     "boost_spool_time": 0.15,
     "intake_area_scale": 2.0,
-    "compressor_map_id": "garrett_gtx3076r",
+    "compressor_map_id": "",
     "compressor_inertia_kgm2": 0.00002,
     "compressor_battery_wh": 40.0,
     "compressor_power_w": 2000.0,

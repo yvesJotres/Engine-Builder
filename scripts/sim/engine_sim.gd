@@ -18,6 +18,8 @@ const SUBSTEPS := 1 # each fixed physics step is taken once
 var physics_dt := 1.0 / 1200.0 # s per physics step, set from the pause menu: Fast 1/1200, Normal 1/2400, Accurate 1/3600, Ultra 1/7200, Extreme 1/10800, Insane 1/14400, Ludicrous 1/28800
 const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch must not make the sim run in fast-forward
 var _accumulator := 0.0 # real time not yet simulated, s
+var _native_clock: Object = null # EngineSimClock; null only while the extension is not built
+var _native_clock_checked := false
 const STARTER_TORQUE := 20.0 # N·m per 150 cc at zero speed, fades to zero at CRANK_RPM; scaled from the CBR150R calibration, estimate
 const CRANK_RPM := 900.0 # the starter's help fades to zero here, about the speed where the engine holds itself up
 var last_starter_held := false # the starter input from the last step, for the sound
@@ -162,16 +164,29 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 		gearbox_load = 0.0
 		_knocking = false
 		_accumulator = 0.0
+		if _native_clock != null:
+			_native_clock.reset()
 		torque = 0.0
 		fuel_flow = 0.0
 		return
-	_accumulator = minf(_accumulator + delta, MAX_FRAME_TIME)
+	if not _native_clock_checked:
+		_native_clock_checked = true
+		if ClassDB.class_exists("EngineSimClock"):
+			_native_clock = ClassDB.instantiate("EngineSimClock")
 	var fuel_start := fuel.mass_kg
 	var n := 0
-	while _accumulator >= physics_dt:
-		_advance(physics_dt, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
-		_accumulator -= physics_dt
-		n += 1
+	if _native_clock != null:
+		_native_clock.configure(physics_dt, MAX_FRAME_TIME)
+		n = int(_native_clock.consume(delta))
+		_accumulator = float(_native_clock.accumulator())
+		for i in n:
+			_advance(physics_dt, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
+	else:
+		_accumulator = minf(_accumulator + delta, MAX_FRAME_TIME)
+		while _accumulator >= physics_dt:
+			_advance(physics_dt, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
+			_accumulator -= physics_dt
+			n += 1
 	# Fuel is injected once per engine cycle, so one physics step sees either all of it or none. The flow is the fuel used over
 	# the whole frame, smoothed over about two engine cycles, so the sound and the readouts get a steady value.
 	if n > 0:

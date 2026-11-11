@@ -26,6 +26,7 @@ endif()
 add_library(engine_sim SHARED
     src/register_types.cpp
     src/cylinder_kernel.cpp
+    src/engine_sim_clock.cpp
     # plain C++ physics (no Godot types)
     src/exhaust_gas.cpp
     src/intake_model.cpp

@@ -4,6 +4,7 @@
 
 #include "audio_convolver.h"
 #include "cylinder_kernel.h"
+#include "engine_sim_clock.h"
 #include "ecu_native.h"
 #include "exhaust_native.h"
 #include "firing_native.h"
@@ -21,6 +22,7 @@ void initialize_engine_sim_module(ModuleInitializationLevel p_level) {
 	}
 	GDREGISTER_CLASS(AudioConvolver);
 	GDREGISTER_CLASS(CylinderKernel);
+	GDREGISTER_CLASS(EngineSimClock);
 	GDREGISTER_CLASS(ExhaustNative);
 	GDREGISTER_CLASS(FiringNative);
 	GDREGISTER_CLASS(FuelNative);
