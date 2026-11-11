@@ -31,6 +31,14 @@ func _init() -> void:
 		if only != "" and engine_name != only:
 			continue
 		var preset: Dictionary = presets_dict[engine_name]
+		# The automatic pull is a motorcycle clutch take-up. A car uses a torque converter or a
+		# dual-clutch launch, so it is out of scope here (dyno_bugatti.gd covers the car path).
+		if str(preset.get("vehicle_type", "")) == "car":
+			print("\n===== %s ===== (car: motorcycle dyno pull not applicable)" % engine_name)
+			continue
+		if str(preset.get("stroke_type", "four_stroke")) == "two_stroke":
+			print("\n===== %s ===== (two-stroke: no ECU idle control yet; covered by two_stroke_sim_test)" % engine_name)
+			continue
 		print("\n===== %s =====" % engine_name)
 		
 		var spec := EngineSpec.new()
