@@ -45,7 +45,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 |-------|----------------|------|-----------------|--------|
 | Volume vs crank angle (slider-crank) | `scripts/engine/cylinder.gd:480` | ❌ none | V(θ) = V_c + ½V_s[1-cosθ + (1-√(1-λ²sin²θ))/λ] λ=r/L | ❌ |
 | Valve curtain area vs lift (Heywood) | `cylinder.gd:500` `cylinder_kernel.cpp:30` | ❌ none | A = π·d_valve·lift·Cd; Cd vs L/D from SAE 820154/962527 | ❌ |
-| Orifice mass flow (Heywood App C) | `cylinder_kernel.cpp:180` | ❌ none | Choked: ṁ = Cd·A·p0·√(γ/R/T0)·(2/(γ+1))^((γ+1)/(2(γ-1))) | ❌ |
+| Orifice mass flow (Heywood App C) | `cylinder.gd:318` `cylinder_kernel.cpp:180` | ✅ `tests/unit/engine/orifice_flow_test.gd` — choked, subsonic, continuity at 0.5283, sign symmetry, linearity | Choked: ṁ = Cd·A·p0·√(γ/R/T0)·(2/(γ+1))^((γ+1)/(2(γ-1))) | ✅ `[closed]` |
 | Wiebe burn fraction | `cylinder.gd:700` `cylinder_kernel.cpp:580` | ❌ none | x_b = 1-exp(-a·((θ-θ0)/Δθ)^(m+1)); a=5, m=2 typical | ❌ |
 | **Heat transfer: Woschni (1967) SAE 670931** | `cylinder.gd:600` `cylinder_kernel.cpp:540` | ✅ `tests/unit/engine/woschni_validation_test.gd` (hand calc at motored / fired / gas-exchange points) + `woschni_test.gd` (conservation) | h = 3.26·B⁻⁰·²·p⁰·⁸·T⁻⁰·⁵⁵·w⁰·⁸; w = C1·v_p + C2·(V_d·T_r·(p-p_m))/p_r·V_r | ✅ `[hand]` |
 | **Heat transfer: Annand (1963)** | `cylinder_kernel.cpp:550` (optional) | ❌ none | h = a·Re^b·Pr^c; a=0.52, b=0.7, c=0.33 (Annand) | ❌ |
@@ -190,7 +190,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | ~~2~~ | ✅ **C++/GDScript parity test** (1e-9) — closed by `tests/unit/engine/cylinder_native_test.gd` | `gas_properties` + `cylinder_kernel` | — | Internal requirement `[ind]` |
 | ~~3~~ | ✅ **Woschni at 3 operating points** — closed by `tests/unit/engine/woschni_validation_test.gd` (motored 270.6, fired 3603.2, gas exchange 110.2 W/(m²·K) at 3000 rpm, each against hand arithmetic) | `cylinder` | — | Qasemian 2020; Woschni SAE 670931 `[hand]` |
 | 4 | **Valve flow Cd vs L/D** (3 points from Heywood Fig 6-18) | `cylinder` | 1 day | SAE 820154 / Heywood Fig 6-18 |
-| 5 | **Orifice mass flow (choked + subsonic)** | `cylinder` / `intake` | 1 day | Heywood App C |
+| ~~5~~ | ✅ **Orifice mass flow** — closed by `tests/unit/engine/orifice_flow_test.gd` (0.028293 kg/s choked, branches meet at pr 0.5283) | `cylinder` / `intake` | — | Heywood App C `[closed]` |
 | 6 | **Closed-cylinder pressure trace vs motored data** | `cylinder` | 3 days | SAE 2002-01-0492 (or similar) |
 | 7 | **Fired IMEP / peak P / CA50 vs measured** | `cylinder` + `engine_sim` | 3 days | GT-Power correlation targets (±3% / ±5% / ±1.5°) |
 | 8 | **Exhaust open-end reflection** (Levine & Schwinger 0.6133a) | `exhaust_gas` | 2 days | Levine & Schwinger 1948; Silva 2009 |

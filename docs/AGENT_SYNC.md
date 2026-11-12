@@ -11,7 +11,7 @@ Architecture and work packages: [MULTI_AGENT_PLAN.md](MULTI_AGENT_PLAN.md). This
 ## Trunk state (last updated 2026-11-12)
 
 - `main` head: `9b12be8` — "gate: run_test.bat takes group flags, and the agent contract docs exist"
-- Active branch: `feat/physics-natural-feel` at `c6809d1` — Woschni validation (gap 3) landed, test green.
+- Active branch: `feat/physics-natural-feel` — Woschni (gap 3) and orifice flow (gap 5) landed, both green.
 - Gate: `run_test.bat` (see below). **Not green yet**, on purpose: the two reds are known work, not noise.
 - Native extension: `gdextension/bin/libengine_sim.windows.template_{debug,release}.x86_64.dll` — rebuilt 2026-11-12.
 
@@ -94,6 +94,9 @@ Newest first. Format: `date — agent — what — what it needs — who`.
 
 ## Decisions
 
+- 2026-11-12 — **gap 5 (orifice flow) closed.** `tests/unit/engine/orifice_flow_test.gd` checks `Cylinder.mass_flow()`
+  against the App C closed form: choked 0.028293 kg/s, subsonic at pr 0.70, the two branches meeting at pr 0.5283 to
+  1e-8, sign symmetry, linearity in area and upstream pressure. Tags `[closed]`.
 - 2026-11-12 — **gap 3 (Woschni) closed.** `tests/unit/engine/woschni_validation_test.gd` hand-evaluates the published
   correlation at three points (motored 270.6, fired 3603.2, gas exchange 110.2 W/(m²·K) at 3000 rpm) and pins the
   C2 term to combustion/expansion only. Tagged `[hand]`: it checks the port, not that Woschni is the right model — the
