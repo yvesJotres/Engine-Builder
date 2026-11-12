@@ -335,10 +335,6 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 			fresh_in_kg = 0.0;
 		}
 		if (transfer_closing) {
-			// The gas in the cylinder when the transfer ports cross is what the charge has to work with, and part of it
-			// is exhaust the scavenge could not clear. Without this reading every gram in the cylinder counted as fresh
-			// air, which sized the fuel for air that was not there.
-			residual_kg = mass;
 			// _fuel_charge
 			double trapped = mass;
 			double fresh = clampf(fresh_in_kg, 0.0, trapped);

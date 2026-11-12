@@ -9,6 +9,15 @@ const P0 := 101325.0
 const DT := 1.0 / 120.0
 const FIELDS := ["crankcase_mass", "crankcase_pressure", "crankcase_temp", "temp", "pressure", "mass", "u",
 	"residual_kg", "fresh_in_kg", "last_fresh_kg"]
+# Mirrors TwoStrokeKernel::StateIndex, in order.
+const NAMES := ["phi", "mass", "temp", "pressure", "burn_energy_left", "burn_energy", "port_p", "runner_q",
+	"exhaust_temp", "peak_temp", "last_peak_temp", "last_lambda", "fired", "fuel_unburnt_kg", "port_heat",
+	"backfire_j", "residual_kg", "overlap_out", "burnt", "wall_loss_j", "u", "enthalpy_in_j", "enthalpy_out_j",
+	"exhaust_mdot", "exhaust_power", "cycle_work", "cycle_deg", "cycle_peak_p", "cycle_max_dp", "cycle_p",
+	"ca10", "ca50", "ca90", "last_imep", "last_peak_pressure", "last_dp_dtheta", "last_ca10", "last_ca50",
+	"last_ca90", "last_burn_10_90", "last_fresh_kg", "last_ivc_temp", "last_residual_fraction", "crankcase_mass",
+	"crankcase_temp", "crankcase_pressure", "oil_in_crankcase_kg", "tank_mass", "out_work", "out_fuel", "fresh_in_kg"]
+var _reported := false
 const SCRIPT := [
 	[7000.0, 1.0, 0.9, true, false, 1.5, 800.0, 340.0, 60],
 	[300.0, 0.95, 1.0, true, false, 1.0, 300.0, 350.0, 40],
@@ -32,12 +41,16 @@ func _init() -> void:
 	cyl.start_at(0.0)
 	var tank := FuelTank.new()
 	var type := 1.0
+	# Same order as TwoStrokeKernel::CfgIndex. An array shorter than C_SIZE makes advance() return its input untouched,
+	# which reads as a frozen engine rather than an error.
 	var cfg := PackedFloat64Array([cyl.bore, cyl.piston_area, cyl.stroke, cyl.swept, cyl.clearance, cyl.recip_kg,
 		cyl.rod_ratio, cyl.transfer_open, cyl.transfer_close, cyl.exhaust_open, cyl.exhaust_close, cyl.intake_open,
-		cyl.intake_close, cyl.intake_area, cyl.crankcase_volume, cyl.oil_ratio, type, cyl.crank_radius])
+		cyl.intake_close, cyl.transfer_area, cyl.exhaust_area, cyl.intake_area, cyl.crankcase_volume, cyl.oil_ratio,
+		1.0, cyl.crank_radius])
 	var state := _state(cyl, tank)
 	var step := 0
 	var history: Array = []
+	var worst := {}
 	for stage in SCRIPT:
 		var dphi: float = stage[0] * 6.0 * DT
 		for f in int(stage[8]):
@@ -45,71 +58,48 @@ func _init() -> void:
 				stage[4], stage[5] * P0, stage[6])
 			state = TwoStrokeKernel.advance(state, cfg, dphi, DT, stage[1] * P0, 300.0, stage[7], true, tank.afr,
 				tank.lhv, stage[2], stage[3], stage[4], stage[5] * P0, stage[6])
-			var row := "step %3d phi %6.1f" % [step, cyl.phi]
+			if step == 0:
+				print("after 1 call: native phi=%.3f mass=%.9f temp=%.2f crankcase=%.9f | gd phi=%.3f mass=%.9f" % [
+					state[0], state[1], state[2], state[43], cyl.phi, cyl.mass])
+			var row := "step %3d phi %7.2f" % [step, cyl.phi]
 			var drifted := false
 			for n in FIELDS:
 				var priv_names := ["u", "residual_kg", "fresh_in_kg"]
 				var want: float = float(cyl.get("_" + n if priv_names.has(n) else n))
-				var got: float = state[_idx(n)]
+				var got: float = float(state[NAMES.find(n)])
 				var rel: float = absf(want - got) / maxf(1.0e-9, maxf(absf(want), absf(got)))
-				row += " %s %.12g/%.12g (%.1e)" % [n, want, got, rel]
+				row += " | " + n + " " + str(want) + " vs " + str(got) + " (" + str(rel) + ")"
+				if rel > float(worst.get(n, 0.0)):
+					worst[n] = rel
 				if rel > 1.0e-9:
 					drifted = true
 			history.append(row)
-			if drifted and history.size() >= 4:
-				print("FIRST DRIFT")
-				for h in history.slice(-4):
+			if drifted and not _reported:
+				_reported = true
+				print("FIRST DRIFT at step %d" % step)
+				for h in history.slice(-2):
 					print(h)
-				quit(0)
-				return
 			step += 1
 			if cyl.phi >= 360.0:
 				cyl.phi -= 360.0
 				state[0] -= 360.0
-	print("no drift past 1e-9 in %d steps" % step)
+	print("ran %d steps" % step)
+	for n in worst:
+		print("  worst rel " + n + " = " + str(float(worst[n])))
 	quit(0)
 
 
 func _idx(n: String) -> int:
-	var names := ["crankcase_mass", "crankcase_pressure", "crankcase_temp"]
-	match n:
-		"crankcase_mass":
-			return 43
-		"crankcase_pressure":
-			return 45
-		"crankcase_temp":
-			return 44
-		"temp":
-			return 2
-		"pressure":
-			return 3
-		"mass":
-			return 1
-		"u":
-			return 20
-		"residual_kg":
-			return 16
-		"fresh_in_kg":
-			return 51
-		"last_fresh_kg":
-			return 40
-	return -1
+	return NAMES.find(n)
 
 
 func _state(c: TwoStrokeCylinder, tank: FuelTank) -> PackedFloat64Array:
-	var names := ["phi", "mass", "temp", "pressure", "burn_energy_left", "burn_energy", "port_p", "runner_q",
-		"exhaust_temp", "peak_temp", "last_peak_temp", "last_lambda", "fired", "fuel_unburnt_kg", "port_heat",
-		"backfire_j", "residual_kg", "overlap_out", "burnt", "wall_loss_j", "u", "enthalpy_in_j", "enthalpy_out_j",
-		"exhaust_mdot", "exhaust_power", "cycle_work", "cycle_deg", "cycle_peak_p", "cycle_max_dp", "cycle_p",
-		"ca10", "ca50", "ca90", "last_imep", "last_peak_pressure", "last_dp_dtheta", "last_ca10", "last_ca50",
-		"last_ca90", "last_burn_10_90", "last_fresh_kg", "last_ivc_temp", "last_residual_fraction", "crankcase_mass",
-		"crankcase_temp", "crankcase_pressure", "oil_in_crankcase_kg", "tank_mass", "out_work", "out_fuel", "fresh_in_kg"]
 	var priv := ["fired", "port_heat", "residual_kg", "fresh_in_kg", "overlap_out", "burnt", "u", "cycle_work",
 		"cycle_deg", "cycle_peak_p", "cycle_max_dp", "cycle_p", "ca10", "ca50", "ca90"]
 	var s := PackedFloat64Array()
-	s.resize(names.size())
-	for i in names.size():
-		var n: String = names[i]
+	s.resize(NAMES.size())
+	for i in NAMES.size():
+		var n: String = NAMES[i]
 		if n == "tank_mass":
 			s[i] = tank.mass_kg
 		elif n != "out_work" and n != "out_fuel":
