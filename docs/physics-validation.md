@@ -151,7 +151,7 @@ kernel and the GDScript reference agree field for field over 540 comparisons (`t
 
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
-| Gasoline LHV / AFR / density | `scripts/sim/engine_spec.gd` | ❌ none | LHV=43 MJ/kg, AFR_stoich=14.7, ρ=720-775 kg/m³ (IEA AMF) | ❌ |
+| Gasoline LHV / AFR / density | `scripts/fuel/fuel.gd` (`FuelTank.PROPERTIES`) | ✅ `tests/unit/fuel/fuel_properties_test.gd` — every grade inside the cited bands, E85 vs petrol relations, tank bookkeeping, evaporative cooling | LHV=42.9–44 MJ/kg, AFR_stoich=14.7, ρ=720–775 kg/m³ (IEA AMF) | ✅ `[table]` |
 | Fuel film evaporation | `cylinder.gd:740` `cylinder_kernel.cpp:410` | ❌ none | FILM_DEPOSIT=0.2, evaporation rate ∝ (T - T_sat) | ❌ |
 | Laminar flame speed (Metghalchi-Keck) | `cylinder.gd` `flame_speed_m_s` — implemented, **not yet driving `burn_deg`** | ✅ `tests/unit/engine/flame_speed_test.gd` | S_u = S_u0·(T/T0)^α·(p/p0)^β·(1-2.1·f) | ✅ `[hand]` |
 | Knock proxy | ❌ not implemented | ❌ none | Douaud-Eyzat or Livengood-Wu integral | ❌ |
