@@ -203,7 +203,7 @@ kernel and the GDScript reference agree field for field over 540 comparisons (`t
 | 11 | **Launch PI control vs measured clutch slip/RPM** | `ecu` + `engine_sim` | 3 days | OEM launch data (rare) |
 | ~~12~~ | ✅ **Chen-Flynn FMEP vs speed** — closed by `tests/unit/engine/friction_fmep_test.gd`, exact at 2 load/speed points | `cylinder` | — | Chen & Flynn 1965; Reitz 2018 constants `[hand]` |
 | 13 | **Turbo compressor map validation** (Garrett GTX3076R) | `intake_native` | 3 days | `assets/compressor_maps/garrett_gtx3076r.json` |
-| 14 | **Automated dyno sweep vs measured curves** (CI gate) | `tests/integration/dyno` | 2 days | `assets/dyno/*.json` |
+| ~~14~~ | ✅ **Automated dyno sweep** — built (`tests/integration/dyno/dyno_regression_test.gd`), and it is **red**: mean \|error\| 5.7 % (CBR250RR SP), 12.5 % (CBR250RR 2020), 13.1 % (Ninja 300), 22.3 % (CBR1000RR-R), 22.7 % (R1M) against a ±5 % band. The shape is the finding: every bike is **over-predicted at 4000 rpm** (+51 to +68 %) and the litre bikes are **under-predicted at the top end** (−31 to −36 %). | `tests/integration/dyno` | done (red) | `assets/dyno/*.json` |
 | 15 | **Two-stroke validation data** | `two_stroke_cylinder` | 5 days | Blair Ch.3; SAE two-stroke papers |
 
 ---
