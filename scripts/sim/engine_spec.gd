@@ -48,7 +48,7 @@ extends Resource
 @export var stroke_mm := 57.8
 @export var layout := "inline" # inline | V
 @export var bank_angle := 90.0 # V layout only, degrees between banks
-@export var rod_ratio := 1.6 # rod length / stroke, single cylinder only
+@export var rod_ratio := 1.6 # rod length / stroke: the cylinder model's rod/crank-radius ratio is twice this
 @export var header := "4-2-1" # stock | 4-1 | 4-2-1
 @export var header_primary_mm := 0.0 # primary pipe diameter. 0 uses the generic 32 mm tube; per-bike values are sourced or similar-bike estimates
 @export var muffler_style := "stock" # stock | sport | short; approximate dimensions, four-stroke only
@@ -88,6 +88,7 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var twin_pin_deg := 360.0 # 2-cylinder only: crank-pin angle between the two cylinders, 360, 270 or 180
 @export var split_pin_v4 := false # 4-cylinder V with a 70 degree split crank pin (Ducati Panigale V4)
 @export var shared_v_crankpins := false # pair cylinders 1-2, 3-4, etc. on common V-engine crankpins
+@export var crank_pin_sep_deg := 0.0 # degrees between the two pins of an unshared pair; the second cylinder fires bank_angle - this
 @export var crossplane := false # 4-cylinder only: crossplane crank, firing 270/180/90/180 apart (Yamaha R1 family)
 @export var fire_deg: Array = [] # wire angle per cylinder from engine-sim's ignition wiring, in its cylinder order; empty = generic order
 # Rider aids are split into hardware availability and the rider's switch state.
@@ -99,6 +100,7 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 # Quickshifter: cuts ignition/fuel during upshift to unload the gearbox for clutchless shift
 @export var decel_cut := true # ECU cuts fuel and spark on overrun (closed throttle, high rpm). Off: the charge keeps burning, as on an ECU without decel cut
 @export var quickshifter := false # rider switch, only valid when has_quickshifter
+@export var overrun_pop := false # true: the decel cut takes the spark and leaves the fuel, so a hot pipe bangs on the overrun
 @export var quickshifter_cut_time := 0.05 # s, ignition+fuel cut duration during upshift
 @export var quickshifter_cut_profile: Array = [] # per-gear cut time profile: [ [ [rpm, cut_ms], ... ], ... ] for gears 1-6
 @export var quickshifter_min_rpm := 3000.0 # rpm above which quickshifter activates
@@ -147,7 +149,14 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var supercharger_gear_teeth := 0 # drive gear teeth, 0 disables the gear-mesh tone
 @export var dry_clutch := false # dry clutch rattle only when true; most motorcycles are wet
 @export var knock_frequency_hz := 0.0 # 0 derives it from the bore
-@export var abs_enabled := false # rider switch, only valid when has_abs
+@export var abs_enabled := false # rider switch; turning it on adds the hardware and the system to a bike without ABS
+# Anti-lock braking, when abs_hardware() is true (has_abs, or either switch). Defaults are a 250-class bike on dry tarmac; the
+# physics that reads them lives in scripts/sim/wheel.gd and scripts/sim/abs_controller.gd.
+@export var brake_torque_nm := 700.0 # front caliper torque at a full lever; about 2x what it takes to lock a 215 kg bike
+@export var abs_slip_target := 0.12 # slip the controller holds the tyre at, i.e. its peak grip
+@export var abs_cycle_hz := 8.0 # modulation cycles per second at full lever
+@export var abs_min_speed_kmh := 7.0 # below this ABS hands the brake back to the rider
+@export var wheel_inertia_kgm2 := 0.8 # per wheel, wheel plus tyre
 @export var traction_control_enabled := false # rider switch, only valid when has_traction_control
 # Volumetric efficiency scale on the air drawn from the manifold. 1.0 keeps the cylinder model as it is: its own volumetric
 # efficiency is already about 90% on the dyno, so a further cut double counts the losses and pulls torque below the published figure.
@@ -241,14 +250,31 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 
 const BALANCER_RADIUS := 0.02 # m, weight centre from the balancer shaft, estimate
 
-# Crankshaft geometry, steel. Webs are modelled as discs around the crank axis, each reaching
-# past the crank pin by the pin radius. Dimensions are estimates for a 150 cc single.
+# Crankshaft geometry, steel, in metres: a one-piece crank built from the parts that carry its mass - nose pulley,
+# main journals, crank pins, counterweight webs and the flywheel flange - instead of one disc around the axis.
+# The journal sizes follow the service manual's measured code tables for this engine family (section 9): crank pin
+# code 26.992-27.000 mm running in a 30.000 mm con-rod bore on 1.50 mm shells, main journal code 27.992-28.000 mm in a
+# 31.000 mm crankcase bore. A web is one solid plate: an arm out to the crank pin on the pin side, balance mass on the
+# far side, hub around the main journal. Its thickness is 0.29 of the bore and its balance radius 0.66 of the bore, so
+# both stay proportional to the engine being built.
 const STEEL_DENSITY := 7800.0 # kg/m³
-const WEB_THICKNESS := 0.022 # m, set so crank plus rod is about 2.5 kg (catalogue weight)
-const PIN_RADIUS := 0.012 # m
-const PIN_LENGTH := 0.03 # m
-const SHAFT_RADIUS := 0.012 # m
-const SHAFT_LENGTH := 0.10 # m
+const CRANK_PIN_RADIUS := 0.0135 # m, Ø 27 mm crank pin
+const CRANK_PIN_WIDTH := 0.019 # m, con-rod big-end width on the pin
+const MAIN_JOURNAL_RADIUS := 0.0140 # m, Ø 28 mm main journal
+const MAIN_JOURNAL_WIDTH := 0.017 # m
+const COUNTERWEIGHT_SPAN_DEG := 220.0 # degrees of the web that carry balance mass, centred opposite the pin
+const COUNTERWEIGHT_ARM_DEG := 140.0 # degrees of the web that reach across to the crank pin
+const COUNTERWEIGHT_BORE_FACTOR := 0.66 # balance radius as a share of the bore
+const COUNTERWEIGHT_THICKNESS_FACTOR := 0.29 # web thickness as a share of the bore
+const COUNTERWEIGHT_CLEARANCE := 0.003 # m of metal left outside the pin circle, so the arm always carries the pin
+const COUNTERWEIGHT_RIM_FACTOR := 0.09 # m of balance mass outside the pin, as a share of the bore
+const COUNTERWEIGHT_PITCH_LIMIT := 0.75 # the balance radius stays inside this share of the cylinder pitch
+const FLYWHEEL_FLANGE_RADIUS := 0.030 # m, the flange the flywheel bolts to
+const FLYWHEEL_FLANGE_WIDTH := 0.008 # m
+const PULLEY_RADIUS := 0.020 # m, accessory pulley on the crank nose
+const PULLEY_WIDTH := 0.012 # m
+const SHAFT_LENGTH := 0.10 # m, shaft between the outer webs, the drawing's nominal body length
+const CYLINDER_PITCH_FACTOR := 1.3 # cylinder centre spacing, in bores: the crank, exhaust and cases all use it
 
 
 # Crank throw, m. Half the stroke.
@@ -256,30 +282,102 @@ func crank_throw_m() -> float:
 	return stroke_mm * 0.0005
 
 
+# Crank pins the crank carries. A shared pin serves two cylinders in a V, four in a W; inline engines get one per
+# cylinder unless both rods run on a single pin (a 360 degree twin), which this counts as two pins - a 0.08 kg error.
+func crank_pin_count() -> int:
+	if layout == "W":
+		return maxi(ceili(cylinders / 4.0), 1)
+	if layout == "V" and shared_v_crankpins:
+		return maxi(ceili(cylinders / 2.0), 1)
+	return maxi(cylinders, 1)
+
+
+# Radius the web reaches on the pin side, m: just past the pin circle, so the arm carries the pin.
+func web_arm_radius_m() -> float:
+	return crank_throw_m() + CRANK_PIN_RADIUS + COUNTERWEIGHT_CLEARANCE
+
+
+# Balance radius on the far side of the web, m: bore-proportional, always outside the pin, never into the next station.
+func counterweight_radius_m() -> float:
+	var r := maxf(COUNTERWEIGHT_BORE_FACTOR * bore_mm * 0.001, web_arm_radius_m() + COUNTERWEIGHT_RIM_FACTOR * bore_mm * 0.001)
+	return minf(r, cylinder_pitch_m() * COUNTERWEIGHT_PITCH_LIMIT)
+
+
+# Web thickness, m: the face that runs against the con-rod big end.
+func counterweight_thickness_m() -> float:
+	return COUNTERWEIGHT_THICKNESS_FACTOR * bore_mm * 0.001
+
+
+# Face area of one web, m²: the pin-side arm plus the balance mass opposite it. The web is a solid plate around the
+# journal, so there is no hole to subtract.
+func counterweight_area_m2() -> float:
+	var arm := deg_to_rad(COUNTERWEIGHT_ARM_DEG)
+	var mass := deg_to_rad(COUNTERWEIGHT_SPAN_DEG)
+	return 0.5 * (arm * pow(web_arm_radius_m(), 2.0) + mass * pow(counterweight_radius_m(), 2.0))
+
+
+# Axial width one crank pin needs, m: the pin between its two counterweight webs.
+func crank_bay_m() -> float:
+	return CRANK_PIN_WIDTH + 2.0 * counterweight_thickness_m()
+
+
+# Axial width of one main journal, m: the gap the counterweights leave between two crank bays, which is what a
+# one-piece crank's journal actually is. Clamped so it never collapses or runs long on an extreme bore/stroke.
+func main_journal_width_m() -> float:
+	return clampf(cylinder_pitch_m() - crank_bay_m(), 0.012, 0.024)
+
+
+# Centre distance between cylinders, m.
+func cylinder_pitch_m() -> float:
+	return bore_mm * 0.001 * CYLINDER_PITCH_FACTOR
+
+
+# Whether the bike carries ABS hardware (tone ring, pickups, module). The parts are metal, so a factory ABS bike has them
+# whether or not the rider switch is on; turning the switch on adds them to a bike that was built without ABS. main.gd
+# passes this to Drivetrain.build(), which is what actually draws or omits them.
+func abs_hardware() -> bool:
+	return has_abs or abs_enabled
+
+
+# Wheelbase in metres, for the load transfer. Falls back to the CBR150R's 1310 mm when a preset leaves it at 0.
+func wheelbase_m() -> float:
+	return wheelbase_mm * 0.001 if wheelbase_mm > 0.0 else 1.31
+
+
 func road_mass_kg() -> float:
 	return maxf(vehicle_kg + (0.0 if vehicle_mass_includes_rider else maxf(rider_kg, 0.0)), 1.0)
 
 
-# Mass of the crankshaft alone, kg: two webs, the crank pin and the shaft.
+# Mass of the crankshaft alone, kg: counterweight webs, crank pins, main journals, the nose pulley and the flywheel
+# flange. The flywheel itself is flywheel_kg, carried separately.
 func crank_mass_kg() -> float:
-	var web_r := crank_throw_m() + PIN_RADIUS
-	var web_m := STEEL_DENSITY * PI * web_r * web_r * WEB_THICKNESS
-	var pin_m := STEEL_DENSITY * PI * PIN_RADIUS * PIN_RADIUS * PIN_LENGTH
-	var shaft_m := STEEL_DENSITY * PI * SHAFT_RADIUS * SHAFT_RADIUS * SHAFT_LENGTH
-	return 2.0 * web_m + pin_m + shaft_m
+	var pins := crank_pin_count()
+	var web_m := STEEL_DENSITY * counterweight_area_m2() * counterweight_thickness_m()
+	var pin_m := STEEL_DENSITY * PI * CRANK_PIN_RADIUS * CRANK_PIN_RADIUS * CRANK_PIN_WIDTH
+	var journal_m := STEEL_DENSITY * PI * MAIN_JOURNAL_RADIUS * MAIN_JOURNAL_RADIUS * MAIN_JOURNAL_WIDTH
+	var flange_m := STEEL_DENSITY * PI * FLYWHEEL_FLANGE_RADIUS * FLYWHEEL_FLANGE_RADIUS * FLYWHEEL_FLANGE_WIDTH
+	var pulley_m := STEEL_DENSITY * PI * PULLEY_RADIUS * PULLEY_RADIUS * PULLEY_WIDTH
+	return 2.0 * pins * web_m + pins * pin_m + (pins + 1) * journal_m + flange_m + pulley_m
 
 
-# Inertia of the crankshaft about its axis, kg·m²: two webs, the crank pin (offset by the throw), the shaft.
+# Inertia of the crankshaft about its axis, kg·m². One web is a solid plate of two arc radii, so its polar second
+# moment is ρ·t·(θ_arm·r_arm⁴ + θ_mass·R⁴)/4; a crank pin adds ½·m·r² about its own axis plus m·throw² for its
+# offset; journals, pulley and flange are solid discs.
 func crank_inertia() -> float:
-	var r := crank_throw_m()
-	var web_r := r + PIN_RADIUS
-	var web_m := STEEL_DENSITY * PI * web_r * web_r * WEB_THICKNESS
-	var web_i := 0.5 * web_m * web_r * web_r
-	var pin_m := STEEL_DENSITY * PI * PIN_RADIUS * PIN_RADIUS * PIN_LENGTH
-	var pin_i := 0.5 * pin_m * PIN_RADIUS * PIN_RADIUS + pin_m * r * r
-	var shaft_m := STEEL_DENSITY * PI * SHAFT_RADIUS * SHAFT_RADIUS * SHAFT_LENGTH
-	var shaft_i := 0.5 * shaft_m * SHAFT_RADIUS * SHAFT_RADIUS
-	return 2.0 * web_i + pin_i + shaft_i
+	var pins := crank_pin_count()
+	var t := counterweight_thickness_m()
+	var r_hub := MAIN_JOURNAL_RADIUS
+	var web_j := STEEL_DENSITY * t * (deg_to_rad(COUNTERWEIGHT_ARM_DEG) * pow(web_arm_radius_m(), 4.0)
+		+ deg_to_rad(COUNTERWEIGHT_SPAN_DEG) * pow(counterweight_radius_m(), 4.0)) / 4.0
+	var pin_m := STEEL_DENSITY * PI * CRANK_PIN_RADIUS * CRANK_PIN_RADIUS * CRANK_PIN_WIDTH
+	var pin_j := 0.5 * pin_m * CRANK_PIN_RADIUS * CRANK_PIN_RADIUS + pin_m * pow(crank_throw_m(), 2.0)
+	var journal_m := STEEL_DENSITY * PI * r_hub * r_hub * MAIN_JOURNAL_WIDTH
+	var journal_j := 0.5 * journal_m * r_hub * r_hub
+	var flange_m := STEEL_DENSITY * PI * FLYWHEEL_FLANGE_RADIUS * FLYWHEEL_FLANGE_RADIUS * FLYWHEEL_FLANGE_WIDTH
+	var flange_j := 0.5 * flange_m * FLYWHEEL_FLANGE_RADIUS * FLYWHEEL_FLANGE_RADIUS
+	var pulley_m := STEEL_DENSITY * PI * PULLEY_RADIUS * PULLEY_RADIUS * PULLEY_WIDTH
+	var pulley_j := 0.5 * pulley_m * PULLEY_RADIUS * PULLEY_RADIUS
+	return 2.0 * pins * web_j + pins * pin_j + (pins + 1) * journal_j + flange_j + pulley_j
 
 
 func flywheel_radius_m() -> float:
@@ -355,49 +453,67 @@ func get_target_lambda(throttle: float, rpm: float) -> float:
 	return v0 + (v1 - v0) * ft
 
 
+# The first problem with the spec as {text, key}: text is what the panel shows, key is the row that fixes it, or "" when
+# no row owns it. The text is the public contract - other call sites and tests assert it - so only keys get added here.
+func validation_problem() -> Dictionary:
+	return _first_problem()
+
+
 # The first problem with the spec, or "" when it is fine. Shown on the panel as a warning.
 func validation_warning() -> String:
+	return String(_first_problem().get("text", ""))
+
+
+static func _problem(text: String, key: String) -> Dictionary:
+	return {"text": text, "key": key}
+
+
+func _first_problem() -> Dictionary:
 	if runner_bore_mm < 0.0 or runner_bore_mm > 100.0 or not is_finite(runner_bore_mm):
-		return "Runner bore must be 0 (legacy) or up to 100 mm"
+		return _problem("Runner bore must be 0 (legacy) or up to 100 mm", "")
 	if layout == "W" and cylinders % 4 != 0:
-		return "W layout needs a multiple of four cylinders"
+		return _problem("W layout needs a multiple of four cylinders", "cyl")
 	if layout == "V" and cylinders < 2:
-		return "V layout needs at least two cylinders"
+		return _problem("V layout needs at least two cylinders", "cyl")
 	if rod_ratio < 1.2 or rod_ratio > 3.5 or not is_finite(rod_ratio):
-		return "Rod ratio must be 1.2 to 3.5"
+		return _problem("Rod ratio must be 1.2 to 3.5", "rod_ratio")
 	var calc := calc_displacement_cc()
 	if absf(calc - displacement_cc) / displacement_cc > 0.02:
-		return "Bore x stroke gives %.0f cc, not %.0f cc" % [calc, displacement_cc]
-	if intake_duration_deg < 150.0 or intake_duration_deg > 300.0 or exhaust_duration_deg < 150.0 or exhaust_duration_deg > 300.0:
-		return "Valve duration must be 150 to 300 degrees"
-	if intake_lift_mm < 2.0 or intake_lift_mm > 15.0 or exhaust_lift_mm < 2.0 or exhaust_lift_mm > 15.0:
-		return "Valve lift must be 2 to 15 mm"
-	if intake_centre_deg < 360.0 or intake_centre_deg > 600.0 or exhaust_centre_deg < 120.0 or exhaust_centre_deg > 360.0:
-		return "Valve centre out of range (intake 360 to 600, exhaust 120 to 360)"
+		return _problem("Bore x stroke gives %.0f cc, not %.0f cc" % [calc, displacement_cc], "bore")
+	# A two-stroke breathes through ports, not poppet valves, so it has no cam figures to check (the RD350 carries
+	# zeros here). Checking them anyway raised a warning on screen for a preset that is correct.
+	if stroke_type != "two_stroke":
+		if intake_duration_deg < 150.0 or intake_duration_deg > 300.0 or exhaust_duration_deg < 150.0 or exhaust_duration_deg > 300.0:
+			return _problem("Valve duration must be 150 to 300 degrees", "in_dur")
+		if intake_lift_mm < 2.0 or intake_lift_mm > 15.0 or exhaust_lift_mm < 2.0 or exhaust_lift_mm > 15.0:
+			return _problem("Valve lift must be 2 to 15 mm", "in_lift")
+		if intake_centre_deg < 360.0 or intake_centre_deg > 600.0 or exhaust_centre_deg < 120.0 or exhaust_centre_deg > 360.0:
+			return _problem("Valve centre out of range (intake 360 to 600, exhaust 120 to 360)", "in_centre")
 	if absf(ignition_offset_deg) > 10.0:
-		return "Ignition offset must be within 10 degrees"
+		return _problem("Ignition offset must be within 10 degrees", "timing")
 	# Cam profile validation
 	if intake_lobe_profile == CamLobeProfile.CUSTOM and intake_lift_curve.size() < 4:
-		return "CUSTOM intake lift curve needs at least 4 points"
+		return _problem("CUSTOM intake lift curve needs at least 4 points", "")
 	if exhaust_lobe_profile == CamLobeProfile.CUSTOM and exhaust_lift_curve.size() < 4:
-		return "CUSTOM exhaust lift curve needs at least 4 points"
+		return _problem("CUSTOM exhaust lift curve needs at least 4 points", "")
 	if intake_flat_fraction < 0.0 or intake_flat_fraction > 0.8:
-		return "intake_flat_fraction must be 0.0 to 0.8"
+		return _problem("intake_flat_fraction must be 0.0 to 0.8", "")
 	if exhaust_flat_fraction < 0.0 or exhaust_flat_fraction > 0.8:
-		return "exhaust_flat_fraction must be 0.0 to 0.8"
+		return _problem("exhaust_flat_fraction must be 0.0 to 0.8", "")
 	if intake_open_ramp_deg < 0.0 or intake_open_ramp_deg > intake_duration_deg * 0.5:
-		return "intake_open_ramp_deg must be 0 to half duration"
+		return _problem("intake_open_ramp_deg must be 0 to half duration", "")
 	if intake_close_ramp_deg < 0.0 or intake_close_ramp_deg > intake_duration_deg * 0.5:
-		return "intake_close_ramp_deg must be 0 to half duration"
+		return _problem("intake_close_ramp_deg must be 0 to half duration", "")
 	if exhaust_open_ramp_deg < 0.0 or exhaust_open_ramp_deg > exhaust_duration_deg * 0.5:
-		return "exhaust_open_ramp_deg must be 0 to half duration"
+		return _problem("exhaust_open_ramp_deg must be 0 to half duration", "")
 	if exhaust_close_ramp_deg < 0.0 or exhaust_close_ramp_deg > exhaust_duration_deg * 0.5:
-		return "exhaust_close_ramp_deg must be 0 to half duration"
+		return _problem("exhaust_close_ramp_deg must be 0 to half duration", "")
+	# (the ramp rules above are harmless on a two-stroke: its ramps are zero, which always passes)
 	if intake_duration_050_deg > 0.0 and (intake_duration_050_deg < 80.0 or intake_duration_050_deg > intake_duration_deg):
-		return "intake duration at 0.050 inch must sit inside the seat duration"
+		return _problem("intake duration at 0.050 inch must sit inside the seat duration", "in_dur")
 	if exhaust_duration_050_deg > 0.0 and (exhaust_duration_050_deg < 80.0 or exhaust_duration_050_deg > exhaust_duration_deg):
-		return "exhaust duration at 0.050 inch must sit inside the seat duration"
-	return ""
+		return _problem("exhaust duration at 0.050 inch must sit inside the seat duration", "ex_dur")
+	return _problem("", "")
 
 
 # Valve event edges, crank degrees after firing top dead centre. The event is centred on the centre angle.
