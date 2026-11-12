@@ -73,7 +73,8 @@ var _fired := false
 var fuel_unburnt_kg := 0.0
 var _port_heat := T0
 var backfire_j := 0.0
-var _residual_kg := 0.0 # kg of gas already in the cylinder when the transfer ports shut
+var _residual_kg := 0.0 # kg of gas in the cylinder when the transfer ports OPEN: what the scavenge has to clear
+var _fresh_in_kg := 0.0 # kg of fresh charge the scavenge has delivered during the open window, for the fuel charge
 var _residual_temp := T0 # K, its temperature: it is hot exhaust the scavenge left behind, not fresh charge
 var _overlap_out := 0.0
 var _burnt := 0.0
@@ -275,13 +276,22 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		var cc_vol1 := crankcase_vol(p1)
 		var cc_dv := cc_vol1 - cc_vol0
 
-		# Check port events
-		var transfer_open_now := (p0 < transfer_open and p1 >= transfer_open) or (p0 <= transfer_close and p1 > transfer_close)
-		var exhaust_open_now := (p0 < exhaust_open and p1 >= exhaust_open) or (p0 <= exhaust_close and p1 > exhaust_close)
+		# Check port events. The transfer port has two edges and they mean different things: the opening edge is where the
+		# leftover burnt gas is read, the closing edge is where the scavenged charge gets its fuel. A single flag for both
+		# is how the residual came to be re-read after the fresh charge had already arrived, which made the fresh mass
+		# zero and left the engine with no fuel at all.
+		#
+		# The comparisons go through _crossed_deg because phi is unwrapped: comparing the raw angle meant an edge was
+		# only ever seen on the first revolution, so a running two-stroke stopped firing after one turn - it caught on
+		# the starter and then died. The native parity test hid it by wrapping phi on both sides after every step.
+		var transfer_opening := _crossed_deg(p0, p1, transfer_open)
+		var transfer_closing := _crossed_deg(p0, p1, transfer_close)
+		var transfer_open_now := transfer_opening or transfer_closing
+		var exhaust_open_now := _crossed_deg(p0, p1, exhaust_open) or _crossed_deg(p0, p1, exhaust_close)
 
 		# Exhaust port opens: an unlit charge leaves into a port that is still hot from the last firing and catches, on the
 		# same rule as the four-stroke (cylinder.gd:623-632). One unlit charge pops once, and spends the port's heat.
-		if p0 < exhaust_open and p1 >= exhaust_open:
+		if _crossed_deg(p0, p1, exhaust_open):
 			if fuel_unburnt_kg > 0.0:
 				if _port_heat > Cylinder.AUTO_IGNITE_K:
 					backfire_j += fuel_unburnt_kg * fuel_tank.lhv * Cylinder.BACKFIRE_BURN
@@ -331,15 +341,20 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 			var h_in := CP * crankcase_temp * m_transfer
 			_u += h_in
 			enthalpy_in_j += h_in
+			# what the scavenge has actually delivered this pass - the fuel is sized from this, not from a mass
+			# difference taken across the port window, which nets out to zero when the exhaust removes as much as the
+			# transfer adds
+			_fresh_in_kg += m_transfer
 
-		# 3b. Check if transfer ports just closed - inject fuel
-		if transfer_open_now:
-			# The gas in the cylinder when the transfer ports shut is what the charge has to work with, and part of
-			# it is exhaust the scavenge could not clear. The four-stroke takes the same reading at exhaust closing;
-			# the two-stroke never took one, so _residual_kg stayed 0 and every gram in the cylinder counted as
-			# fresh air, which sized the fuel for air that was not there.
+		# 3b. The two transfer edges. At the opening edge the cylinder holds only what the last cycle left: that is the
+		# residual the new charge has to work against, and the fresh-charge counter starts from zero. At the closing edge
+		# the scavenge has delivered _fresh_in_kg of new charge, and that - not a mass difference - is what the fuel is
+		# sized for.
+		if transfer_opening:
 			_residual_kg = mass
 			_residual_temp = temp
+			_fresh_in_kg = 0.0
+		if transfer_closing:
 			_fuel_charge(fuel_tank, lambda, spark, limiter_cut, intake_p)
 			# A fresh charge starts its own combustion phasing. The markers used to be cleared only when the
 			# cycle bookkeeping reached 300 degrees, so a cycle that closed early kept the previous marks and
@@ -439,7 +454,9 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 
 func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool, intake_p: float) -> void:
 	var trapped := mass
-	var fresh := maxf(trapped - _residual_kg, 0.0)
+	# Fresh air is what the scavenge delivered while the transfer port was open, capped by what is still in the
+	# cylinder. Deriving it as (trapped - residual) gave zero whenever the transfer window netted out.
+	var fresh := clampf(_fresh_in_kg, 0.0, trapped)
 	last_fresh_kg = fresh
 	last_ivc_temp = temp
 	last_residual_fraction = _residual_kg / maxf(trapped, 1e-12)
@@ -469,6 +486,16 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool,
 	burn_energy_left = burn_energy
 	_burnt = 0.0
 	_fired = supplied > 0.0
+
+
+# True when edge lies in the forward arc from p0 to p1, with both ends reduced into one revolution. phi is unwrapped, so
+# a plain comparison sees each edge once and then never again.
+static func _crossed_deg(p0: float, p1: float, edge: float) -> bool:
+	var w0 := fposmod(p0, 360.0)
+	var w1 := fposmod(p1, 360.0)
+	if w1 >= w0:
+		return edge >= w0 and edge < w1
+	return edge >= w0 or edge < w1 # the step wrapped past 360
 
 
 # Crank degrees the burn spans at this speed, the same relation the four-stroke uses.
