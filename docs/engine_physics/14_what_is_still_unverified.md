@@ -76,7 +76,7 @@ This log covers the claims in sections 1–13, tagged as in the index. Later pas
 | ~~12~~ | ✅ **Chen-Flynn FMEP** — closed, `tests/unit/engine/friction_fmep_test.gd`, exact at two load/speed points | — | amt911: ✅ Chen-Flynn validation; Tadros 2025 table |
 | **13** | **Turbo compressor map** (Garrett GTX3076R) validation | Map exists in assets, no test reads it | vICE: ✅ GT4088 map + operating line; amt911: ✅ Garrett |
 | **14** | **Automated dyno sweep** vs measured curves (±5%) | Manual comparison only | GT-Power: full-load sweep correlation |
-| **15** | **Two-stroke validation data** | No SAE two-stroke papers reached; the native kernel is also unported (see AGENT_SYNC.md) | Blair Ch.3; ATG source has 2-stroke? |
+| **15** | **Two-stroke validation data** | No SAE two-stroke papers reached. The native kernel is now ported (540-comparison parity, `[ind]`), so what is missing is measurement, not agreement | Blair Ch.3; ATG source has 2-stroke? |
 
 ---
 

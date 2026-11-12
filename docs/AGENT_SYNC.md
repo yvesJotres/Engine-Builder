@@ -23,8 +23,10 @@ available, the branches and the ownership table below are already the right cut 
 
 | Test | Why it is red | Owner / next step |
 |---|---|---|
-| `unit/engine/two_stroke_native_test.gd` | `scripts/engine/two_stroke_cylinder.gd` got five physics fixes (residual capture, burn duration vs RPM, crank radius inertia, port backfire heat, CA markers); `gdextension/src/two_stroke_kernel.cpp` has not been ported. Diverges from step 0: `last_residual_fraction` 1.0 vs 0.0, `u` 62.1 vs 100.1. | Physics, then rebuild the DLL. Do not rework the gate. |
 | `unit/drivetrain/shift_behavior_test.gd` | `gearbox_load` swings ±90 N m between firing pulses at 4,270 rpm (61.6 → −86.5 → −5.0, capacity 200 N m, unloaded threshold 16 N m), so the shift state machine sees "unloaded" at wide open and drops to neutral. | Orchestrator: cycle-mean `gearbox_load` in `_advance_driveline`. Do not encode the jump as the expected behaviour. |
+
+Resolved 2026-11-12: `unit/engine/two_stroke_native_test.gd` — the native kernel now carries all five GDScript two-stroke
+fixes (commit `6e50e2d`), 540 field comparisons across reed and piston paths, 0 problems.
 
 ---
 

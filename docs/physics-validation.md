@@ -71,7 +71,9 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | **Crank radius inertia torque** | `two_stroke_cylinder.gd:395` | ❌ none | crank_r = stroke·0.5 (was 0 — bug fixed) | ❌ |
 | Exhaust port backfire | `two_stroke_cylinder.gd:270` | ❌ none | Unlit charge + hot port → auto-ignite | ❌ |
 
-**Gap:** No two-stroke specific validation data in `tests/fixtures/`.
+**Gap:** No two-stroke specific validation data in `tests/fixtures/`. What does exist is a parity gate: the native
+kernel and the GDScript reference agree field for field over 540 comparisons (`tests/unit/engine/two_stroke_native_test.gd`,
+`[ind]`), so the two-stroke is at least one model in two languages — not a model checked against measurements.
 
 ---
 
