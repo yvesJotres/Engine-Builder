@@ -131,6 +131,17 @@ inline double reed_flow(const Cfg &c, double crankcase_pressure, double intake_p
 	return CD_PORT * c.intake_area * std::sqrt(2.0 * delta_p / rho) * rho * dt;
 }
 
+// True when edge lies in the forward arc from p0 to p1, with both ends reduced into one revolution. phi is unwrapped, so
+// a plain comparison sees each edge once and then never again - a running two-stroke stopped firing after one turn.
+inline bool crossed_deg(double p0, double p1, double edge) {
+	const double w0 = fposmod(p0, 360.0);
+	const double w1 = fposmod(p1, 360.0);
+	if (w1 >= w0) {
+		return edge >= w0 && edge < w1;
+	}
+	return edge >= w0 || edge < w1; // the step wrapped past 360
+}
+
 // 1 while the burn is under way: from the spark for the burn angle. The burn angle follows the engine speed, as it does
 // in the GDScript (burn_duration_deg), instead of being frozen at a nominal 5000 rpm.
 inline double burn_duration_deg(double rpm) { return BURN_DEG_BASE + BURN_DEG_PER_RPM * maxf(rpm, 0.0); }
@@ -200,6 +211,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	double &residual_kg = s[S_RESIDUAL_KG];
 	double &burnt = s[S_BURNT];
 	double &port_heat = s[S_PORT_HEAT];
+	double &fresh_in_kg = s[S_FRESH_IN_KG];
 	double &backfire_j = s[S_BACKFIRE_J];
 	double &fired = s[S_FIRED];
 	double &wall_loss_j = s[S_WALL_LOSS_J];
@@ -230,7 +242,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	const double rpm_now = dt > 0.0 ? std::fabs(dphi) / dt * 60.0 / (2.0 * PI_) : 0.0;
 	const double burn_deg = burn_duration_deg(rpm_now);
 	double work = 0.0;
-	const double fuel_consumed = 0.0;
+	double drawn = 0.0; // air the intake manifold supplies: what the GDScript returns as Vector2.y
 
 	for (int i = 0; i < steps; i++) {
 		double p0 = phi;
@@ -244,11 +256,12 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 		double cc_dv = cc_vol1 - cc_vol0;
 
 		// Check port events
-		bool transfer_open_now = (p0 < c.transfer_open && p1 >= c.transfer_open) || (p0 <= c.transfer_close && p1 > c.transfer_close);
+		const bool transfer_opening = crossed_deg(p0, p1, c.transfer_open);
+		const bool transfer_closing = crossed_deg(p0, p1, c.transfer_close);
 
 		// Exhaust port opens: an unlit charge leaves into a port that is still hot from the last firing and catches, on the
 		// same rule as the four-stroke. One unlit charge pops once, and spends the port's heat.
-		if (p0 < c.exhaust_open && p1 >= c.exhaust_open) {
+		if (crossed_deg(p0, p1, c.exhaust_open)) {
 			if (fuel_unburnt_kg > 0.0) {
 				if (port_heat > AUTO_IGNITE_K) {
 					backfire_j += fuel_unburnt_kg * c.tank_lhv * BACKFIRE_BURN;
@@ -267,6 +280,9 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 			if (c.intake_type == 1) {
 				// Reed valve flow
 				double m_in = reed_flow(c, crankcase_pressure, intake_p, sdt);
+				if (m_in > 0.0) {
+					drawn += m_in;
+				}
 				crankcase_mass += m_in;
 				crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1;
 				enthalpy_in_j += m_in * CP * intake_temp;
@@ -275,6 +291,9 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 				double a = intake_port_area(c, p0);
 				if (a > 0.0) {
 					double m_in = mass_flow(a, intake_p, intake_temp, crankcase_pressure, crankcase_temp) * sdt;
+					if (m_in > 0.0) {
+						drawn += m_in;
+					}
 					crankcase_mass += m_in;
 					crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1;
 					enthalpy_in_j += m_in * CP * intake_temp;
@@ -304,17 +323,25 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 			double h_in = CP * crankcase_temp * m_transfer;
 			u += h_in;
 			enthalpy_in_j += h_in;
+			fresh_in_kg += m_transfer; // what the scavenge delivers, which is what the fuel is sized for
 		}
 
-		// 3b. Transfer port crossing - capture the residual gas, then fuel the charge on the closing edge
-		if (transfer_open_now) {
+		// 3b. The two transfer edges mean different things. At the opening edge the cylinder holds only what the last
+		// cycle left: that is the residual, and the fresh-charge counter starts from zero. At the closing edge the
+		// scavenge has delivered fresh_in_kg, and that - not a mass difference, which nets to zero when the exhaust
+		// removes as much as the transfer adds - is what the fuel is sized for.
+		if (transfer_opening) {
+			residual_kg = mass;
+			fresh_in_kg = 0.0;
+		}
+		if (transfer_closing) {
 			// The gas in the cylinder when the transfer ports cross is what the charge has to work with, and part of it
 			// is exhaust the scavenge could not clear. Without this reading every gram in the cylinder counted as fresh
 			// air, which sized the fuel for air that was not there.
 			residual_kg = mass;
 			// _fuel_charge
 			double trapped = mass;
-			double fresh = maxf(trapped - residual_kg, 0.0);
+			double fresh = clampf(fresh_in_kg, 0.0, trapped);
 			s[S_LAST_FRESH_KG] = fresh;
 			s[S_LAST_IVC_TEMP] = temp;
 			s[S_LAST_RESIDUAL_FRACTION] = residual_kg / maxf(trapped, 1e-12);
@@ -443,6 +470,6 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	}
 
 	s[S_OUT_WORK] = work;
-	s[S_OUT_FUEL] = fuel_consumed;
+	s[S_OUT_FUEL] = drawn;
 	return state;
 }

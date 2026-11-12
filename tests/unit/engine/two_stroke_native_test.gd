@@ -30,9 +30,9 @@ const STATE := ["phi", "mass", "temp", "pressure", "burn_energy_left", "burn_ene
 	"cycle_work", "cycle_deg", "cycle_peak_p", "cycle_max_dp", "cycle_p", "ca10", "ca50", "ca90", "last_imep",
 	"last_peak_pressure", "last_dp_dtheta", "last_ca10", "last_ca50", "last_ca90", "last_burn_10_90", "last_fresh_kg",
 	"last_ivc_temp", "last_residual_fraction", "crankcase_mass", "crankcase_temp", "crankcase_pressure",
-	"oil_in_crankcase_kg", "tank_mass", "out_work", "out_fuel"]
+	"oil_in_crankcase_kg", "tank_mass", "out_work", "out_fuel", "fresh_in_kg"]
 # the GDScript keeps these under a leading underscore
-const PRIVATE := ["fired", "port_heat", "residual_kg", "overlap_out", "burnt", "u", "cycle_work", "cycle_deg", "cycle_peak_p",
+const PRIVATE := ["fired", "port_heat", "residual_kg", "fresh_in_kg", "overlap_out", "burnt", "u", "cycle_work", "cycle_deg", "cycle_peak_p",
 	"cycle_max_dp", "cycle_p", "ca10", "ca50", "ca90"]
 # rpm, manifold pressure (x P0), lambda, spark, limiter cut, exhaust pressure (x P0), exhaust temp, ignition phase, frames
 const SCRIPT := [
@@ -135,7 +135,9 @@ func _compare(port: String) -> void:
 					print("FAIL %s step %d %s: gdscript %s native %s" % [port, step, n, str(want), str(state[i])])
 			if bad > 0:
 				break
-			if state[STATE.find("out_fuel")] != res.y:
+			# This was an exact comparison while both sides returned a literal 0.0. It is now the air drawn through the
+			# reed valve or piston port summed over every substep, so it gets the same tolerance as every other field.
+			if not _close(res.y, state[STATE.find("out_fuel")]):
 				bad += 1
 				print("FAIL %s step %d fuel consumed: gdscript %s native %s" % [port, step, str(res.y), str(state[STATE.find("out_fuel")])])
 				break
