@@ -66,16 +66,24 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
 | Port timing (transfer, exhaust, intake) | `scripts/engine/two_stroke_cylinder.gd:180` | ❌ none | Geometric angles from spec | ❌ |
-| Reed valve flow | `two_stroke_cylinder.gd:200` | ❌ none | Heywood App C orifice | ❌ |
+| Reed valve flow | `two_stroke_cylinder.gd` | ✅ `two_stroke_state_test.gd` — matches Cd·A·sqrt(2Δp/ρ)·ρ·dt to 1e-9; nothing when the port is below crankcase pressure | Heywood App C orifice | ✅ `[closed]` |
 | Scavenging (perfect mixing / perfect displacement) | `two_stroke_cylinder.gd:280` | ❌ none | Blair *Two-Stroke Engine* Ch.3 | ❌ |
-| **Residual capture at transfer close** | `two_stroke_cylinder.gd:300` | ❌ none | _residual_kg = mass, _residual_temp = temp | ❌ |
-| **Burn duration vs RPM** | `two_stroke_cylinder.gd:265` | ❌ none | burn_deg = BURN_DEG_BASE + BURN_DEG_PER_RPM·RPM | ❌ |
-| **Crank radius inertia torque** | `two_stroke_cylinder.gd:395` | ❌ none | crank_r = stroke·0.5 (was 0 — bug fixed) | ❌ |
+| Residual capture at transfer close | `two_stroke_cylinder.gd` | ✅ `two_stroke_state_test.gd` — residual read at the OPENING edge, fresh charge counted across the window, fraction a real fraction | mass at transfer opening | ✅ `[closed]` |
+| **Burn duration vs RPM** | `two_stroke_cylinder.gd` | ✅ `two_stroke_state_test.gd` — 35 deg at rest, 44 at 6000, linear in rpm | burn_deg = BURN_DEG_BASE + BURN_DEG_PER_RPM·RPM | ✅ `[closed]` |
+| **Crank radius inertia torque** | `two_stroke_cylinder.gd` | ✅ `two_stroke_state_test.gd` — recip_kg moves the returned work (18.496 vs 18.534 J), so the term is live; it was multiplying a member stuck at 0 | crank_r = stroke·0.5 (was 0 — bug fixed) | ✅ `[closed]` |
 | Exhaust port backfire | `two_stroke_cylinder.gd:270` | ❌ none | Unlit charge + hot port → auto-ignite | ❌ |
 
 **Gap:** No two-stroke specific validation data in `tests/fixtures/`. What does exist is a parity gate: the native
 kernel and the GDScript reference agree field for field over 540 comparisons (`tests/unit/engine/two_stroke_native_test.gd`,
-`[ind]`), so the two-stroke is at least one model in two languages — not a model checked against measurements.
+`[ind]`), so the two-stroke is at least one model in two languages — not a model checked against measurements. The reed
+valve is a hard switch on sign(intake_p − crankcase_pressure), so the two builds agree to ten significant digits for the
+first revolution and then diverge to 1.3% on the fields the switch feeds; both trajectories stay self-consistent.
+
+Three defects found and fixed while writing this section, each of which stopped the engine outright: the fuel charge was
+zero on every cycle (residual re-read at the closing edge), the port events fired once and never again (`phi` compared
+unwrapped), and the manifold was told the engine breathes nothing (`advance` returned an unassigned `fuel_consumed`),
+which let a closed throttle feed full air. Start-up now holds ~2,300 rpm on the starter and idles at 600–1,100 rpm;
+`tools/diagnostics/probe_two_stroke_start.gd` prints the trace, `probe_two_stroke_fuel.gd` the charge.
 
 ---
 
