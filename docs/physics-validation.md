@@ -18,20 +18,24 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 **Reading depth.** I read the bodies of the tests that carry the physics (all of `gas_properties`, `cylinder_kernel`, `ecu_model`, `engine_sim` headers). For scenario/integration tests (`tests/integration/*`, `tests/unit/*`) I judged from name and leading comment only; they are robustness tests and none counted as ✅ unless they assert an external value.
 
+**Status note (2026-11-12).** This inventory was four rows out of date: gas properties, the C++/GDScript parity gate, ABS hysteresis and Chen–Flynn all have tests that assert values from outside the code, and all four pass. They are marked ✅ below with the file that carries them. Two tests are knowingly red and both are code problems, not stale gates: `two_stroke_native_test` (the native kernel has not been ported to the five GDScript two-stroke fixes) and `shift_behavior_test` (`gearbox_load` alternates sign per firing pulse). Tracked in [AGENT_SYNC.md](AGENT_SYNC.md).
+
+**Run them:** `run_test.bat --physics` (or any `TEST_FILTER` prefix, e.g. `run_test.bat engine/woschni`).
+
 ---
 
 ## 1. Gas Properties (Temperature-Dependent cp, cv, u, h)
 
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
-| cp_air(T) 29-point table 300–3000 K | `scripts/sim/gas_properties.gd:18` `gdextension/src/cylinder_kernel.cpp:25` | ❌ none | Keenan & Kaye / Cengel *Thermodynamics* Appendix tables | ❌ |
-| cp_burnt(T) 29-point table | `gas_properties.gd:21` `cylinder_kernel.cpp:28` | ❌ none | Stoich hydrocarbon flame products (same sources) | ❌ |
-| u(burnt, T) = ∫cv dT (trapezoid) | `gas_properties.gd:74` `cylinder_kernel.cpp:108` | ❌ none | Integral of cv; u(300K)=0 by construction | ❌ |
-| h(burnt, T) = u + R·T | `gas_properties.gd:90` `cylinder_kernel.cpp:125` | ❌ none | R = 287.05 J/(kg·K) | ❌ |
-| temp_from_u(burnt, energy) Newton 5-iter | `gas_properties.gd:95` `cylinder_kernel.cpp:130` | ❌ none | Inverse of u(T); monotonic, 200–4000 K clamp | ❌ |
-| C++/GDScript parity (1e-9) | Referenced in `cylinder_kernel.cpp:19` | ❌ none (test mentioned: `cylinder_native_test.gd`) | Both implementations must agree to 1e-9 | ❌ |
+| cp_air(T) 29-point table 300–3000 K | `scripts/sim/gas_properties.gd:18` `gdextension/src/cylinder_kernel.cpp:25` | ✅ `tests/unit/engine/gas_properties_test.gd` | Keenan & Kaye / Cengel *Thermodynamics* Appendix tables | ✅ `[table]` |
+| cp_burnt(T) 29-point table | `gas_properties.gd:21` `cylinder_kernel.cpp:28` | ✅ `gas_properties_test.gd` | Stoich hydrocarbon flame products (same sources) | ✅ `[table]` |
+| u(burnt, T) = ∫cv dT (trapezoid) | `gas_properties.gd:74` `cylinder_kernel.cpp:108` | ✅ `gas_properties_test.gd` — u(1000 K) against the trapezoid of the table | Integral of cv; u(300K)=0 by construction | ✅ `[closed]` |
+| h(burnt, T) = u + R·T | `gas_properties.gd:90` `cylinder_kernel.cpp:125` | ✅ `gas_properties_test.gd` | R = 287.05 J/(kg·K) | ✅ `[closed]` |
+| temp_from_u(burnt, energy) Newton 5-iter | `gas_properties.gd:95` `cylinder_kernel.cpp:130` | ✅ `gas_properties_test.gd` — round trip error printed, gate is exact | Inverse of u(T); monotonic, 200–4000 K clamp | ✅ `[closed]` |
+| C++/GDScript parity (1e-9) | `cylinder_kernel.cpp:19` | ✅ `tests/unit/engine/cylinder_native_test.gd` — single-step gate at 1e-9, 600-frame run on 3 presets | Both implementations must agree to 1e-9 | ✅ `[ind]` |
 
-**Quick wins:** Add unit tests for table points (300, 1000, 2000, 3000 K), round-trip u↔T, C++ vs GDScript parity.
+**Done — all six closed.** `tests/unit/engine/gas_properties_test.gd` (table points, u as the trapezoid, exact u↔T round trip) and `tests/unit/engine/cylinder_native_test.gd` (1e-9 single-step parity plus a 600-frame run on three presets).
 
 ---
 
@@ -97,7 +101,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | **Tire μ(slip) curve** | `wheel.gd:35` | ❌ none | Peak 1.05 at 0.12 slip; locked 0.75 (simple peak model) | ❌ |
 | **Pacejka Magic Formula (MF 6.2)** | ❌ not implemented | ❌ none | Fz, κ, α → Fx, Fy, Mz (tire data needed) | ❌ |
 | **Dynamic load transfer** | `engine_sim.gd:1030` | ❌ none | ΔFz = ±m·a·h/L; h=0.62m, front_static=0.48 | ❌ |
-| **ABS controller (hysteresis)** | `scripts/sim/abs_controller.gd` | ❌ none | Release at 1.15×target, reapply at 0.8×target; slew: release 60k, apply 12k N·m/s | ❌ |
+| **ABS controller (hysteresis)** | `scripts/sim/abs_controller.gd` | ✅ `tests/unit/sim/abs_controller_test.gd` — apply slew, release faster than apply, cycles counted, lever handed back under the cutoff | Release at 1.15×target, reapply at 0.8×target; slew: release 60k, apply 12k N·m/s | ✅ `[hand]` (spec constants, not measured wheel data) |
 | Brake torque (per wheel) | `engine_sim.gd:1040` | ❌ none | front: brake·brake_torque_nm; rear: ×0.35 share | ❌ |
 
 **References:** Moto-Braking-Dynamics (Pacejka, load transfer, thermal fade); Heywood Ch.10 (vehicle dynamics).
@@ -133,8 +137,8 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
-| Chen-Flynn | `scripts/engine/cylinder.gd:800` `gdextension/src/cylinder_kernel.cpp:850` | ❌ none | FMEP = C1 + C2·v_p + C3·v_p² + C4·IMEP | ❌ |
-| Chen-Flynn constants (Reitz 2018) | `engine_sim.gd:75` | ❌ none | C=0.25 bar, PF=0.005, MPSF=0.1, MPSSF=0 | ❌ |
+| Chen-Flynn | `scripts/engine/cylinder.gd:800` `gdextension/src/cylinder_kernel.cpp:850` | ✅ `tests/unit/engine/friction_fmep_test.gd` | FMEP = C1 + C2·v_p + C3·v_p² + C4·IMEP | ✅ `[hand]` |
+| Chen-Flynn constants (Reitz 2018) | `engine_sim.gd:75` | ✅ `friction_fmep_test.gd` — exact at 3000 rpm/40 bar and 13000 rpm/60 bar | C=0.25 bar, PF=0.005, MPSF=0.1, MPSSF=0 | ✅ `[hand]` |
 | Pulkrabek / Patton 1989 (SAE 890836) | Referenced in `13_sources.md:8` | ❌ none | Component breakdown: piston, bearings, valvetrain, aux | ❌ |
 
 ---
@@ -154,8 +158,10 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 | Trace | Source | Bikes | Frames | Status |
 |-------|--------|-------|--------|--------|
-| `tests/fixtures/sim_golden_trace.json` | Regenerated Nov 2026 | honda_cbr1000rrr_sp, kawasaki_h2r, kawasaki_zx25r, yamaha_yzf_r1m | 36 frames each (0–35) | ✅ **external** (but regenerated — no ground truth) |
+| `tests/fixtures/sim_golden_trace.json` | Regenerated 2026-11-12 after the gas-property, exhaust and driveline work | honda_cbr1000rrr_sp, kawasaki_h2r, kawasaki_zx25r, yamaha_yzf_r1m | 36 frames each (0–35) | ✅ **self-consistent** (regression gate only — no ground truth) |
 | Measured dyno curves | `assets/dyno/*.json` | 5 bikes | Power/torque vs RPM | 🟡 Used for manual comparison only |
+
+**Note on the trace (2026-11-12).** It is a self-consistency gate, not a physics check: it proves the simulation did not change between runs, nothing more. The `kawasaki_zx25r` torque column flips sign and magnitude between the two fixtures (+190 vs −188 N·m at 16k rpm), which is not a torque a 250cc makes in either direction and looks like an inertia artifact; it was recorded, not endorsed. `honda_cbr150r` is bit-identical across the regeneration.
 
 **Gap:** No automated test comparing simulated dyno sweep vs measured curves with tolerance bands.
 
@@ -180,8 +186,8 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 | Rank | Gap | Module | Effort | Reference |
 |------|-----|--------|--------|-----------|
-| 1 | **Gas properties table validation** (300/1000/2000/3000 K) | `gas_properties` | 1 day | Keenan & Kaye tables |
-| 2 | **C++/GDScript gas_properties parity test** (1e-9) | `gas_properties` + `cylinder_kernel` | 1 day | Internal requirement |
+| ~~1~~ | ✅ **Gas properties table validation** — closed 2026-11-12 by `tests/unit/engine/gas_properties_test.gd` | `gas_properties` | — | Keenan & Kaye tables `[table]` |
+| ~~2~~ | ✅ **C++/GDScript parity test** (1e-9) — closed by `tests/unit/engine/cylinder_native_test.gd` | `gas_properties` + `cylinder_kernel` | — | Internal requirement `[ind]` |
 | 3 | **Woschni heat transfer at 2 operating points** (motored + fired) | `cylinder` | 2 days | Qasemian 2020 Table 1; Woschni SAE 670931 |
 | 4 | **Valve flow Cd vs L/D** (3 points from Heywood Fig 6-18) | `cylinder` | 1 day | SAE 820154 / Heywood Fig 6-18 |
 | 5 | **Orifice mass flow (choked + subsonic)** | `cylinder` / `intake` | 1 day | Heywood App C |
@@ -189,9 +195,9 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | 7 | **Fired IMEP / peak P / CA50 vs measured** | `cylinder` + `engine_sim` | 3 days | GT-Power correlation targets (±3% / ±5% / ±1.5°) |
 | 8 | **Exhaust open-end reflection** (Levine & Schwinger 0.6133a) | `exhaust_gas` | 2 days | Levine & Schwinger 1948; Silva 2009 |
 | 9 | **Pacejka Magic Formula tire model** (replace simple μ(slip)) | `wheel` + `abs_controller` | 5 days | Moto-Braking-Dynamics; Pacejka MF 6.2 coeffs |
-| 10 | **ABS hysteresis validation** (release/reapply slip, slew rates) | `abs_controller` | 2 days | Bosch ABS literature; Moto-Braking |
+| ~~10~~ | ✅ **ABS hysteresis validation** — closed by `tests/unit/sim/abs_controller_test.gd` (spec constants, not measured wheel data) | `abs_controller` | — | Bosch ABS literature; Moto-Braking `[hand]` |
 | 11 | **Launch PI control vs measured clutch slip/RPM** | `ecu` + `engine_sim` | 3 days | OEM launch data (rare) |
-| 12 | **Chen-Flynn FMEP vs speed at 3 loads** | `cylinder` | 2 days | Chen & Flynn 1965; Reitz 2018 constants |
+| ~~12~~ | ✅ **Chen-Flynn FMEP vs speed** — closed by `tests/unit/engine/friction_fmep_test.gd`, exact at 2 load/speed points | `cylinder` | — | Chen & Flynn 1965; Reitz 2018 constants `[hand]` |
 | 13 | **Turbo compressor map validation** (Garrett GTX3076R) | `intake_native` | 3 days | `assets/compressor_maps/garrett_gtx3076r.json` |
 | 14 | **Automated dyno sweep vs measured curves** (CI gate) | `tests/integration/dyno` | 2 days | `assets/dyno/*.json` |
 | 15 | **Two-stroke validation data** | `two_stroke_cylinder` | 5 days | Blair Ch.3; SAE two-stroke papers |
@@ -200,8 +206,8 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 ## Quick Wins (Existing Public API, No New Production Code)
 
-1. **Gas properties table points** — add `tests/unit/engine/gas_properties_test.gd` asserting cp_air(300)=1005, cp_air(2000)=1278, etc.
-2. **C++/GDScript parity** — port `cylinder_native_test.gd` to call both implementations and assert 1e-9.
+1. ~~**Gas properties table points**~~ — done: `tests/unit/engine/gas_properties_test.gd`.
+2. ~~**C++/GDScript parity**~~ — done: `tests/unit/engine/cylinder_native_test.gd` (1e-9 single step, 600-frame run).
 3. **Woschni at 2 points** — run motored (300K, 1 bar, 3000 RPM) and fired (peak 80 bar, 3000 RPM) cases, assert h within 10% of hand calc.
 4. **Valve Cd at 3 L/D** — extract Heywood Fig 6-18 points (0.1, 0.25, 0.4), assert `valve_cd(L/D)`.
 5. **Orifice choked flow** — hand calc from Heywood App C eq C.8, assert `orifice_mass_flow`.

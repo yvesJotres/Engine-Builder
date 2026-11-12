@@ -62,8 +62,8 @@ This log covers the claims in sections 1–13, tagged as in the index. Later pas
 
 | Rank | Item | Blocker | Competitor Reference |
 |------|------|---------|---------------------|
-| **1** | **Gas properties table validation** — cp_air/cp_burnt at 300/1000/2000/3000 K vs Keenan & Kaye tables | No unit tests exist | amt911: ✅ table points; vICE: Cantera backend |
-| **2** | **C++/GDScript gas_properties parity** — 1e-9 agreement | `cylinder_native_test.gd` referenced but not found | amt911: mutation testing catches this |
+| ~~1~~ | ✅ **Gas properties table validation** — closed 2026-11-12, `tests/unit/engine/gas_properties_test.gd` | — | amt911: ✅ table points; vICE: Cantera backend |
+| ~~2~~ | ✅ **C++/GDScript gas_properties parity** — closed, `tests/unit/engine/cylinder_native_test.gd` (1e-9, 600 frames, 3 presets) | — | amt911: mutation testing catches this |
 | **3** | **Woschni heat transfer at 2 operating points** (motored + fired) vs hand calc | No validation test; Qasemian 2020 gives constants but "needs correction" | amt911: ✅ hand calc at 2 pts; GT-Power: wall temp/heat flux correlation |
 | **4** | **Valve Cd vs L/D** (3 points from Heywood Fig 6-18) | No test; SAE 820154/962527 paywalled | amt911: ✅ 2 fig points + slope; Heywood Ch.6 |
 | **5** | **Orifice mass flow** (choked + subsonic continuity at critical) | No test; Heywood App C | amt911: ✅ hand calc + continuity |
@@ -71,12 +71,12 @@ This log covers the claims in sections 1–13, tagged as in the index. Later pas
 | **7** | **Fired IMEP / peak P / CA50** vs measured | No cylinder pressure data | GT-Power: ±3%/±5%/±1.5°; amt911: ❌ gap #2-3 |
 | **8** | **Exhaust open-end reflection** (Levine & Schwinger 0.6133a) | No test; Silva 2009 fit | amt911: ✅ end correction + Silva fit |
 | **9** | **Pacejka Magic Formula tire model** (replace simple μ(slip)) | Not implemented | Moto-Braking: ✅ full MF 6.2; amt911: ❌ |
-| **10** | **ABS hysteresis validation** (release/reapply slip, slew rates) | No test | Moto-Braking: load transfer + thermal fade; Bosch lit |
+| ~~10~~ | ✅ **ABS hysteresis validation** — closed, `tests/unit/sim/abs_controller_test.gd` (spec constants, not measured wheel data) | — | Moto-Braking: load transfer + thermal fade; Bosch lit |
 | **11** | **Launch PI control** vs measured clutch slip/RPM trace | No OEM launch data | GT-Power: launch correlation rare |
-| **12** | **Chen-Flynn FMEP** vs speed at 3 loads | Reitz 2018 gives C=0.25 bar, PF=0.005, MPSF=0.1 — units unclear | amt911: ✅ Chen-Flynn validation; Tadros 2025 table |
+| ~~12~~ | ✅ **Chen-Flynn FMEP** — closed, `tests/unit/engine/friction_fmep_test.gd`, exact at two load/speed points | — | amt911: ✅ Chen-Flynn validation; Tadros 2025 table |
 | **13** | **Turbo compressor map** (Garrett GTX3076R) validation | Map exists in assets, no test reads it | vICE: ✅ GT4088 map + operating line; amt911: ✅ Garrett |
 | **14** | **Automated dyno sweep** vs measured curves (±5%) | Manual comparison only | GT-Power: full-load sweep correlation |
-| **15** | **Two-stroke validation data** | No SAE two-stroke papers reached | Blair Ch.3; ATG source has 2-stroke? |
+| **15** | **Two-stroke validation data** | No SAE two-stroke papers reached; the native kernel is also unported (see AGENT_SYNC.md) | Blair Ch.3; ATG source has 2-stroke? |
 
 ---
 
@@ -111,8 +111,8 @@ This log covers the claims in sections 1–13, tagged as in the index. Later pas
 
 | Priority | Action | File | Reference |
 |----------|--------|------|-----------|
-| **P0** | Create `tests/unit/engine/gas_properties_test.gd` with table point assertions | New file | amt911 pattern; Keenan & Kaye tables |
-| **P0** | Create `tests/unit/engine/cylinder_native_test.gd` for C++/GDScript 1e-9 parity | New file | `cylinder_kernel.cpp:19` reference |
+| ~~P0~~ | ✅ Create `tests/unit/engine/gas_properties_test.gd` — done 2026-11-12 | Existing | amt911 pattern; Keenan & Kaye tables |
+| ~~P0~~ | ✅ Create `tests/unit/engine/cylinder_native_test.gd` for C++/GDScript 1e-9 parity — done | Existing | `cylinder_kernel.cpp:19` reference |
 | **P0** | Create `tests/unit/engine/woschni_validation_test.gd` with 2 hand-calc points | New file | Qasemian 2020 Table 1; amt911 pattern |
 | **P1** | Create `tests/unit/engine/valve_flow_test.gd` (Cd vs L/D, curtain area) | New file | Heywood Fig 6-18; SAE 820154 |
 | **P1** | Create `tests/unit/engine/orifice_flow_test.gd` (choked/subsonic/continuity) | New file | Heywood App C; amt911 pattern |

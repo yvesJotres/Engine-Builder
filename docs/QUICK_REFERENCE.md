@@ -9,8 +9,8 @@
 
 | # | Target | File to Create | Reference |
 |---|--------|----------------|-----------|
-| 1 | Gas properties table points (300/1000/2000/3000 K) | `tests/unit/engine/gas_properties_test.gd` | Keenan & Kaye tables |
-| 2 | C++/GDScript parity (1e-9) | `tests/unit/engine/cylinder_native_test.gd` | `cylinder_kernel.cpp:19` |
+| ~~1~~ | ✅ Gas properties table points (300/1000/2000/3000 K) — **done** | `tests/unit/engine/gas_properties_test.gd` | Keenan & Kaye tables |
+| ~~2~~ | ✅ C++/GDScript parity (1e-9) — **done** | `tests/unit/engine/cylinder_native_test.gd` | `cylinder_kernel.cpp:19` |
 | 3 | Woschni at 2 points (motored + fired) | `tests/unit/engine/woschni_validation_test.gd` | Qasemian 2020 Table 1 |
 | 4 | Valve Cd vs L/D (3 points) | `tests/unit/engine/valve_flow_test.gd` | Heywood Fig 6-18 |
 | 5 | Orifice choked/subsonic flow | `tests/unit/engine/orifice_flow_test.gd` | Heywood App C |
@@ -50,21 +50,22 @@
 ## ⚡ Quick Commands
 
 ```bash
-# Run physics validation tests (when created)
-godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit/engine -ginclude="*validation*"
-
-# Run dyno regression (when created)
-godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/integration/dyno -ginclude="*regression*"
+# The gate. One Godot process per test; exit 1 if any selected test fails.
+run_test.bat                 # full sweep (~10 min)
+run_test.bat --physics       # engine/ exhaust/ intake/ sim/ dyno/
+run_test.bat --ui            # controls/ structure/ visual/
+run_test.bat engine/woschni  # any raw TEST_FILTER prefix
+TEST_FILTER=engine/ godot --headless --path . -s res://tests/test_runner.gd   # same thing, by hand
 
 # Check golden trace diff
 git diff tests/fixtures/sim_golden_trace.json
 
-# Build native extension
-cd gdextension && ./build.bat
-
-# Run all tests
-./run_test.bat
+# Build native extension (after any gdextension/*.cpp change)
+cd gdextension && ./build_win.bat
 ```
+
+There is **no GUT addon in this project** — the runner is `tests/test_runner.gd`. Older notes that mention
+`addons/gut/gut_cmdln.gd` are stale.
 
 ---
 

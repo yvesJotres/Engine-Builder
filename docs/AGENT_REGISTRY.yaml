@@ -1,0 +1,79 @@
+# Agent capability registry. See docs/MULTI_AGENT_PLAN.md for the work packages and
+# docs/AGENT_SYNC.md for live state, contracts and blockers.
+#
+# owns        - paths this agent may change. Anything else is a blocker, not a commit.
+# contracts   - interfaces it publishes or consumes; a change is a cross-agent event.
+# test_pattern- glob for the tests that must be green before its PR merges.
+# gate        - the command that runs exactly that pattern.
+# branch      - the only branch it works on.
+
+version: 1
+updated: 2026-11-12
+trunk: main
+integration_branch: feat/natural-feel-v1
+
+shared_rules:
+  rebuild_before_test:
+    - "new or renamed class_name: godot --headless --path . --import"
+    - "any gdextension/*.cpp change: gdextension/build/build_win.bat, then re-run the gate"
+  external_value_tags: ["[hand]", "[table]", "[closed]", "[fig]", "[meas]", "[ind]"]
+  no_fudge_factors: "no torque/power multipliers, no reference-curve lookups, no per-bike adjustment (GEMINI.md 5)"
+
+agents:
+  physics:
+    owns:
+      - scripts/engine/
+      - scripts/ecu/
+      - scripts/sim/
+      - gdextension/src/
+      - gdextension/include/
+    contracts:
+      - crank_angle_api
+      - signal_emission
+      - feature_flags
+      - exhaust_mass_flow
+      - wheel_slip
+    test_pattern: "tests/unit/{engine,exhaust,intake,sim,ecu,dyno,drivetrain}/**"
+    gate: "run_test.bat --physics"
+    branch: feat/physics-natural-feel
+    known_red:
+      - unit/engine/two_stroke_native_test.gd   # native kernel not yet ported
+
+  geometry:
+    owns:
+      - assets/engines/
+      - assets/compressor_maps/
+      - scripts/model/bike/
+      - scripts/model/pipe/
+      - scripts/exhaust/exhaust_layout.gd
+    contracts:
+      - json_schema
+      - scaling_rules
+      - validation_api
+      - exhaust_layout
+    test_pattern: "tests/unit/{model,structure}/**"
+    gate: "run_test.bat --drivetrain"
+    branch: feat/geometry-natural-feel
+    note: "no gdextension edits; a native change is a blocker for physics"
+
+  uiux:
+    owns:
+      - scripts/ui/
+      - scenes/
+      - tests/visual/
+    contracts:
+      - signal_subscription
+      - feature_toggles
+      - user_settings
+    test_pattern: "tests/visual/** and tests/unit/controls/**"
+    gate: "run_test.bat --ui"
+    branch: feat/uiux-natural-feel
+
+  # Not staffed yet. Add the row before assigning work, per MULTI_AGENT_PLAN.md.
+  audio:
+    owns: [scripts/audio/, assets/sfx/, assets/ir/]
+    contracts: [physics_audio_signals, sample_bank, realtime_mixer]
+    test_pattern: "tests/unit/audio/**"
+    gate: "run_test.bat --audio"
+    branch: feat/audio-natural-feel
+    status: unstaffed
