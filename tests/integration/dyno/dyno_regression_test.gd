@@ -34,11 +34,12 @@ func check(ok: bool, msg: String) -> void:
 		print("FAIL " + msg)
 
 
-# Wide-open torque at a fixed rpm: run past the transient, then average. Same hold as dyno_cbr250rr.gd.
+# Wide-open torque at a fixed rpm: run past the transient, then average.
+# The torque is the mean over the last CLOSED cycle (sim.cycle_brake_torque), not sim.torque: that one is the last
+# sub-step's shaft torque, and at high rpm the firing phase swings it through zero and negative (measured: -34 N m at
+# 8000 rpm on an engine reading 12 bar BMEP). A dynamometer averages over cycles; so must this.
 func _hold(sim: EngineSim, spec: EngineSpec, rpm: float) -> float:
 	var dt := sim.physics_dt
-	var sum_t := 0.0
-	var n := 0
 	var revs := 0.0
 	sim.running = true
 	while revs < 16.0:
@@ -46,10 +47,8 @@ func _hold(sim: EngineSim, spec: EngineSpec, rpm: float) -> float:
 		sim.rpm = rpm
 		sim.step(dt, spec, 1.0, true, false, true, false, 1.0)
 		revs += rpm * dt / 60.0
-		if revs > 8.0:
-			sum_t += sim.torque
-			n += 1
-	return sum_t / maxf(float(n), 1.0)
+	# cycle_brake_torque is the mean shaft torque over the last CLOSED cycle - what a dynamometer reports.
+	return sim.cycle_brake_torque
 
 
 func _points(samples: Array, redline: float) -> Array:
