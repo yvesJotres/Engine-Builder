@@ -68,6 +68,8 @@ var _firing_message: Label
 var _four_stroke_rows: Array[Control] = [] # the valve and runner rows: a two-stroke has no valves
 var _firing_rows: Array[Control] = [] # the firing-order rows: only a multi-cylinder engine has a firing order
 var _warning: Label
+var _row_labels := {} # key -> the Label in front of its control, for the search box
+var _search: LineEdit
 var builds_path := "user://engine_builds.cfg"
 var _build_name: LineEdit
 var _builds: OptionButton
@@ -112,6 +114,14 @@ func _ready() -> void:
 	heading.add_theme_font_size_override("font_size", PANEL_FONT - 2)
 	heading.add_theme_color_override("font_color", HEADING)
 	box.add_child(heading)
+
+	# the search box: nine tabs and a hundred rows is a lot to hunt through by eye
+	_search = LineEdit.new()
+	_search.placeholder_text = "Search settings…"
+	_search.clear_button_enabled = true
+	_search.custom_minimum_size.y = CONTROL_HEIGHT
+	_search.text_changed.connect(_apply_search)
+	box.add_child(_search)
 
 	# the engine kill switch and the starter, side by side and always in view
 	var rider := HBoxContainer.new()
@@ -501,6 +511,12 @@ func _ready() -> void:
 	pages_box.add_child(help)
 
 	_refresh_feature_switches()
+	# every control's label, so the search box can hide a whole row. One sweep covers the schema-driven rows and the
+	# hand-built ones alike, and a control whose parent is not a grid (a page-level button) is simply skipped.
+	for key in _controls:
+		var control = _controls[key]
+		if control != null and control.get_parent() is GridContainer and control.get_index() > 0:
+			_row_labels[key] = control.get_parent().get_child(control.get_index() - 1)
 	# A is the brake on a gamepad and Godot's default ui_accept is also A, so a control that kept the focus would be
 	# pressed again every time the brake was squeezed. Buttons and option buttons therefore never take focus; text
 	# fields keep it, because naming a build needs the keyboard.
@@ -554,6 +570,36 @@ func jump_to_warning() -> void:
 	var index := _category_of_key(_warning_key)
 	if index >= 0:
 		_select_category(index)
+
+
+# Hides every row whose label does not contain the text, and jumps to the first page that has a hit.
+func _apply_search(raw: String) -> void:
+	var needle := raw.strip_edges().to_lower()
+	for key in _row_labels:
+		var label: Label = _row_labels[key]
+		var hit := needle == "" or String(label.text).to_lower().contains(needle)
+		label.visible = hit
+		var control = _controls.get(key)
+		if control != null:
+			control.visible = hit
+	if needle == "":
+		# back to each page's own rules: a single cylinder hides Layout, a non-turbo hides Boost, and so on. Any other
+		# _refresh_* function that hides rows must be called here too, or clearing the search will leave rows showing.
+		_refresh_twin()
+		_refresh_feature_switches()
+		return
+	for i in CATEGORIES.size():
+		if _category_has_hit(i, needle):
+			if i != _category:
+				_select_category(i)
+			return
+
+
+func _category_has_hit(index: int, needle: String) -> bool:
+	for key in PanelSchema.CATEGORY_KEYS.get(CATEGORIES[index], []):
+		if _row_labels.has(key) and String(_row_labels[key].text).to_lower().contains(needle):
+			return true
+	return false
 
 
 func _refresh_twin() -> void:
