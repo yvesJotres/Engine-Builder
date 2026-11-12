@@ -87,6 +87,14 @@ Fill a row in the same commit that changes the signature. Format: `name — sign
 
 Newest first. Format: `date — agent — what — what it needs — who`.
 
+- 2026-11-12 — orchestrator — **the two-stroke C++ port is written and compiles, but cannot be linked**: 5 Godot
+  processes (the full sweep on PID 9640 plus its children, and two editor instances) hold
+  `gdextension/bin/libengine_sim.windows.template_debug.x86_64.dll` open, so the linker fails with LNK1104. Needs the
+  editor and any running sweep closed, then `gdextension\build_win.bat template_debug`, then
+  `run_test.bat two_stroke_native`. The port is deliberately **not committed** until that test passes.
+- 2026-11-12 — orchestrator — the gate now detects this class of blocker itself: `run_test.bat --check-dll` exits 1 when
+  any `gdextension/src|include` file is newer than the debug DLL, and every normal run prints the warning.
+
 - 2026-11-12 — orchestrator — `two_stroke_native_test` red because the native kernel is unported — needs the five
   GDScript fixes in `two_stroke_kernel.cpp` and a DLL rebuild — Physics.
 - 2026-11-12 — orchestrator — `shift_behavior_test` red because `gearbox_load` alternates sign per firing pulse —

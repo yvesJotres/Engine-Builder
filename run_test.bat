@@ -20,6 +20,11 @@ set "GODOT=D:\Program Files (x86)\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-sta
 set "FAILED=0"
 set "GROUPS="
 
+rem A stale extension looks exactly like a logic bug: the C++ changed, the DLL did not, and the test compares against the
+rem old binary. Warn always, and fail the run when --check-dll is passed (CI and an agent's pre-flight).
+call :check_dll
+if /I "%~1"=="--check-dll" goto :check_only
+
 if "%~1"=="" goto :run
 if /I "%~1"=="--all" goto :run
 if /I "%~1"=="--physics" (
@@ -63,6 +68,19 @@ set "TEST_FILTER=%~1"
 if errorlevel 1 set "FAILED=1"
 exit /b 0
 
+rem Sets DLL_STALE=1 when any .cpp/.h under gdextension/src or gdextension/include is newer than the debug DLL,
+rem 0 when the DLL is current, and leaves it unset if either side is missing.
+:check_dll
+set "DLL_STALE="
+for /f "usebackq delims=" %%s in (`powershell -NoProfile -Command "$dll='%~dp0gdextension\bin\libengine_sim.windows.template_debug.x86_64.dll'; if (-not (Test-Path $dll)) { 'missing'; exit }; $f=Get-ChildItem '%~dp0gdextension\src','%~dp0gdextension\include' -Recurse -Include *.cpp,*.h -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f -and $f.LastWriteTime -gt (Get-Item $dll).LastWriteTime) { 'stale' } else { 'current' }"`) do set "DLL_STATE=%%s"
+if /I "%DLL_STATE%"=="stale" (
+	set "DLL_STALE=1"
+	echo WARNING: the native extension is older than gdextension/src - rebuild before trusting a C++ test.
+)
+if /I "%DLL_STATE%"=="current" set "DLL_STALE=0"
+if /I "%DLL_STATE%"=="missing" echo WARNING: no native extension in gdextension\bin - the native tests will skip.
+exit /b 0
+
 :done
 echo.
 if "%FAILED%"=="1" (
@@ -74,4 +92,16 @@ if "%FAILED%"=="1" (
 )
 rem pause only for a human double-click, so a CI or an agent call does not hang on it
 if "%~1"=="" pause
+endlocal & exit /b %RC%
+
+rem --check-dll: exit code says whether the native extension matches the C++ sources.
+:check_only
+if "%DLL_STALE%"=="1" (
+	echo GATE: FAILED - the native extension is older than gdextension/src or gdextension/include.
+	echo        Run gdextension\build_win.bat template_debug, and close Godot first: it holds the DLL open.
+	set "RC=1"
+) else (
+	echo native extension is up to date with gdextension/src and gdextension/include
+	set "RC=0"
+)
 endlocal & exit /b %RC%
