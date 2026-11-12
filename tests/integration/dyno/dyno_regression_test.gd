@@ -89,6 +89,9 @@ func _bike(path: String) -> void:
 	var sim := EngineSim.new()
 	sim.audio_enabled = false
 	sim.physics_dt = 1.0 / 2400.0
+	# The shipping path builds an exhaust layout and hands it to the sim; without one the backpressure model is skipped
+	# (_audio_layout == null) and the gate measures an engine breathing through no pipe at all.
+	sim.set_audio_layout(ExhaustLayout.build(spec, [], Vector3(0.0, 2.0, 0.0), Ground.Y, Vector3(0.0, 3.0, -5.95)), spec.cylinders)
 
 	print("")
 	print("== %s  (%s)" % [id, String(data.get("title", "")).left(70)])
