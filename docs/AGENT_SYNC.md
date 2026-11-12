@@ -24,7 +24,15 @@ available, the branches and the ownership table below are already the right cut 
 | Test | Why it is red | Owner / next step |
 |---|---|---|
 | `unit/drivetrain/shift_behavior_test.gd` | `gearbox_load` swings ±90 N m between firing pulses at 4,270 rpm (61.6 → −86.5 → −5.0, capacity 200 N m, unloaded threshold 16 N m), so the shift state machine sees "unloaded" at wide open and drops to neutral. | Orchestrator: cycle-mean `gearbox_load` in `_advance_driveline`. Do not encode the jump as the expected behaviour. |
-| `integration/dyno/dyno_cbr250rr.gd` | 29.48 kW at 12,500 rpm against Honda's 28 kW factbook figure (+5.3%, gate is ±3%). **Not** the uncommitted header change: re-running the gate with `header_primary_mm` back at the committed 42 mm gives the same 29.48 kW. The over-prediction is in committed physics. | Physics: bisect the checkpoint (`1b64243`) — gas properties, exhaust collector/canister and Woschni are the three changes in that window. Gate stays at 28 kW. |
+| `integration/dyno/dyno_cbr250rr.gd` | 29.48 kW at 12,500 rpm against Honda's 28 kW factbook figure (+5.3%, gate is ±3%). **Not** the uncommitted header change: re-running with `header_primary_mm` back at the committed 42 mm gives the same 29.48 kW. A code bisect is impossible — the pre-checkpoint tree (`39df036`) does not run (see below) — so the sensitivity was measured instead: ±100% wall heat moves power by ~9% (25.20 N·m at 0, 23.07 at 1, 21.01 at 2) and the 1D pipe solver moves it 12% (26.55 kW on vs 30.20 off). The gap is model uncertainty around heat transfer and exhaust tuning, not one wrong constant. | Physics: needs a measured WOT cylinder-pressure trace (gap 6/7) or a sourced Woschni constant set. Any fix by scaling `wall_heat_scale` per bike is the fudge factor `GEMINI.md` 5 forbids. Gate stays at 28 kW. |
+
+**No runnable baseline.** `39df036` (the commit before the checkpoint) cannot be run from a worktree: its scripts preload
+`assets/3d/generated/drivetrain/tire_tread.gd`, which did not exist there, and reference `EngineSpec.PIN_RADIUS`,
+`SHAFT_RADIUS`, `PIN_LENGTH` and `WEB_THICKNESS`, which it did not have. That is why the checkpoint's 221 files had to go
+in as one commit, and it means code-level bisecting starts from `1b64243`, not before it.
+
+Tooling for the open question: `tools/diagnostics/probe_cbr_power_sensitivity.gd` prints the 12,500 rpm hold at four
+settings (shipped, no wall heat, double wall heat, 1D solver on).
 
 Flaky, not fixed: `unit/engine/engine_stats_test.gd` failed once inside the full sweep and passes 3 of 3 alone; it
 touches no file, clock or RNG.
