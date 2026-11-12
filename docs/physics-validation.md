@@ -43,10 +43,10 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
-| Volume vs crank angle (slider-crank) | `scripts/engine/cylinder.gd:480` | ❌ none | V(θ) = V_c + ½V_s[1-cosθ + (1-√(1-λ²sin²θ))/λ] λ=r/L | ❌ |
+| Volume vs crank angle (slider-crank) | `scripts/engine/cylinder.gd:236` | ✅ `tests/unit/engine/cylinder_geometry_test.gd` — V(0)=Vc, V(180)=Vc+Vd, V(90) exact, symmetry about TDC, monotone | V(θ) = V_c + ½V_s[1-cosθ + (1-√(1-λ²sin²θ))/λ] λ=r/L | ✅ `[closed]` |
 | Valve curtain area vs lift (Heywood) | `cylinder.gd:310` `_intake_area:367` | ✅ `tests/unit/engine/valve_curtain_test.gd` — 2·π·d·L below the cap, 2·(π/4)·d² at it, linear in lift, one opening per cycle | A = π·d_valve·lift per valve, capped at the valve head area. The Cd-vs-L/D shape is still gap 4 | ✅ `[closed]` geometry |
 | Orifice mass flow (Heywood App C) | `cylinder.gd:318` `cylinder_kernel.cpp:180` | ✅ `tests/unit/engine/orifice_flow_test.gd` — choked, subsonic, continuity at 0.5283, sign symmetry, linearity | Choked: ṁ = Cd·A·p0·√(γ/R/T0)·(2/(γ+1))^((γ+1)/(2(γ-1))) | ✅ `[closed]` |
-| Wiebe burn fraction | `cylinder.gd:700` `cylinder_kernel.cpp:580` | ❌ none | x_b = 1-exp(-a·((θ-θ0)/Δθ)^(m+1)); a=5, m=2 typical | ❌ |
+| Wiebe burn fraction | `cylinder.gd:813` `cylinder_kernel.cpp:580` | ✅ `cylinder_geometry_test.gd` — x(0)=0, x(Δθ)=1-e^-a=0.999, fraction-of-window scaling, monotone and bounded | x_b = 1-exp(-a·((θ-θ0)/Δθ)^(m+1)); a=6.908, m=2 | ✅ `[closed]` |
 | **Heat transfer: Woschni (1967) SAE 670931** | `cylinder.gd:600` `cylinder_kernel.cpp:540` | ✅ `tests/unit/engine/woschni_validation_test.gd` (hand calc at motored / fired / gas-exchange points) + `woschni_test.gd` (conservation) | h = 3.26·B⁻⁰·²·p⁰·⁸·T⁻⁰·⁵⁵·w⁰·⁸; w = C1·v_p + C2·(V_d·T_r·(p-p_m))/p_r·V_r | ✅ `[hand]` |
 | **Heat transfer: Annand (1963)** | `cylinder_kernel.cpp:550` (optional) | ❌ none | h = a·Re^b·Pr^c; a=0.52, b=0.7, c=0.33 (Annand) | ❌ |
 | **Wall heat scale** | `cylinder.gd:640` `engine_sim.gd:80` | ❌ none | Global multiplier `wall_heat_scale` (default 1.0) | ❌ |
