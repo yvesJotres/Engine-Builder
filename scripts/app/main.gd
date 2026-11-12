@@ -1124,6 +1124,8 @@ func _on_panel_changed() -> void:
 	_sim.fuel.set_kind(spec.fuel)
 	_sim.gear.gear_ratios = spec.gear_ratios
 	_sim.gear.gear = mini(_sim.gear.gear, spec.gear_ratios.size())
+	var problem := spec.validation_problem()
+	_panel.set_warning(String(problem.get("text", "")), String(problem.get("key", "")))
 	_rebuild_dirty = true
 	_rebuild_timer.start() # restarting collapses a burst of changes into one rebuild
 
@@ -1204,7 +1206,6 @@ func _rebuild_scene() -> void:
 		_sound.setup(spec, layout) # stops the player, so start it again below
 		_sound.play()
 		_sound.stream_paused = _paused or not _sound_on
-	_panel.set_warning(spec.validation_warning())
 
 
 var _audio_key := ""
