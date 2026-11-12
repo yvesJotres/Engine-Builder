@@ -47,7 +47,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | Valve curtain area vs lift (Heywood) | `cylinder.gd:500` `cylinder_kernel.cpp:30` | ❌ none | A = π·d_valve·lift·Cd; Cd vs L/D from SAE 820154/962527 | ❌ |
 | Orifice mass flow (Heywood App C) | `cylinder_kernel.cpp:180` | ❌ none | Choked: ṁ = Cd·A·p0·√(γ/R/T0)·(2/(γ+1))^((γ+1)/(2(γ-1))) | ❌ |
 | Wiebe burn fraction | `cylinder.gd:700` `cylinder_kernel.cpp:580` | ❌ none | x_b = 1-exp(-a·((θ-θ0)/Δθ)^(m+1)); a=5, m=2 typical | ❌ |
-| **Heat transfer: Woschni (1967) SAE 670931** | `cylinder.gd:600` `cylinder_kernel.cpp:540` | 🟡 `tests/unit/engine/woschni_test.gd` (conservation only) | h = 3.26·B⁻⁰·²·p⁰·⁸·T⁻⁰·⁵⁵·w⁰·⁸; w = C1·v_p + C2·(V_d·T_r·(p-p_m))/p_r·V_r | 🟡 |
+| **Heat transfer: Woschni (1967) SAE 670931** | `cylinder.gd:600` `cylinder_kernel.cpp:540` | ✅ `tests/unit/engine/woschni_validation_test.gd` (hand calc at motored / fired / gas-exchange points) + `woschni_test.gd` (conservation) | h = 3.26·B⁻⁰·²·p⁰·⁸·T⁻⁰·⁵⁵·w⁰·⁸; w = C1·v_p + C2·(V_d·T_r·(p-p_m))/p_r·V_r | ✅ `[hand]` |
 | **Heat transfer: Annand (1963)** | `cylinder_kernel.cpp:550` (optional) | ❌ none | h = a·Re^b·Pr^c; a=0.52, b=0.7, c=0.33 (Annand) | ❌ |
 | **Wall heat scale** | `cylinder.gd:640` `engine_sim.gd:80` | ❌ none | Global multiplier `wall_heat_scale` (default 1.0) | ❌ |
 | **Endpoint energy solve: Newton 4-iter on m·u(T) - source + ½(p_old + mRT/V)·dV = 0** | `cylinder.gd:680` `cylinder_kernel.cpp:760` | ❌ none | Exact for any u(T); replaces linearized cv·T solve | ❌ |
@@ -188,7 +188,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 |------|-----|--------|--------|-----------|
 | ~~1~~ | ✅ **Gas properties table validation** — closed 2026-11-12 by `tests/unit/engine/gas_properties_test.gd` | `gas_properties` | — | Keenan & Kaye tables `[table]` |
 | ~~2~~ | ✅ **C++/GDScript parity test** (1e-9) — closed by `tests/unit/engine/cylinder_native_test.gd` | `gas_properties` + `cylinder_kernel` | — | Internal requirement `[ind]` |
-| 3 | **Woschni heat transfer at 2 operating points** (motored + fired) | `cylinder` | 2 days | Qasemian 2020 Table 1; Woschni SAE 670931 |
+| ~~3~~ | ✅ **Woschni at 3 operating points** — closed by `tests/unit/engine/woschni_validation_test.gd` (motored 270.6, fired 3603.2, gas exchange 110.2 W/(m²·K) at 3000 rpm, each against hand arithmetic) | `cylinder` | — | Qasemian 2020; Woschni SAE 670931 `[hand]` |
 | 4 | **Valve flow Cd vs L/D** (3 points from Heywood Fig 6-18) | `cylinder` | 1 day | SAE 820154 / Heywood Fig 6-18 |
 | 5 | **Orifice mass flow (choked + subsonic)** | `cylinder` / `intake` | 1 day | Heywood App C |
 | 6 | **Closed-cylinder pressure trace vs motored data** | `cylinder` | 3 days | SAE 2002-01-0492 (or similar) |

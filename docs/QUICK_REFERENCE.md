@@ -11,7 +11,7 @@
 |---|--------|----------------|-----------|
 | ~~1~~ | ✅ Gas properties table points (300/1000/2000/3000 K) — **done** | `tests/unit/engine/gas_properties_test.gd` | Keenan & Kaye tables |
 | ~~2~~ | ✅ C++/GDScript parity (1e-9) — **done** | `tests/unit/engine/cylinder_native_test.gd` | `cylinder_kernel.cpp:19` |
-| 3 | Woschni at 2 points (motored + fired) | `tests/unit/engine/woschni_validation_test.gd` | Qasemian 2020 Table 1 |
+| ~~3~~ | ✅ Woschni at 3 points (motored / fired / gas exchange) — **done** | `tests/unit/engine/woschni_validation_test.gd` | Qasemian 2020 |
 | 4 | Valve Cd vs L/D (3 points) | `tests/unit/engine/valve_flow_test.gd` | Heywood Fig 6-18 |
 | 5 | Orifice choked/subsonic flow | `tests/unit/engine/orifice_flow_test.gd` | Heywood App C |
 

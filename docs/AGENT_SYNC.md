@@ -10,9 +10,14 @@ Architecture and work packages: [MULTI_AGENT_PLAN.md](MULTI_AGENT_PLAN.md). This
 
 ## Trunk state (last updated 2026-11-12)
 
-- `main` head: `d2cd57a` — "tests: rework the five gates the new physics invalidated"
+- `main` head: `9b12be8` — "gate: run_test.bat takes group flags, and the agent contract docs exist"
+- Active branch: `feat/physics-natural-feel` at `c6809d1` — Woschni validation (gap 3) landed, test green.
 - Gate: `run_test.bat` (see below). **Not green yet**, on purpose: the two reds are known work, not noise.
 - Native extension: `gdextension/bin/libengine_sim.windows.template_{debug,release}.x86_64.dll` — rebuilt 2026-11-12.
+
+**Parallelism note.** This machine has no subagent runner wired into the session, so the three work packages run
+serially on their branches, one package per commit, orchestrator playing both roles. When a real parallel runner is
+available, the branches and the ownership table below are already the right cut — nothing else needs to change.
 
 ### Known red, with the reason it is red
 
@@ -89,6 +94,10 @@ Newest first. Format: `date — agent — what — what it needs — who`.
 
 ## Decisions
 
+- 2026-11-12 — **gap 3 (Woschni) closed.** `tests/unit/engine/woschni_validation_test.gd` hand-evaluates the published
+  correlation at three points (motored 270.6, fired 3603.2, gas exchange 110.2 W/(m²·K) at 3000 rpm) and pins the
+  C2 term to combustion/expansion only. Tagged `[hand]`: it checks the port, not that Woschni is the right model — the
+  original SAE 670931 text is still unreachable, the constants come from Qasemian & Rezaei 2020.
 - 2026-11-12 — `docs/physics-validation.md` was four rows out of date (gas properties, C++/GDScript parity, ABS
   hysteresis, Chen–Flynn all had tests). Corrected; treat the file as the backlog, not as memory.
 - 2026-11-12 — the golden trace fixture is a self-consistency gate, not a physics check. It was regenerated after the
