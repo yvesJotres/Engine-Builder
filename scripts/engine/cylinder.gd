@@ -814,6 +814,35 @@ static func _wiebe(rel: float, burn_deg: float) -> float:
 	return 1.0 - exp(-WIEBE_A * pow(clampf(rel / burn_deg, 0.0, 1.0), WIEBE_M + 1.0))
 
 
+# Laminar flame speed from Metghalchi and Keck (1982), m/s:
+#   S_u = S_u0 * (T/T0)^alpha * (p/p0)^beta * (1 - 2.1 f)
+#   alpha = 2.18 - 0.8 (phi - 1)      beta = -0.16 + 0.22 (phi - 1)
+#   S_u0  = B_m + B_2 (phi - phi_m)^2
+# f is the diluent MASS FRACTION (burnt products mixed into the charge), not the residual fraction of the trapped
+# charge, which is a different quantity. Isooctane coefficients as read in the paper's own text (see
+# docs/engine_physics/14_what_is_still_unverified.md): B_m = 26.32 cm/s, B_2 = -84.72 cm/s, phi_m = 1.13, T0 = 298 K,
+# p0 = 1 atm.
+# Diluent is clamped below 1/2.1: the fit is only defined while (1 - 2.1 f) is positive, and a charge that heavily
+# diluted burns slowly rather than backwards.
+# NOTE: this is the model, validated in tests/unit/engine/flame_speed_test.gd. It does not drive burn_duration_deg yet -
+# wiring it in changes every dyno result, so that step comes with its own dyno comparison.
+const FLAME_T0 := 298.0 # K
+const FLAME_P0 := 101325.0 # Pa
+const FLAME_PHI_M := 1.13 # phi of peak speed, isooctane
+const FLAME_S0 := 0.2632 # m/s, B_m = 26.32 cm/s
+const FLAME_B2 := -0.8472 # m/s, B_2 = -84.72 cm/s
+const FLAME_DILUENT := 2.1 # the (1 - 2.1 f) factor
+const FLAME_DILUENT_MAX := 0.45
+
+
+static func flame_speed_m_s(t_k: float, p_pa: float, phi: float, diluent: float = 0.0) -> float:
+	var su0 := FLAME_S0 + FLAME_B2 * pow(phi - FLAME_PHI_M, 2.0)
+	var alpha := 2.18 - 0.8 * (phi - 1.0)
+	var beta := -0.16 + 0.22 * (phi - 1.0)
+	var dil := 1.0 - FLAME_DILUENT * clampf(diluent, 0.0, FLAME_DILUENT_MAX)
+	return su0 * pow(maxf(t_k, 200.0) / FLAME_T0, alpha) * pow(maxf(p_pa, 1.0) / FLAME_P0, beta) * dil
+
+
 # Stores the closed cycle. A short first pass, before the crank has been round once, is discarded.
 func _close_cycle() -> void:
 	if _cycle_deg >= 400.0 and swept > 0.0:
