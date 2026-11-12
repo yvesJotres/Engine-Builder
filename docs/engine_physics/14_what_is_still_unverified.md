@@ -55,6 +55,7 @@ This log covers the claims in sections 1–13, tagged as in the index. Later pas
 - **Two-stroke fixes.** Residual capture at transfer close, burn duration vs RPM, crank radius inertia (was 0).
 - **Launch control PI.** Kp=10, Ki=30, bias limit ±1.0, lock at clutch_engage≥0.98.
 - **Wheel/ABS model.** Slip ratio, μ(slip) peak 1.05 at 0.12, locked 0.75; load transfer; ABS hysteresis (release 1.15×, reapply 0.8×, slew 60k/12k N·m/s).
+- **Laminar flame speed (2026-11-12).** `Cylinder.flame_speed_m_s` implements the Metghalchi–Keck fit with the coefficients above (B_m 26.32 cm/s, B_2 −84.72 cm/s, φ_m 1.13), validated by hand evaluation in `tests/unit/engine/flame_speed_test.gd`: reference point returns B_m exactly, 600 K/5 bar/φ 1.0 gives 0.886 m/s, 10 % diluent scales by 0.79, and the stoichiometric speed lands at 0.2525 m/s. The burn still runs on the Wiebe duration — wiring the flame speed into `burn_duration_deg` changes every dyno result and needs its own before/after comparison, so it is not done.
 
 ---
 
