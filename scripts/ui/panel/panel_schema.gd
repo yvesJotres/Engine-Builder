@@ -41,7 +41,6 @@ const CATEGORY_TABS: Array[String] = [
 
 # Values the preset sets that are not on screen.
 const PLAIN_VARS: Array[String] = [
-	"rod_ratio",
 	"compression_ratio",
 	"crossplane",
 	"fire_deg",
@@ -58,8 +57,8 @@ const PLAIN_VARS: Array[String] = [
 # Controls on each page: a category reset puts exactly these back to the preset's values.
 const CATEGORY_KEYS := {
 	"Engine": [
-		"cyl", "bore", "stroke", "slant", "layout", "stroke_type",
-		"bank_angle", "shared_pins", "twin", "custom_pin", "crank",
+		"cyl", "bore", "cr", "stroke", "rod_ratio", "slant", "layout", "stroke_type",
+		"bank_angle", "shared_pins", "pin_sep", "twin", "custom_pin", "crank", "firing_order",
 	],
 	"Intake and fuel": [
 		"intake_valve_mm", "runner_length_m", "fuel", "lambda",
@@ -80,6 +79,7 @@ const CATEGORY_KEYS := {
 	"Rider aids": [
 		"qs_enabled", "qs_sensitivity", "qs_cut_base", "qs_blip_time",
 		"qs_blip_throttle", "qs_flat_shift", "launch_control", "slipper_clutch",
+		"abs_enabled", "traction_control_enabled", "overrun_pop",
 	],
 	"Vehicle": [
 		"redline", "flywheel", "flywheel_r", "speed_limit_enabled", "speed_limit_kmh",
@@ -123,6 +123,16 @@ const CONTROLS := {
 		"preset_key": "bore_mm",
 		"tooltip": "Cylinder bore diameter.",
 	},
+	"cr": {
+		"label": "Compression",
+		"type": "spin",
+		"category": "Engine",
+		"min": 6.0, "max": 15.0, "step": 0.1, "default": 11.3,
+		"unit": ":1",
+		"spec_field": "compression_ratio",
+		"preset_key": "compression_ratio",
+		"tooltip": "Geometric compression ratio, (swept + clearance) / clearance. Raising it lifts the chamber pressure and the peak temperature and pulls the knock limit earlier; the dash's engine page also shows the effective ratio the charge sees, which is lower once the intake closes late.",
+	},
 	"stroke": {
 		"label": "Stroke (mm)",
 		"type": "spin",
@@ -132,6 +142,16 @@ const CONTROLS := {
 		"spec_field": "stroke_mm",
 		"preset_key": "stroke_mm",
 		"tooltip": "Cylinder stroke.",
+	},
+	"rod_ratio": {
+		"label": "Conrod ratio",
+		"type": "spin",
+		"category": "Engine",
+		"min": 1.2, "max": 3.5, "step": 0.01, "default": 1.6,
+		"unit": "",
+		"spec_field": "rod_ratio",
+		"preset_key": "rod_ratio",
+		"tooltip": "Connecting rod length over stroke. A longer rod holds the piston near top dead centre longer: less side load on the bore, gentler piston acceleration. Road engines sit around 1.5 to 1.8.",
 	},
 	"slant": {
 		"label": "Slant (°)",
@@ -174,14 +194,24 @@ const CONTROLS := {
 		"tooltip": "Angle between cylinder banks.",
 	},
 	"shared_pins": {
-		"label": "Crankpins",
+		"label": "Crank pins",
 		"type": "option",
 		"category": "Engine",
-		"items": ["Preset / automatic", "Shared opposite-bank pairs"],
+		"items": ["One per cylinder (dual-pin)", "One shared per opposite pair (single-pin)"],
 		"default_index": 0,
 		"spec_field": "shared_v_crankpins",
 		"preset_key": "shared_v_crankpins",
-		"tooltip": "Pair cylinders 1-2, 3-4 and so on on common crankpins; firing angles adjust to the bank angle.",
+		"tooltip": "How the con-rods sit on the crank. One pin per cylinder is a dual-pin crank. One pin shared by the two cylinders opposite each other in the V is a single-pin crank (Harley's knife-and-fork rods), and in a V4 each pair's own pin is then offset from the other pair's - a split crankpin, as on the Panigale V4. A 45 degree V-twin on one shared pin fires 315/405 degrees, the Harley beat; with a pin each it fires 360/360.",
+	},
+	"pin_sep": {
+		"label": "Crank pin separation (°)",
+		"type": "spin",
+		"category": "Engine",
+		"min": 0.0, "max": 360.0, "step": 1.0, "default": 0.0,
+		"unit": "°",
+		"spec_field": "crank_pin_sep_deg",
+		"preset_key": "crank_pin_sep_deg",
+		"tooltip": "Degrees between the two crank pins of an unshared pair. The second cylinder fires bank_angle minus this after the first: 0 means the journals are aligned and it fires exactly like a shared pin; separating them by the bank angle makes both fire together (even 360). Honda's 45 degree dual-pin Shadow 750 used 180 - 2 x bank = 90 degrees, for primary balance rather than timing.",
 	},
 	"twin": {
 		"label": "Crank pin",
@@ -474,6 +504,15 @@ const CONTROLS := {
 		"preset_key": "quickshifter_blip_throttle",
 		"tooltip": "Throttle fraction during downshift blip.",
 	},
+	"overrun_pop": {
+		"label": "Decel Pops",
+		"type": "toggle",
+		"category": "Rider aids",
+		"default": false,
+		"spec_field": "overrun_pop",
+		"preset_key": "overrun_pop",
+		"tooltip": "Keep the fuel on a closed-throttle overrun and cut the spark instead, so unburnt mixture bangs in a hot pipe. Off is the stock decel cut, which leaves nothing to bang.",
+	},
 	"qs_flat_shift": {
 		"label": "Flat Shift",
 		"type": "toggle",
@@ -508,7 +547,7 @@ const CONTROLS := {
 		"default": false,
 		"spec_field": "abs_enabled",
 		"preset_key": "abs_enabled",
-		"tooltip": "Anti-lock braking system. Not built yet; switch is locked.",
+		"tooltip": "Anti-lock braking: modulates the caliper so the wheel stays near peak grip instead of locking.",
 		"visible_when": "wheel_aids_available",
 	},
 	"traction_control_enabled": {

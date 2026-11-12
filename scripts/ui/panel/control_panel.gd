@@ -19,7 +19,7 @@ signal engine_cover_changed(assembled: bool)
 signal dyno_pressed
 signal render_pressed
 
-const PANEL_WIDTH := 340.0 # wider and larger text for touch; the bottom-left touch pads sit beside its lower edge
+const PANEL_WIDTH := 420.0 # fixed column width: wide enough for the longest rows, and the same on every tab
 const PANEL_FONT := 18 # text size on the panel, up from the default 16
 const PANEL_MARGIN := 16.0 # gap between the panel and the screen edge
 const GAP := 8 # space between sections and rows
@@ -511,6 +511,18 @@ func _ready() -> void:
 	pages_box.add_child(help)
 
 	_refresh_feature_switches()
+	# A dropdown that sizes itself to its longest item is what made the panel jump between tabs: "One shared per
+	# opposite pair (single-pin)" is 400 px wide, so the Engine page dragged the whole column out to 569. The text is
+	# clipped instead, and a tooltip carries the full wording.
+	for key in _controls:
+		var option = _controls[key]
+		if option is OptionButton:
+			(option as OptionButton).fit_to_longest_item = false
+			(option as OptionButton).clip_text = true
+			(option as OptionButton).custom_minimum_size.x = 0.0
+	_preset_button.fit_to_longest_item = false
+	_preset_button.clip_text = true
+	_preset_button.custom_minimum_size.x = 0.0
 	# every control's label, so the search box can hide a whole row. One sweep covers the schema-driven rows and the
 	# hand-built ones alike, and a control whose parent is not a grid (a page-level button) is simply skipped.
 	for key in _controls:
@@ -575,6 +587,7 @@ func jump_to_warning() -> void:
 # Hides every row whose label does not contain the text, and jumps to the first page that has a hit.
 func _apply_search(raw: String) -> void:
 	var needle := raw.strip_edges().to_lower()
+	var searching := needle != ""
 	for key in _row_labels:
 		var label: Label = _row_labels[key]
 		var hit := needle == "" or String(label.text).to_lower().contains(needle)
@@ -582,7 +595,18 @@ func _apply_search(raw: String) -> void:
 		var control = _controls.get(key)
 		if control != null:
 			control.visible = hit
-	if needle == "":
+	# Rows the panel builds by hand rather than from _controls - the firing-order line, its Apply button and its hint.
+	# Without this a search for "ABS" left "Firing order" on screen looking like a match.
+	for row in _firing_rows:
+		if searching:
+			row.visible = false
+	# Page furniture: the page title and its Reset button are not searchable rows.
+	for i in _pages_root.get_child_count():
+		var page: Control = _pages_root.get_child(i)
+		for child in page.get_children():
+			if not (child is GridContainer):
+				child.visible = not searching
+	if not searching:
 		# back to each page's own rules: a single cylinder hides Layout, a non-turbo hides Boost, and so on. Any other
 		# _refresh_* function that hides rows must be called here too, or clearing the search will leave rows showing.
 		_refresh_twin()
@@ -596,8 +620,13 @@ func _apply_search(raw: String) -> void:
 
 
 func _category_has_hit(index: int, needle: String) -> bool:
-	for key in PanelSchema.CATEGORY_KEYS.get(CATEGORIES[index], []):
-		if _row_labels.has(key) and String(_row_labels[key].text).to_lower().contains(needle):
+	# asked of each control's own definition rather than of CATEGORY_KEYS, so a control the category lists have missed
+	# can still be found: ABS was missing from the Rider aids list and "abs" matched no page at all
+	for key in _row_labels:
+		if not String(_row_labels[key].text).to_lower().contains(needle):
+			continue
+		var def := PanelSchema.get_def(key)
+		if String(def.get("category", "")) == String(CATEGORIES[index]):
 			return true
 	return false
 
