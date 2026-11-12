@@ -43,12 +43,15 @@ func _init() -> void:
 	check(rig.display_text() == SplMeter.text(game._spl_db), "and the display still matches SplMeter.text")
 	game._sound_on = true
 
-	# a rebuild that moves the outlet: the rig has to follow it, not stay where it was
+	# a rebuild that moves the outlet: the rig has to follow it, not stay where it was. The geometry rebuild is
+	# debounced (main.REBUILD_DELAY), so ask for it now the way the game does at startup rather than racing the timer
+	# with a fixed number of frames.
 	var tip_before: Vector3 = game._tail_tip
 	var style := game._panel._controls["muffler_style"] as OptionButton
 	style.select(1 if style.selected == 0 else 0)
 	game._panel.changed.emit()
-	for i in 4:
+	game.flush_rebuild()
+	for i in 2:
 		await process_frame
 	check(game._tail_tip.distance_to(tip_before) > 0.05,
 		"the rebuild moved the outlet (%.2f units)" % game._tail_tip.distance_to(tip_before))

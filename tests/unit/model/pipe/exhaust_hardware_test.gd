@@ -102,10 +102,26 @@ func _init() -> void:
 	if hanger != null:
 		check(hanger.get_node_or_null("Bobbin") != null, "the hanger has a rubber bobbin")
 		var canister := pipe_of(layout, "muffler")
-		if canister != null:
-			var middle: Vector3 = canister.pts[0].lerp(canister.pts[-1], 0.55)
-			check(hanger.global_position.distance_to(middle) < 0.9,
-				"the hanger picks the canister up near its middle (%.2f away)" % hanger.global_position.distance_to(middle))
+		if canister != null and canister.pts.size() >= 2:
+			# The hanger is welded to the top of the canister at its mid-length station, so it is measured
+			# against the path point it was placed on, not the straight chord between the ends: the canister
+			# climbs, and the chord cuts the corner the strap actually follows.
+			var best := 0
+			var best_d := INF
+			for index in canister.pts.size():
+				var flat: Vector3 = canister.pts[index] - hanger.global_position
+				flat.y = 0.0
+				if flat.length() < best_d:
+					best_d = flat.length()
+					best = index
+			var station := float(best) / float(maxi(canister.pts.size() - 1, 1))
+			var radius: float = canister.radii[mini(best, canister.radii.size() - 1)]
+			var lift: float = hanger.global_position.y - canister.pts[best].y
+			check(best_d < 0.05, "the hanger stands on the canister axis (%.3f units off it)" % best_d)
+			check(station > 0.35 and station < 0.75,
+				"the hanger picks the canister up at mid-length (station %.2f)" % station)
+			check(absf(lift - radius) < 0.05,
+				"the hanger sits on the canister's top surface (%.3f up, radius %.3f)" % [lift, radius])
 
 	# ---- the catalyst is shrouded ----
 	var shield := exhaust.get_node_or_null("CatalystShield") as MeshInstance3D
