@@ -259,7 +259,10 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 	var sd := dphi / steps
 	var sdt := dt / steps
 	var work := 0.0
-	var fuel_consumed := 0.0
+	# The second return value is the air the intake manifold had to supply. It used to be a fuel_consumed local that was
+	# never assigned, so the manifold was told a two-stroke draws nothing, never depressurised, and a closed throttle kept
+	# feeding full air - which is why a running two-stroke accelerated past its redline with the throttle shut.
+	var drawn := 0.0
 	# The flame takes about the same time in milliseconds whatever the speed, so the burn covers more crank
 	# degrees the faster the engine turns. The four-stroke works this out the same way; the two-stroke used to
 	# freeze at a nominal 5000 rpm, so its burn never matched the engine it was burning in.
@@ -306,6 +309,8 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 			if intake_port_type == "reed":
 				# Reed valve flow
 				var m_in := reed_flow(intake_p, sdt)
+				if m_in > 0.0:
+					drawn += m_in
 				crankcase_mass += m_in
 				crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1
 				enthalpy_in_j += m_in * CP * intake_temp
@@ -314,6 +319,8 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 				var a := intake_port_area(p0)
 				if a > 0.0:
 					var m_in := mass_flow(a, intake_p, intake_temp, crankcase_pressure, crankcase_temp) * sdt
+					if m_in > 0.0:
+						drawn += m_in
 					crankcase_mass += m_in
 					crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1
 					enthalpy_in_j += m_in * CP * intake_temp
@@ -449,7 +456,7 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		_ca50 = -1.0
 		_ca90 = -1.0
 
-	return Vector2(work, fuel_consumed)
+	return Vector2(work, drawn)
 
 
 func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool, intake_p: float) -> void:
