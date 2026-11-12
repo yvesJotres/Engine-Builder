@@ -65,14 +65,20 @@ func _init() -> void:
 	check(absf((mouth_max - mouth_min) - Exhaust.WALL) < 0.002,
 		"the pipe mouth shows a %.2f mm wall, not %.1f mm" % [(mouth_max - mouth_min) * 100.0, Exhaust.WALL * 100.0])
 	check(mouth_min > 0.1, "the pipe bore stays open (inner radius %.3f)" % mouth_min)
+	# Even an end flagged as closed keeps its bore and its wall: a blind disc over the same rim ring gave three triangles
+	# per edge, which is not a watertight shell. The joints that cover a mouth hide it instead.
 	var capped_mesh := Exhaust._tube(pts, radii, true, Exhaust.WALL)
 	var capped_verts: PackedVector3Array = capped_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var capped_max := 0.0
 	var capped_min := INF
 	for v in capped_verts:
 		if absf(v.z + 1.0) < 1e-4:
-			capped_min = minf(capped_min, Vector2(v.x, v.y).length())
-	# a capped end closes to the centre (radius 0), so there is no bore ring there and no wall to draw
-	check(capped_min < 0.05, "a capped pipe end is still solid, closing at the centre (min radius %.3f)" % capped_min)
+			var r := Vector2(v.x, v.y).length()
+			if r > 1.0e-4:
+				capped_max = maxf(capped_max, r)
+				capped_min = minf(capped_min, r)
+	check(absf((capped_max - capped_min) - Exhaust.WALL) < 0.002,
+		"an end flagged closed still shows its %.1f mm wall at the mouth" % (Exhaust.WALL * 100.0))
 
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

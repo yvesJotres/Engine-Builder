@@ -34,6 +34,7 @@
     "wheel_radius_m": 0.335
   },
   "valvetrain": {
+    "header_primary_mm": 48.0,
     "runner_length_m": 0.257,
     "intake_centre_deg": 470,
     "intake_duration_deg": 220,

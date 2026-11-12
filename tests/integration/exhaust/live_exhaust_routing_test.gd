@@ -54,6 +54,12 @@ func _init() -> void:
 		sp.crossplane = config[1]
 		var routed := EngineSim.new()
 		var baseline := EngineSim.new()
+		# The layout feeds two things now: the audio routing, and the pipe geometry that Backpressure turns into the
+		# engine's pumping torque. This test is about the first one - hooking audio up must not move the bike - so the
+		# geometry term is switched off on both engines here. The geometry term has its own test
+		# (tests/unit/exhaust/backpressure_test.gd), which pins what it costs.
+		routed.backpressure_enabled = false
+		baseline.backpressure_enabled = false
 		routed.set_audio_layout(ExhaustLayout.build(sp), sp.cylinders)
 		for frame in 12:
 			var throttle: float = [0.0, 0.6, 1.0, 0.0][int(frame / 3)]

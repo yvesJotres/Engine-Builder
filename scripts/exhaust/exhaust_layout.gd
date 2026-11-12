@@ -14,10 +14,15 @@ const COLLECTOR_R := 0.2 # 40 mm
 const CAT_R := 0.32 # catalytic converter shell, 64 mm
 const MUFFLER_R := 0.55 # canister, 110 mm
 const MUFFLER_LEN := 3.8
-const TAIL_R := 0.17
-const TAIL_LEN := 0.45
+# 56 mm outlet. The 34 mm the drawing used is a 600 cc part: a litre bike's tail is 50-60 mm, and backpressure scales with
+# the square of the velocity, so the wrong diameter here was worth ~7x the backpressure (Backpressure reads this list).
+const TAIL_R := 0.28
+const TAIL_LEN := 0.45 # how far it stands proud of the can
+const TAIL_RECESS := 0.25 # how far the outlet pipe reaches back inside the canister, so the mouth has depth
+const MUFFLER_OUTLET := 0.42 # the end plate's opening, 84 mm, around the 56 mm outlet
 const MUFFLER_RISE := 0.14 # canister climbs toward the back, per unit of length
-const TYRE_HALF_WIDTH := 0.65
+const TYRE_HALF_WIDTH := 0.65 # fallback when the spec has no rear tyre width
+const HUB_PROUD := 0.26 # axle nut, washer and adjuster block, outboard of the sidewall
 # amplitude lost per metre travelled: friction and heat for bare pipe, much more through the catalyst and the packed muffler
 const BARE_LOSS := 0.25
 const CAT_LOSS := 4.0
@@ -94,7 +99,13 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 	var collector := Vector3(centre_x - 0.35, low_y, crank.z + (-1.1 if sec_pairs else (-0.9 if long_primaries else 0.1)))
 	# the pipe must be out beside the tyre before it reaches the tyre's front edge, so with little room (a long header
 	# puts the collector far back) the whole run moves out to the side early
-	var muffler_x := -(TYRE_HALF_WIDTH + MUFFLER_R + 0.12)
+	# the canister has to clear the hub, not just the tyre: the axle nut and washer stand ~23 mm proud of the sidewall
+	# on a real bike, so the can is placed outboard of them rather than outboard of the tyre.
+	var rear_half := TYRE_HALF_WIDTH
+	if spec.rear_tire_width_mm > 0.0:
+		rear_half = spec.rear_tire_width_mm * 0.005 # mm width -> scene half width: w/2, and 1 mm = 0.01 units
+	var hub_out := rear_half + HUB_PROUD
+	var muffler_x := -(hub_out + MUFFLER_R + 0.12)
 	var tyre_front_z := axle.z + sqrt(maxf(tyre_r * tyre_r - (low_y - axle.y) * (low_y - axle.y), 0.0))
 	var run_back := (0.7 if n > 1 else 0.0) + 1.55
 	if collector.z - run_back - (tyre_front_z + 0.3) < 1.2:
@@ -104,9 +115,17 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 	if sec_pairs:
 		groups = [range(ceili(n / 2.0)), range(ceili(n / 2.0), n)]
 
-	var radius := PRIMARY_R if long_primaries else PRIMARY_R * 0.92
+	# The primary is the spec's own figure - every preset in assets/engines has one, and tests/unit/exhaust/
+	# header_size_test.gd keeps them plausible for their bore. The 32 mm tube is only the fallback for a spec with no
+	# figure of its own, where the sim's generic exhaust model also assumes it.
+	var radius := PRIMARY_R
 	if spec.header_primary_mm > 0.0:
-		radius = spec.header_primary_mm * 0.0005 # mm diameter to m radius
+		radius = spec.header_primary_mm * 0.005 # mm DIAMETER to scene-unit radius: r = d/2, and 1 mm = 0.01 units
+	elif not long_primaries:
+		radius *= 0.92
+	# everything downstream scales off the primary, or a small bike ends up with a litre bike's collector
+	var secondary_r := clampf(radius * (SECONDARY_R / PRIMARY_R), 0.09, 0.30)
+	var collector_r := clampf(radius * (COLLECTOR_R / PRIMARY_R), 0.10, 0.32)
 	var group_ends: Array[Vector3] = []
 	for g in groups:
 		var gx := 0.0
@@ -117,14 +136,34 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		group_ends.append(merge)
 		for idx in g:
 			var p: Vector3 = ports[idx]
+			# which way the port faces: an upright engine's ports look forward, a V bank's look out of its own side.
+			# Getting this wrong drives a rear bank's header straight back into its own cylinder head.
+			var face_z := signf(p.z - crank.z)
+			if absf(p.z - crank.z) < 0.4:
+				face_z = 1.0
+			# a banked header drops past the swingarm pivot, so it keeps its own width on the way down instead of
+			# converging on the centreline the moment it leaves the port
+			var out_x := 0.0
+			var banked := absf(p.z - crank.z) >= 0.4
+			if banked:
+				out_x = signf(p.x) * 0.18
 			var ctrl := [
 				p,
-				p + Vector3(0.0, -0.12, 0.35),
-				Vector3(lerpf(p.x, merge.x, 0.1), p.y - 0.85, p.z + 0.85),
-				Vector3(lerpf(p.x, merge.x, 0.35), low_y + 0.15, p.z + 0.6),
-				Vector3(lerpf(p.x, merge.x, 0.8), low_y, merge.z + 0.5),
-				merge,
+				# the pipe leaves the port tucked inboard: a forward bulge here walks into the front brake hose
+				p + Vector3(-signf(p.x) * 0.12, -0.10, face_z * 0.30),
 			]
+			if banked and face_z < 0.0:
+				# a rear bank has to thread between the swingarm pivot tube, which runs right across the frame just
+				# behind the engine, and the rear tyre: out behind the head, down past the pivot, then forward under
+				# the engine to the collector
+				ctrl.append(Vector3(lerpf(p.x, merge.x, 0.1) + out_x, p.y - 0.55, p.z - 0.95))
+				ctrl.append(Vector3(lerpf(p.x, merge.x, 0.15) + out_x, 0.55, p.z - 1.0))
+				ctrl.append(Vector3(lerpf(p.x, merge.x, 0.35) + out_x * 0.6, low_y + 0.15, p.z + 0.6))
+			else:
+				ctrl.append(Vector3(lerpf(p.x, merge.x, 0.1) + out_x, p.y - 0.85, p.z + face_z * 0.85))
+				ctrl.append(Vector3(lerpf(p.x, merge.x, 0.35) + out_x * 0.6, low_y + 0.15, p.z + 0.6))
+			ctrl.append(Vector3(lerpf(p.x, merge.x, 0.8), low_y, merge.z + 0.5))
+			ctrl.append(merge)
 			var pipe := _pipe("primary %d" % (idx + 1), "primary", _spline(ctrl), radius)
 			pipe.cyl = idx
 			layout.pipes.append(pipe)
@@ -137,7 +176,7 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		for gi in groups.size():
 			var a: Vector3 = group_ends[gi]
 			var secondary_mid := a.lerp(collector, 0.5) + Vector3(0.0, -0.03, 0.0)
-			var pipe := _pipe("secondary %d" % (gi + 1), "secondary", _spline([a, secondary_mid, collector]), SECONDARY_R)
+			var pipe := _pipe("secondary %d" % (gi + 1), "secondary", _spline([a, secondary_mid, collector]), secondary_r)
 			for i in layout.pipes.size():
 				if layout.pipes[i].kind == "primary" and layout.pipes[i].pts[-1].is_equal_approx(a):
 					pipe.feeders.append(i)
@@ -148,7 +187,7 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 	var back := Vector3(0.0, 0.0, -1.0)
 	var start := collector
 	if n > 1:
-		var pipe := _pipe("collector", "collector", PackedVector3Array([start, start + back * 0.7]), COLLECTOR_R)
+		var pipe := _pipe("collector", "collector", PackedVector3Array([start, start + back * 0.7]), collector_r)
 		pipe.feeders = feed
 		layout.pipes.append(pipe)
 		feed = [layout.pipes.size() - 1]
@@ -156,7 +195,7 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 
 	# catalytic converter: a short fat canister in the line
 	var cat := _axial("catalyst", "catalyst", start, back, [0.0, 0.25, 0.3, 1.25, 1.3, 1.55],
-			[COLLECTOR_R, CAT_R, CAT_R, CAT_R, CAT_R, COLLECTOR_R])
+			[collector_r, CAT_R, CAT_R, CAT_R, CAT_R, collector_r])
 	cat.loss = CAT_LOSS
 	cat.feeders = feed
 	layout.pipes.append(cat)
@@ -171,17 +210,22 @@ static func build(spec: EngineSpec, ports: Array[Vector3] = [], crank := Vector3
 		Vector3(lerpf(cat_end.x, m0.x, 0.55), low_y + 0.08, lerpf(cat_end.z, m0.z, 0.55)),
 		m0 - dir * 0.5,
 		m0,
-	]), COLLECTOR_R)
+	]), collector_r)
 	mid.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(mid)
 
 	var muffler := _axial("muffler", "muffler", m0, dir, [0.0, 0.4, 0.42, muffler_len - 0.42, muffler_len - 0.4, muffler_len],
-			[COLLECTOR_R, muffler_radius, muffler_radius, muffler_radius, muffler_radius, 0.3])
+			# the end plate opens wider than the outlet pipe, so there is a real gap to see into rather than a plug:
+			# 84 mm opening around a 56 mm tailpipe
+			[collector_r, muffler_radius, muffler_radius, muffler_radius, muffler_radius, MUFFLER_OUTLET])
 	muffler.loss = MUFFLER_LOSS
 	muffler.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(muffler)
 
-	var tail := _axial("tailpipe", "tail", m0 + dir * muffler_len, dir, [0.0, TAIL_LEN], [TAIL_R, TAIL_R])
+	# the outlet pipe starts inside the canister, not at its end plate: it has to be a through-hole with visible depth,
+	# or the can reads as a solid drum with a disc stuck on the back of it
+	var tail := _axial("tailpipe", "tail", m0 + dir * (muffler_len - TAIL_RECESS), dir,
+		[0.0, TAIL_RECESS + TAIL_LEN], [TAIL_R, TAIL_R])
 	tail.feeders = [layout.pipes.size() - 1]
 	layout.pipes.append(tail)
 	return layout

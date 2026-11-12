@@ -7,7 +7,8 @@ extends SceneTree
 
 const OUT_DIR := "res://tools/diagnostics/out"
 const PRESET := "honda_cbr1000rrr_sp"
-const PARTS := ["Cockpit/TopYoke", "Cockpit/ClipOnLeft", "Cockpit/ClipOnRight", "Cockpit/ThrottleGrip/ThrottleTube/Grip",
+const PARTS := ["Cockpit/TopYoke", "Cockpit/ForkClampTopLeft", "Cockpit/ForkClampTopLeft/Boss",
+	"Cockpit/ForkClampTopLeft/PinchBolt0", "Cockpit/ForkClampBottomRight", "Cockpit/ClipOnLeft", "Cockpit/ClipOnRight", "Cockpit/ThrottleGrip/ThrottleTube/Grip",
 	"Cockpit/Grip", "Cockpit/FrontBrakeLever", "Cockpit/ClutchLever", "BrakeHardware/FrontMasterCylinder",
 	"BrakeHardware/FrontMasterClamp", "BrakeHardware/FrontMasterBanjo", "BrakeHardware/FrontReservoir",
 	"BrakeHardware/FrontReservoirBracket"]

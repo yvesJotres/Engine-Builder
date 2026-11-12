@@ -11,7 +11,8 @@ const BAR_RADIUS := 0.10 # 20 mm tube
 const GRIP_LENGTH := 1.20 # 120 mm of grip
 const GRIP_RADIUS := 0.15 # 30 mm across, the usual grip size
 const LEVER_LENGTH := 1.70 # 170 mm lever
-const LEVER_PIVOT_OFFSET := Vector3(0.0, 0.0, 0.20) # the pivot sits 20 mm forward of the bar, as a radial master's does
+const LEVER_PIVOT_OFFSET := Vector3(0.0, 0.0, 0.20)
+const FORK_TUBE_RADIUS := 0.09 # the upper leg the yokes grip, 36 mm across # the pivot sits 20 mm forward of the bar, as a radial master's does
 
 
 static func clip_on(host: Node3D, head: Vector3, side: float) -> Array:
@@ -43,6 +44,48 @@ static func build_cockpit(host: Node3D, head: Vector3, steel: Material, alu: Mat
 		yoke.material_override = item[3]
 		yoke.position = head + item[2]
 		cockpit.add_child(yoke)
+	# The fork clamps: the bosses each tube actually passes through, with pinch bolts on the front face. A yoke slab on
+	# its own grips nothing - a real triple clamp has a bored boss per leg with a bolt through the split.
+	var front: Vector3 = host._front_wheel.global_position
+	for item in [["Top", 0.44, -0.16, 0.30], ["Bottom", 0.10, -0.20, 0.26]]:
+		for side in [-1.0, 1.0]:
+			var tag := "Left" if side < 0.0 else "Right"
+			var fork_bottom := front + Vector3(side * leg_x, 0.0, 0.0)
+			var fork_top := head + Vector3(side * leg_x, 0.5, -0.14)
+			var leg_axis := (fork_top - fork_bottom).normalized()
+			# on the leg itself at the yoke's height, rather than at the yoke's own z: the leg slants, so a clamp placed
+			# by z alone floats off the tube by 35 mm at the top and 165 mm at the bottom
+			var t: float = clampf((head.y + item[1] - fork_bottom.y) / (fork_top.y - fork_bottom.y), 0.0, 1.0)
+			var clamp_node := Node3D.new()
+			clamp_node.name = "ForkClamp%s%s" % [item[0], tag]
+			clamp_node.position = fork_bottom.lerp(fork_top, t)
+			clamp_node.quaternion = Quaternion(Vector3.UP, leg_axis) # bored along the leg, not along world up
+			cockpit.add_child(clamp_node)
+			var bore_radius: float = FORK_TUBE_RADIUS
+			var boss := MeshInstance3D.new()
+			boss.name = "Boss"
+			var boss_mesh := CylinderMesh.new()
+			boss_mesh.top_radius = bore_radius + 0.10
+			boss_mesh.bottom_radius = bore_radius + 0.10
+			boss_mesh.height = item[3]
+			boss_mesh.radial_segments = 16
+			boss.mesh = boss_mesh
+			boss.material_override = alu
+			clamp_node.add_child(boss)
+			# two pinch bolts through the split, on the front of the clamp, as a real one has
+			for bolt_index in 2:
+				var bolt := MeshInstance3D.new()
+				bolt.name = "PinchBolt%d" % bolt_index
+				var bolt_mesh := CylinderMesh.new()
+				bolt_mesh.top_radius = 0.045
+				bolt_mesh.bottom_radius = 0.045
+				bolt_mesh.height = 0.24
+				bolt_mesh.radial_segments = 6
+				bolt.mesh = bolt_mesh
+				bolt.material_override = steel
+				bolt.rotation.x = PI * 0.5 # the bolt runs through the clamp face, across the leg
+				bolt.position = Vector3(0.0, (0.5 - float(bolt_index)) * item[3] * 0.28, bore_radius + 0.11)
+				clamp_node.add_child(bolt)
 	# the steering stem nut, sitting proud in the middle of the top yoke
 	var stem := MeshInstance3D.new()
 	stem.name = "SteeringStemNut"

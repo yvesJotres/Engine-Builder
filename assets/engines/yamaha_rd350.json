@@ -55,6 +55,7 @@
     "intake_port_area_mm2": 320.0
   },
   "valvetrain": {
+    "header_primary_mm": 34.0,
     "intake_centre_deg": 0.0,
     "intake_duration_deg": 0.0,
     "intake_lift_mm": 0.0,

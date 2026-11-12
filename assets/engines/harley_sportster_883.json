@@ -22,6 +22,7 @@
   },
   "valvetrain": {
     "header_primary_mm": 44.5,
+    "header_primary_mm": 44.5,
     "runner_length_m": 0.292,
     "intake_centre_deg": 460.0,
     "intake_duration_deg": 230.0,

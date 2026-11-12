@@ -29,6 +29,10 @@ scripts/model/
 └── props/    dyno_cell.gd · spl_meter_rig.gd · ground.gd · fuel_tank_model.gd · fuel_line.gd
 ```
 
+The exhaust's own numbers — every pipe's length and bore, every fitted part, the mesh budget — are generated into
+[`EXHAUST_GEOMETRY.md`](EXHAUST_GEOMETRY.md) by `tools/diagnostics/exhaust_report.gd`; regenerate it rather than editing
+it, and `tests/unit/model/pipe/exhaust_report_test.gd` fails when it is stale.
+
 `Drivetrain` owns the scene node and the bike's state (`_front_half`, `_rear_half`, `_head`, the pedal and lever nodes).
 The modules are `RefCounted` with `static func`s; the ones that add nodes take the node they draw into as `host`, and the
 ones that are pure maths (`parts/meshes.gd`) take numbers only. `Drivetrain` re-exports the constants the modules own

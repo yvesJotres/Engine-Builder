@@ -6,13 +6,17 @@ rem The gate. Every test under tests/unit and tests/integration runs in its own 
 rem exits non-zero, prints a SCRIPT ERROR, or prints a FAIL line. The runner is tests/test_runner.gd and it selects
 rem tests with the TEST_FILTER environment variable, so the groups below are just filters over the same sweep.
 rem
-rem   run_test.bat                 everything (slow: one process per test)
-rem   run_test.bat --physics       engine, exhaust, intake, sim and dyno
+rem   run_test.bat                 everything (~6 min: 3 tests at a time, one process each)
+rem   run_test.bat --physics       engine, exhaust, intake, sim and dyno (~5 min)
 rem   run_test.bat --ui            controls, structure, visual
 rem   run_test.bat --drivetrain    drivetrain, gearbox, bike model
 rem   run_test.bat --ecu           ECU, idle, launch, limiter
 rem   run_test.bat --audio         audio layers, IR, SPL
 rem   run_test.bat engine/woschni  any raw filter; TEST_FILTER matches anywhere in the test path
+rem
+rem Tuning: TEST_JOBS=1 for a serial run, TEST_TIMEOUT_S=900 on a slow machine. Each test has a wall-clock deadline
+rem (600 s by default); past it the process is killed and reported TIMEOUT, which is what an infinite loop looks like.
+rem Logs land in %APPDATA%\Godot\app_userdata\Engine Builder\test_logs and are named after the test.
 rem
 rem Exit code 1 if any selected test fails. Pauses only when run with no arguments, so CI and agents do not hang.
 

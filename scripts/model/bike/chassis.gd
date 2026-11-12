@@ -35,10 +35,7 @@ static func build_chassis(host: Node3D, rear: Vector3, front: Vector3, crank: Ve
 		BikeChassis.add_member(chassis, "FrameTop%d" % side, frame_head, frame_upper, 0.11, dark)
 		BikeChassis.add_member(chassis, "FrameDown%d" % side, frame_upper, frame_pivot, 0.12, dark)
 		var axle_end: Vector3 = rear + Vector3(side * (host._rear_half + 0.18), 0.0, 0.0)
-		add_swingarm_beam(chassis, "Swingarm%d" % side, frame_pivot, axle_end, dark)
-		# Axle plate and adjuster make the end of each arm visibly connect to the wheel.
-		BikeChassis.add_member(chassis, "AxlePlate%d" % side, axle_end + Vector3(0, -0.16, -0.16), axle_end + Vector3(0, 0.16, 0.16), 0.16, steel)
-		BikeChassis.add_member(chassis, "AxleAdjuster%d" % side, axle_end + Vector3(0, 0, -0.36), axle_end + Vector3(0, 0, -0.06), 0.045, steel)
+		# the swingarm itself is built after the loop, in one piece: see BikeSwingarm.build
 		if tank_bottom.is_finite():
 			var tank_rear := tank_bottom + Vector3(side * 0.6, -0.08, -0.8)
 			var tank_front := tank_bottom + Vector3(side * 0.6, -0.08, 0.8)
@@ -48,8 +45,8 @@ static func build_chassis(host: Node3D, rear: Vector3, front: Vector3, crank: Ve
 			BikeChassis.add_member(chassis, "TankFront%d" % side, tank_front, frame_head, 0.09, dark)
 			BikeChassis.add_member(chassis, "SeatRail%d" % side, tank_rear, seat_rear, 0.08, dark)
 			BikeChassis.add_member(chassis, "Subframe%d" % side, frame_pivot, seat_rear, 0.08, dark)
-	BikeChassis.add_member(chassis, "SwingarmPivot", pivot + Vector3(-frame_half_width - 0.08, 0, 0), pivot + Vector3(frame_half_width + 0.08, 0, 0), 0.16, steel)
-	BikeChassis.add_member(chassis, "SwingarmBrace", pivot.lerp(rear, 0.42) + Vector3(-host._rear_half - 0.18, 0, 0), pivot.lerp(rear, 0.42) + Vector3(host._rear_half + 0.18, 0, 0), 0.11, dark)
+	# one casting: tapered arms, top ribs, pivot tube, cross-brace, axle blocks, chain slider
+	BikeSwingarm.build(chassis, pivot, rear, host._rear_half, frame_half_width, steel, dark)
 	# Stationary rear axle spans both swingarm ends; the wheel rotates around it.
 	BikeChassis.add_member(chassis, "AxleRear", rear + Vector3(-host._rear_half - 0.3, 0, 0), rear + Vector3(host._rear_half + 0.3, 0, 0), 0.09, steel)
 	for side in [-1.0, 1.0]:
@@ -73,18 +70,6 @@ static func build_chassis(host: Node3D, rear: Vector3, front: Vector3, crank: Ve
 		var shock_mid := shock_bottom.lerp(shock_top, 0.48)
 		BikeChassis.add_member(chassis, "ShockBody", shock_bottom, shock_mid, 0.13, dark)
 		BikeChassis.add_member(chassis, "ShockRod", shock_mid, shock_top, 0.07, steel)
-
-
-static func add_swingarm_beam(parent: Node3D, member_name: String, start: Vector3, end: Vector3, material: Material) -> void:
-	var beam := MeshInstance3D.new()
-	beam.name = member_name
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.25, start.distance_to(end), 0.34)
-	beam.mesh = mesh
-	beam.material_override = material
-	beam.position = (start + end) * 0.5
-	beam.quaternion = Quaternion(Vector3.UP, (end - start).normalized())
-	parent.add_child(beam)
 
 
 static func add_member(parent: Node3D, member_name: String, start: Vector3, end: Vector3, radius: float, material: Material) -> void:

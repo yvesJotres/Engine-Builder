@@ -115,6 +115,7 @@ var _idle_audio_cleared := false
 const SOUND_FADE_TIME := 0.05 # s, fade in and out of the exhaust note
 var _backfires_heard := 0 # the sim's backfire count the sound has already played
 var _backfire_flame: BackfireFlame # the flash at the pipe mouth
+var _exhaust_fume: ExhaustFume # the vapour and soot leaving the pipe
 var _dyno = DYNO_TEST_SCRIPT.new()
 # Dyno cell: the bike runs against a roller drum with an eddy-current brake
 const DRUM_MASS_KG := 80.0 # drum inertia as the equivalent mass at the tyre (about 5 kg·m² on a 0.25 m drum), estimate
@@ -193,6 +194,10 @@ func _ready() -> void:
 	_backfire_flame = BackfireFlame.new()
 	add_child(_backfire_flame)
 	_backfire_flame.build()
+	# and what comes out of the pipe between the bangs: vapour while the gas is cool, soot while it is rich
+	_exhaust_fume = ExhaustFume.new()
+	add_child(_exhaust_fume)
+	_exhaust_fume.build()
 	_sound = EngineSound.new()
 	add_child(_sound)
 	# the clank is a body-borne mechanical tick inside the right-hand bar, so it comes from there: a 3D player at the
@@ -625,6 +630,8 @@ func _process(delta: float) -> void:
 	_sound.position = _tail_tip
 	if _backfire_flame != null:
 		_backfire_flame.place(_tail_tip, _tail_dir)
+	if _exhaust_fume != null:
+		_exhaust_fume.place(_tail_tip, _tail_dir)
 	# the clank comes from the right bar end, which moves when the bike is rebuilt
 	if _drivetrain != null:
 		_clank.position = _drivetrain.throttle_housing_position()
@@ -632,6 +639,8 @@ func _process(delta: float) -> void:
 	# the pipes glow when their walls are hot enough, which takes hot running: see ExhaustHeat for the thresholds
 	_exhaust.update_heat(_sim.exhaust_temp_c(), delta)
 	_backfire_flame.update(delta)
+	# the plume is the engine's own gas: temperature decides the vapour, mixture decides the soot, mass flow scales both
+	_exhaust_fume.update(_sim.exhaust_temp_c() + 273.15, _sim.exhaust_mass_flow(), _sim.o2_lambda(), delta)
 	if _sound_on:
 		_sound.set_conditions(_sim.o2_lambda(), _sim.exhaust_temp_c(), _sim.backpressure_pa())
 		if _sim.uses_pipe_sound():

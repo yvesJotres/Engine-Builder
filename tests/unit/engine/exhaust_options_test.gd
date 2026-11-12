@@ -12,7 +12,12 @@ func _init() -> void:
 			if pipe.kind == "muffler": muffler = pipe
 			if pipe.kind == "tail": tail = pipe
 		assert(muffler != null and tail != null)
-		assert(muffler.pts[-1].distance_to(tail.pts[0]) < 0.0001)
+		# The outlet pipe is recessed into the canister so the mouth has depth (TAIL_RECESS, 2.5 cm), so its mouth sits
+		# inside the can's end face instead of flush with it. Assert the recess is the declared one, and that the tailpipe
+		# is still wired onto the muffler it slides into.
+		var recess: float = muffler.pts[-1].distance_to(tail.pts[0])
+		assert(is_equal_approx(recess, ExhaustLayout.TAIL_RECESS))
+		assert(tail.feeders.size() == 1 and layout.pipes[tail.feeders[0]] == muffler)
 		lengths.append(muffler.length_m())
 		var visual := Exhaust.new()
 		root.add_child(visual)

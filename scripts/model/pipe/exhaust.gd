@@ -4,7 +4,8 @@ extends Node3D
 # Draws an ExhaustLayout: header pipes, collector, catalytic converter, mid pipe, muffler and tailpipe.
 
 const SEGMENTS := 20 # sides around each tube
-const WALL := 0.012 # scene units, 1.2 mm: the wall of the steel tube, so an open pipe end shows a rim and a bore
+const WALL := 0.012
+const SOOT := Color(0.015, 0.015, 0.017) # the inside of an exhaust is black; without it a bore reads as a face # scene units, 1.2 mm: the wall of the steel tube, so an open pipe end shows a rim and a bore
 # What each part is made of, for the heat glow: the header and collector are plain steel, the catalyst and canister are
 # stainless, the chrome tail trim needs more heat before it shows anything. ExhaustHeat has the thresholds.
 const PART_MATERIAL := {"primary": "steel", "secondary": "steel", "collector": "steel", "catalyst": "stainless",
@@ -59,7 +60,11 @@ func build(layout: ExhaustLayout, muffler_scene: PackedScene = null) -> void:
 				authored.free()
 				push_warning("Muffler scene must have a Node3D root")
 		if not used_asset:
-			_add_mesh(_tube(pipe.pts, pipe.radii, pipe.kind == "muffler", WALL), mat)
+			_add_pipe_mesh(pipe, _tube(pipe.pts, pipe.radii, pipe.kind == "muffler", WALL), mat)
+			if WALL > 0.0:
+				# the bore as its own unshaded mesh: vertex colours still catch the sun in a bright scene, and a bore
+				# that lights up reads as a plate across the pipe
+				_add_pipe_mesh(pipe, _tube(pipe.pts, pipe.radii, false, WALL, true), _bore_material(), "_Bore")
 		# the hardware the assembly is bolted together with
 		if pipe.kind == "primary" and pipe.pts.size() >= 2:
 			var out_dir: Vector3 = (pipe.pts[1] - pipe.pts[0]).normalized()
@@ -75,16 +80,26 @@ func build(layout: ExhaustLayout, muffler_scene: PackedScene = null) -> void:
 					pipe.radii[0] * 0.22, "%sSpring%d" % [pipe.kind.capitalize(), s], clamp_mat)
 		# band clamps where one part meets the next, and two straps round the canister
 		if pipe.kind in ["catalyst", "mid", "muffler"]:
-			_clamp(pipe.pts[0], pipe.pts[1], pipe.radii[0], clamp_mat)
+			_clamp(pipe.pts[0], pipe.pts[1], pipe.radii[0], clamp_mat, 0.1,
+				"%sClamp" % str(pipe.kind).capitalize())
 		if pipe.kind == "muffler":
 			var axis: Vector3 = (pipe.pts[-1] - pipe.pts[0]).normalized()
-			for s in [0.3, 0.72]:
-				_clamp(pipe.pts[0].lerp(pipe.pts[-1], s), pipe.pts[0].lerp(pipe.pts[-1], s) + axis, pipe.radii[2] * 1.04, clamp_mat, 0.14)
+			var straps := [0.3, 0.72]
+			for i in straps.size():
+				var s: float = straps[i]
+				_clamp(pipe.pts[0].lerp(pipe.pts[-1], s), pipe.pts[0].lerp(pipe.pts[-1], s) + axis, pipe.radii[2] * 1.04,
+					clamp_mat, 0.14, "MufflerStrap%d" % i)
 			# the hanger: a stay from the top of the canister up to a bracket on the frame, with a rubber bobbin so the
 			# exhaust can move without cracking. The anchor is ESTIMATE - inboard and above the canister, where a
 			# subframe rail runs; the exhaust node has no reference to the frame to hang it off properly.
-			var middle: Vector3 = pipe.pts[0].lerp(pipe.pts[-1], 0.55)
-			var top: Vector3 = middle + Vector3(0.0, pipe.radii[2] * 0.95, 0.0)
+			# the canister climbs, so the radius at the hanger's station is interpolated, not taken from one end
+			# the canister path is what the strap has to sit on, so the station is taken on the path itself, not on the
+			# straight line between its ends
+			var station := 0.55
+			var seg := mini(int(station * float(pipe.pts.size() - 1)), pipe.pts.size() - 1)
+			var local_r: float = pipe.radii[mini(seg, pipe.radii.size() - 1)]
+			var middle: Vector3 = pipe.pts[seg]
+			var top: Vector3 = middle + Vector3(0.0, local_r, 0.0)
 			var upward := Vector3(0.0, 0.45, 0.0)
 			var hanger := Node3D.new()
 			hanger.name = "MufflerHanger"
@@ -159,10 +174,32 @@ func build(layout: ExhaustLayout, muffler_scene: PackedScene = null) -> void:
 			add_child(wire)
 			break
 
+	# a muffler is a chambered can, not a straight-through tube, and a catalyst is packed with matrix: both stop the eye
+	# at a dark surface instead of letting it run out of the far end of the exhaust
+	for pipe in layout.pipes:
+		if pipe.kind == "muffler" and pipe.pts.size() >= 2:
+			var baffle_at: Vector3 = pipe.pts[0].lerp(pipe.pts[-1], 0.45)
+			var baffle_axis: Vector3 = (pipe.pts[-1] - pipe.pts[0]).normalized()
+			_disc(baffle_at, baffle_axis, pipe.radii[2] * 0.94, 0.10, _metal(SOOT, 0.9, 0.0), "MufflerBaffle")
+			# the perforated core the outlet feeds into: without it the eye runs the length of the canister and out of
+			# the far end of the exhaust, so the bore shows the sky instead of a dark cavity
+			var core_end: Vector3 = pipe.pts[-1]
+			var core_back: Vector3 = core_end - baffle_axis * 1.4
+			var core := MeshInstance3D.new()
+			core.name = "MufflerCore"
+			core.mesh = _tube(PackedVector3Array([core_back, core_end]), PackedFloat32Array([0.26, 0.26]), false, WALL)
+			core.material_override = _metal(SOOT, 0.95, 0.0)
+			add_child(core)
+		if pipe.kind == "catalyst" and pipe.pts.size() >= 2:
+			var matrix_at: Vector3 = pipe.pts[0].lerp(pipe.pts[-1], 0.5)
+			var matrix_axis: Vector3 = (pipe.pts[-1] - pipe.pts[0]).normalized()
+			_disc(matrix_at, matrix_axis, pipe.radii[1] * 0.97, 0.0, _metal(SOOT, 0.95, 0.0), "CatalystMatrix")
+
 	# the catalyst gets a shield, as every real one does
 	for pipe in layout.pipes:
 		if pipe.kind == "catalyst" and pipe.pts.size() >= 2:
-			_shield(pipe.pts, pipe.radii[0], 0.06, muffler, "CatalystShield")
+			# the shield covers the whole body, so it is swept from the first point to the last, not along one segment
+			_shield(PackedVector3Array([pipe.pts[0], pipe.pts[-1]]), pipe.radii[0], 0.06, muffler, "CatalystShield")
 			break
 
 
@@ -196,8 +233,10 @@ func part_count() -> int:
 	return _heat.size()
 
 
-func _add_mesh(mesh: Mesh, mat: Material) -> void:
+# Pipes used to be added unnamed, so the tree and every report showed @MeshInstance3D@16. A pipe is addressed by its name.
+func _add_pipe_mesh(pipe: ExhaustLayout.Pipe, mesh: Mesh, mat: Material, suffix := "") -> void:
 	var mi := MeshInstance3D.new()
+	mi.name = "Pipe_%s%s" % [str(pipe.name).replace(" ", ""), suffix]
 	mi.mesh = mesh
 	mi.material_override = mat
 	add_child(mi)
@@ -213,8 +252,8 @@ func _flange(port: Vector3, dir: Vector3, radius: float, plate_name: String, ste
 	node.position = port
 	add_child(node)
 	var plate := CylinderMesh.new()
-	plate.top_radius = radius * 1.9
-	plate.bottom_radius = radius * 1.9
+	plate.top_radius = radius * 1.6
+	plate.bottom_radius = radius * 1.6
 	plate.height = 0.10 # 10 mm plate
 	plate.radial_segments = SEGMENTS
 	var body := MeshInstance3D.new()
@@ -318,8 +357,41 @@ func _shield(pts: PackedVector3Array, radius: float, stand_off: float, steel: Ma
 	add_child(node)
 
 
+# A flat ring across a pipe's bore: the baffle inside a muffler, the matrix across a catalyst. Without one the pipe is a
+# see-through tube - you can look down the tailpipe and out through the header ports - which reads as hollow in the wrong
+# way: bright background where a dark cavity should be.
+func _disc(at: Vector3, axis: Vector3, outer_r: float, inner_r: float, mat: Material, disc_name: String) -> void:
+	var up := Vector3.UP if absf(axis.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+	var side := axis.cross(up).normalized()
+	var up2 := side.cross(axis).normalized()
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var colours := PackedColorArray()
+	for k in SEGMENTS + 1:
+		var ang := TAU * float(k % SEGMENTS) / SEGMENTS
+		var out := side * cos(ang) + up2 * sin(ang)
+		verts.append(at + out * outer_r)
+		normals.append(-axis)
+		colours.append(SOOT)
+		verts.append(at + out * inner_r)
+		normals.append(-axis)
+		colours.append(SOOT)
+	for k in SEGMENTS:
+		var a := k * 2
+		var b := a + 1
+		var c := a + 2
+		var d := a + 3
+		indices.append_array([a, b, c, b, d, c])
+	var node := MeshInstance3D.new()
+	node.name = disc_name
+	node.mesh = _commit(verts, normals, indices, colours)
+	node.material_override = mat
+	add_child(node)
+
+
 # A short ring around a pipe at `at`, along the direction from `at` toward `toward`.
-func _clamp(at: Vector3, toward: Vector3, radius: float, mat: Material, width := 0.1) -> void:
+func _clamp(at: Vector3, toward: Vector3, radius: float, mat: Material, width := 0.1, clamp_name := "Clamp") -> void:
 	var dir := (toward - at).normalized()
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius * 1.12
@@ -327,6 +399,7 @@ func _clamp(at: Vector3, toward: Vector3, radius: float, mat: Material, width :=
 	mesh.height = width
 	mesh.radial_segments = SEGMENTS
 	var mi := MeshInstance3D.new()
+	mi.name = clamp_name
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = at + dir * width * 0.5
@@ -337,11 +410,16 @@ func _clamp(at: Vector3, toward: Vector3, radius: float, mat: Material, width :=
 # Sweeps a circle along the path with the given radius at each point, with flat caps when asked. An uncapped tube is
 # hollow: the last segment gets an inner liner a wall thick and the mouth gets a rim, so the outlet reads as pipe, not
 # as a paper edge.
-static func _tube(pts: PackedVector3Array, radii: PackedFloat32Array, capped: bool, wall := 0.0) -> ArrayMesh:
+static func _tube(pts: PackedVector3Array, radii: PackedFloat32Array, capped: bool, wall := 0.0,
+		liner_only := false) -> ArrayMesh:
+	# A pipe is a shell, not a surface: an outer skin, an inner skin offset by `wall` running its whole length, and a rim
+	# annulus at every open end. Without the inner skin you can see through the pipe's own wall from the mouth, which is
+	# what made these read as a drawn plan rather than tube.
 	var n := pts.size()
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
+	var colours := PackedColorArray()
 	var normal := Vector3.ZERO
 	var frames: Array[Basis] = []
 	for i in n:
@@ -353,6 +431,33 @@ static func _tube(pts: PackedVector3Array, radii: PackedFloat32Array, capped: bo
 		else:
 			normal = (normal - t * normal.dot(t)).normalized() # carried along the path without twisting
 		frames.append(Basis(normal, t.cross(normal), t))
+	var inner_r := PackedFloat32Array()
+	inner_r.resize(n)
+	for i in n:
+		inner_r[i] = maxf(radii[i] - wall, radii[i] * 0.35) # a wall never eats the bore
+
+	# ---- outer skin ----
+	if liner_only:
+		# the bore gets its own mesh so it can be unshaded near-black: vertex colours alone still pick up the sun and
+		# read as a lit face in a bright scene
+		var bore_start := verts.size()
+		for i in n:
+			var f := frames[i]
+			for k in SEGMENTS:
+				var ang := TAU * k / SEGMENTS
+				var out := f.x * cos(ang) + f.y * sin(ang)
+				verts.append(pts[i] + out * inner_r[i])
+				normals.append(-out)
+				colours.append(SOOT)
+		for i in n - 1:
+			for k in SEGMENTS:
+				var k2 := (k + 1) % SEGMENTS
+				var a := bore_start + i * SEGMENTS + k
+				var b := bore_start + i * SEGMENTS + k2
+				var c := bore_start + (i + 1) * SEGMENTS + k
+				var d := bore_start + (i + 1) * SEGMENTS + k2
+				indices.append_array([a, c, b, b, c, d])
+		return _commit(verts, normals, indices, colours)
 	for i in n:
 		var f := frames[i]
 		for k in SEGMENTS:
@@ -360,6 +465,7 @@ static func _tube(pts: PackedVector3Array, radii: PackedFloat32Array, capped: bo
 			var out := f.x * cos(ang) + f.y * sin(ang)
 			verts.append(pts[i] + out * radii[i])
 			normals.append(out)
+			colours.append(Color.WHITE)
 	for i in n - 1:
 		for k in SEGMENTS:
 			var k2 := (k + 1) % SEGMENTS
@@ -368,70 +474,95 @@ static func _tube(pts: PackedVector3Array, radii: PackedFloat32Array, capped: bo
 			var c := (i + 1) * SEGMENTS + k
 			var d := (i + 1) * SEGMENTS + k2
 			indices.append_array([a, b, c, b, d, c])
-	# an open end is a hole: give it a wall, an inner liner over the last segment and a rim at the mouth
-	if wall > 0.0 and not capped and n > 1:
-		var liner := verts.size()
-		for i in [n - 2, n - 1]:
-			var f := frames[i]
+
+	# a wire (wall 0) is a solid rod: one skin, closed at both ends, no bore to line
+	if wall <= 0.0:
+		for end: int in [0, n - 1]:
+			var f_solid := frames[end]
+			var axis_solid: Vector3 = f_solid.z * (-1.0 if end == 0 else 1.0)
+			var centre_solid := verts.size()
+			verts.append(pts[end])
+			normals.append(axis_solid)
+			colours.append(Color.WHITE)
 			for k in SEGMENTS:
-				var ang := TAU * k / SEGMENTS
-				var out := f.x * cos(ang) + f.y * sin(ang)
-				verts.append(pts[i] + out * maxf(radii[i] - wall, radii[i] * 0.5))
-				normals.append(-out) # the liner faces the bore
-		for k in SEGMENTS:
-			var k2 := (k + 1) % SEGMENTS
-			var a := liner + k
-			var b := liner + k2
-			var c := liner + SEGMENTS + k
-			var d := liner + SEGMENTS + k2
-			indices.append_array([a, c, b, b, c, d])
+				var ring_solid := end * SEGMENTS + k
+				var ring2_solid := end * SEGMENTS + (k + 1) % SEGMENTS
+				var c1s := verts.size()
+				verts.append(verts[ring_solid])
+				normals.append(axis_solid)
+				colours.append(Color.WHITE)
+				var c2s := verts.size()
+				verts.append(verts[ring2_solid])
+				normals.append(axis_solid)
+				colours.append(Color.WHITE)
+				if end == 0:
+					indices.append_array([centre_solid, c1s, c2s])
+				else:
+					indices.append_array([centre_solid, c2s, c1s])
+		return _commit(verts, normals, indices, colours)
+
+	# the inner skin is a separate mesh (_tube(..., liner_only)), drawn unshaded so a bore reads black in any light;
+	# this mesh keeps the outer skin and the rims, and the rim's inner edge meets the bore's end exactly
+
+	# ---- the ends: a rim of wall at each one, and a blind disc where a canister is closed ----
+	for end: int in [0, n - 1]:
+		var f := frames[end]
+		var axis: Vector3 = f.z * (-1.0 if end == 0 else 1.0)
 		var rim := verts.size()
-		var f_end := frames[n - 1]
-		var axis: Vector3 = f_end.z
 		for k in SEGMENTS:
 			var ang := TAU * k / SEGMENTS
-			var out := f_end.x * cos(ang) + f_end.y * sin(ang)
-			verts.append(pts[n - 1] + out * radii[n - 1])
+			var out := f.x * cos(ang) + f.y * sin(ang)
+			verts.append(pts[end] + out * radii[end])
 			normals.append(axis)
-			verts.append(pts[n - 1] + out * maxf(radii[n - 1] - wall, radii[n - 1] * 0.5))
+			colours.append(Color.WHITE)
+			verts.append(pts[end] + out * inner_r[end])
 			normals.append(axis)
+			colours.append(SOOT)
 		for k in SEGMENTS:
 			var k2 := (k + 1) % SEGMENTS
 			var a := rim + k * 2
 			var b := a + 1
 			var c := rim + k2 * 2
 			var d := c + 1
-			indices.append_array([a, b, c, b, d, c])
-	if capped:
-		for end: int in [0, n - 1]:
-			var centre := verts.size()
-			var axis: Vector3 = frames[end].z * (-1.0 if end == 0 else 1.0)
-			verts.append(pts[end])
-			normals.append(axis)
-			for k in SEGMENTS:
-				var ring := end * SEGMENTS + k
-				var ring2 := end * SEGMENTS + (k + 1) % SEGMENTS
-				verts.append(verts[ring])
-				normals.append(axis)
-				verts.append(verts[ring2])
-				normals.append(axis)
-				if end == 0:
-					indices.append_array([centre, verts.size() - 1, verts.size() - 2])
-				else:
-					indices.append_array([centre, verts.size() - 2, verts.size() - 1])
+			if end == 0:
+				indices.append_array([a, b, c, b, d, c])
+			else:
+				indices.append_array([a, c, b, b, c, d])
+		# `capped` is deliberately not used to close the mouth: a blind disc over the same rim ring gives three triangles
+		# per edge (annulus plus disc), which is not a watertight shell. Every mouth is rimmed instead, and the joints
+		# that cover a mouth - the mid pipe into the canister, the tailpipe out of it - hide it anyway.
+	return _commit(verts, normals, indices, colours)
+
+
+# Packs a triangle soup into a mesh. Every tube, wire and rim goes through here so they all end up as the same kind of
+# surface with real triangles.
+static func _commit(verts: PackedVector3Array, normals: PackedVector3Array, indices: PackedInt32Array,
+		colours := PackedColorArray()) -> ArrayMesh:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
+	if colours.size() == verts.size():
+		arrays[Mesh.ARRAY_COLOR] = colours
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
 
+# Unlit near-black for the inside of a pipe: no light reaches it, and pretending otherwise makes the bore read as a face.
+static func _bore_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = SOOT
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
 static func _metal(c: Color, rough: float, metallic: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
+	m.vertex_color_use_as_albedo = true # the bore carries SOOT, so the inside of a pipe reads as a hole
 	m.roughness = rough
 	m.metallic = metallic
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED # the winding of a swept tube is easy to get backwards, draw both sides

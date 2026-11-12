@@ -140,6 +140,13 @@ var _intake_audio_left := 0.0
 var _blowdown := PackedFloat32Array()
 var _blowdown_left := 0.0
 var _audio_layout: ExhaustLayout
+# The exhaust flow is pulsed: a pipe's steady resistance responds to the MEAN flow, not to each blowdown spike, so the model
+# is fed a filtered mass flow. BACKPRESSURE_TAU is a few pulse periods - fast enough to follow the throttle, slow enough to
+# average the pulses out.
+const BACKPRESSURE_TAU := 0.08 # s
+var backpressure_gauge_pa := 0.0 # Pa above atmosphere at the exhaust valve, from the pipe geometry (Backpressure)
+var backpressure_enabled := true # off: the exhaust pumps for free, for A/B runs and the conformance checks
+var _exhaust_mdot_mean := 0.0 # kg/s, filtered mass flow through the system
 var _runner_delays := PackedInt32Array()
 var _runner_gain := PackedFloat32Array()
 var _runner_history := PackedFloat32Array()
@@ -153,7 +160,10 @@ var _knocking := false
 var knock_excess := 0.0 # degrees the advance is past the knock limit now: 0 when the engine is not knocking
 var backfire_count := 0 # backfires since the engine was made, for the sound to hear each one once
 var last_backfire_j := 0.0 # J released by the latest backfire, for its loudness
-var gearbox_load := 0.0 # N·m, torque transmitted through clutch to gearbox (positive = driving, negative = engine braking)
+var gearbox_load := 0.0 # N·m, cycle-mean torque through the clutch to the gearbox (positive = driving, negative = engine braking)
+var _gearbox_transfer := 0.0 # N·m, the clutch transfer of the last sub-step: it pulses with each firing event
+var _load_deg := 0.0 # crank degrees accumulated toward the next published cycle mean
+var _load_sum := 0.0
 
 
 # Advances the bike by delta seconds of real time, in fixed physics steps. The physics is the same at any frame rate: a
@@ -290,6 +300,11 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		# constant crankshaft friction: full strength once the crank turns, fading to nothing as it stops
 		friction += spec.crank_friction_nm * minf(rpm / 50.0, 1.0)
 		friction *= oil_friction_scale(oil_c, spec.oil_operating_c)
+		# The exhaust's pumping work, from the mean backpressure the pipes generate (Backpressure). A four-stroke pushes one
+		# displacement of gas out per cycle, and a cycle is two revolutions: P = dp * Vd * rpm / 120, so the torque it costs is
+		# P / omega = dp * Vd / (4 * pi) - independent of speed, which is why a restrictive pipe hurts everywhere and not just
+		# at the top. 18 kPa on a litre engine is about 1.4 N.m.
+		friction += backpressure_gauge_pa * spec.displacement_cc * 1.0e-6 / (4.0 * PI)
 		# kick first, as engine-sim's NSV solver does: the crank speed moves with the gas torque from the last step
 		var net := _gas_torque
 		if starter_held: # the starter keeps turning the engine while it is held, even after the engine fires
@@ -319,6 +334,10 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		# At high RPM, four cylinders at 10° cost enough CPU to stall live input.
 		# Offline exhaust renders retain the 10° integration path for comparison output.
 		var live_fast_step := not exhaust_solver and cylinders.size() >= 4 and rpm >= 8000.0
+		# Backpressure the pipes generate, from the mean flow the last step carried: the engine breathes against this.
+		if _audio_layout != null and not exhaust_solver:
+			_exhaust_mdot_mean += (exhaust_mass_flow() - _exhaust_mdot_mean) * clampf(h / BACKPRESSURE_TAU, 0.0, 1.0)
+			backpressure_gauge_pa = Backpressure.mean_gauge_pa(_audio_layout, _exhaust_mdot_mean, exhaust_temp_c() + 273.15) if backpressure_enabled else 0.0
 		# Quickshifter: cut ignition and fuel during upshift
 		var qs_cut := ecu.quickshifter_cut_active()
 		for _j in sub:
@@ -328,7 +347,11 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			for ci in cylinders.size():
 				var c: Cylinder = cylinders[ci]
 				c.flow_step_deg = Cylinder.LIVE_HIGH_RPM_STEP_DEG if live_fast_step else Cylinder.STEP_DEG
-				# the pipe end from the previous gas step is what this valve blows into. Live play uses the open air.
+				# What this valve blows into. The 1D solver has the pipe's own pressure at the valve; without it the valve sees
+				# open air, because the mean backpressure is NOT a constant pressure on the piston - it is the pumping work the
+				# pipe demands (applied below as friction), while the port pressure itself is set by waves the live path has no
+				# solver for. Feeding the mean in here charged the piston 18 kPa for the whole exhaust stroke - a 72 % power
+				# loss that no real exhaust has.
 				var p_ex := Cylinder.P0
 				var t_ex := Cylinder.T0
 				if exhaust_solver and exhaust != null:
@@ -615,7 +638,7 @@ func uses_pipe_sound() -> bool:
 
 func backpressure_pa() -> float:
 	if not uses_pipe_sound():
-		return Cylinder.P0
+		return Cylinder.P0 + backpressure_gauge_pa
 	var sum := 0.0
 	for i in cylinders.size():
 		sum += exhaust.port_pressure(i)
@@ -979,7 +1002,22 @@ func _advance_driveline(dt: float, spec: EngineSpec, net: float, inertia: float,
 			clutch_engage = clampf(clutch_engage + rate * dt, 0.0, 1.0)
 	var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
 	var transfer := clutch_transfer_torque(free_omega, free_speed, inertia, effective_mass, ratio, radius, cap, dt, CLUTCH_STIFFNESS)
-	gearbox_load = transfer
+	_gearbox_transfer = transfer
+	# The clutch hands over a torque that swings sign with every firing event, so the sub-step value is not a load
+	# anybody could shift against: at 4,270 rpm it reads +62, -87, -5 N·m on three consecutive steps of one frame.
+	# What the rider and the slipper feel is the mean over one engine cycle, so that is what gearbox_load publishes,
+	# accumulated over the same 720 deg (360 deg two-stroke) window _accumulate_cycle uses for the crank torque.
+	var degrees := dt * maxf(rpm, 0.0) * 6.0
+	var cycle_degrees := 360.0 if spec.stroke_type == "two_stroke" else 720.0
+	if degrees > 0.0:
+		_load_sum += transfer * degrees
+		_load_deg += degrees
+		if _load_deg >= cycle_degrees:
+			gearbox_load = _load_sum / _load_deg
+			_load_sum = 0.0
+			_load_deg = 0.0
+	else:
+		gearbox_load = transfer
 	omega = maxf(free_omega - transfer * dt / inertia, 0.0)
 	var efficiency := DRIVE_EFFICIENCY if transfer >= 0.0 else 1.0 / DRIVE_EFFICIENCY
 	var speed_before := speed
@@ -1103,6 +1141,15 @@ func compression_ratio_effective() -> float:
 		else:
 			total += c.compression_ratio_geometric()
 	return total / float(cylinders.size())
+
+
+# kg/s leaving the cylinders right now, summed over all of them: what the pipe is carrying, which is what the plume and the
+# smoke are scaled by. A stopped engine is zero, so nothing is drawn out of a dead pipe.
+func exhaust_mass_flow() -> float:
+	var total := 0.0
+	for c in cylinders:
+		total += c.exhaust_mdot
+	return total
 
 
 func exhaust_temp_c() -> float:
