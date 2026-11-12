@@ -35,9 +35,17 @@ func _pull(spec: EngineSpec, drum_mass: float, load_n: float) -> float:
 		sim.step(1.0 / 60.0, spec, 0.2, true, i < 600, false, false, 1.0)
 	sim.gear.gear = 2 # second: the limiter does not cap the speed, so the brake shows
 	var frames := int(SECONDS * 60.0)
+	var tail_start := frames - 30
+	var tail_sum := 0.0
+	var tail_n := 0
 	for i in frames:
 		sim.cell_load_n = load_n if sim.rpm > 2500.0 else 0.0
 		sim.step(1.0 / 60.0, spec, 1.0, true, false, false, false, 1.0)
+		# The endpoint of a single frame carries the firing phase, which is worth more than a 200 N load at this
+		# speed: average the last half second so the comparison is about load and not about where the cycle landed.
+		if i >= tail_start:
+			tail_sum += sim.speed
+			tail_n += 1
 	if sim.speed < 0.01:
 		print("  no motion: rpm %.0f, gear %d, clutch %.2f" % [sim.rpm, sim.gear.gear, sim.clutch_engage])
-	return sim.speed
+	return tail_sum / maxf(float(tail_n), 1.0)
