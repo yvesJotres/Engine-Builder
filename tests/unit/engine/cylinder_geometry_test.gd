@@ -68,6 +68,18 @@ func _init() -> void:
 		previous = v
 	check(rising, "the volume only grows from TDC to BDC")
 
+	# ---- 2b. the two compression ratios ----
+	check(near(cyl.compression_ratio_geometric(), CR), "the geometric ratio is what setup was handed (%.3f)" % cyl.compression_ratio_geometric())
+	# before the first intake closing there is no measured state, so the effective ratio falls back to geometric
+	check(near(cyl.compression_ratio_effective(), cyl.compression_ratio_geometric()),
+		"with no intake-closing state the charge sees the geometric ratio (%.3f)" % cyl.compression_ratio_effective())
+	# a long-duration cam closes the intake late, so the charge is trapped in less than the full swept volume
+	var ivc_v: float = cyl.volume(0.0) + 0.85 * vs
+	cyl._ivc_v = ivc_v
+	var effective := cyl.compression_ratio_effective()
+	check(near(effective, ivc_v / cyl.volume(0.0)), "the effective ratio is V_ivc / V_tdc (%.4f)" % effective)
+	check(effective < CR and effective > 1.0, "a late intake closing costs compression (%.3f < %.3f)" % [effective, CR])
+
 	# ---- 3. Wiebe: the stated endpoints and the shape ----
 	check(cyl._wiebe(0.0, 90.0) == 0.0, "nothing is burnt at the spark")
 	var end := 1.0 - exp(-WIEBE_A)

@@ -52,8 +52,8 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | **Wall heat scale** | `cylinder.gd:640` `engine_sim.gd:80` | ❌ none | Global multiplier `wall_heat_scale` (default 1.0) | ❌ |
 | **Endpoint energy solve: Newton 4-iter on m·u(T) - source + ½(p_old + mRT/V)·dV = 0** | `cylinder.gd:680` `cylinder_kernel.cpp:760` | ❌ none | Exact for any u(T); replaces linearized cv·T solve | ❌ |
 | **Residual gas mixing by energy (u)** | `cylinder.gd:765` `cylinder_kernel.cpp:436` | ❌ none | u_mix = (m_air·u_air + m_res·u_res)/m_total; T from u | ❌ |
-| **Compression ratio: geometric** | `cylinder.gd:220` | ❌ none | (V_s + V_c)/V_c | ❌ |
-| **Compression ratio: effective (IVC)** | `cylinder.gd:235` | ❌ none | V_IVC / V_TDC | ❌ |
+| Compression ratio: geometric | `cylinder.gd:221` | ✅ `tests/unit/engine/cylinder_geometry_test.gd` — equals what setup was handed, and (clearance+swept)/clearance | (V_s + V_c)/V_c | ✅ `[closed]` |
+| Compression ratio: effective (IVC) | `cylinder.gd:231` | ✅ `cylinder_geometry_test.gd` — falls back to geometric before IVC, then V_ivc/V_tdc, below geometric | V_IVC / V_TDC | ✅ `[closed]` |
 
 **Key references:** Heywood Ch.6 (valve flow), Ch.9 (combustion), Ch.12 (heat transfer); Woschni SAE 670931; Qasemian 2020 (IOP) for Woschni constants per phase.
 
@@ -98,11 +98,11 @@ kernel and the GDScript reference agree field for field over 540 comparisons (`t
 
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
-| Clutch capacity (slipper) | `scripts/sim/engine_sim.gd:900` | ❌ none | τ_max = f(gear_load) × slipper_ramp (0.5 on overrun) | ❌ |
-| Clutch torque transfer (stiffness) | `engine_sim.gd:920` | ❌ none | τ = k·Δω·dt; k = CLUTCH_STIFFNESS | ❌ |
+| Clutch capacity (slipper) | `engine_sim.gd:957` | ✅ `drivetrain_formulas_test.gd` — positive from geometry, spec override honoured | τ_max = f(gear_load) × slipper_ramp (0.5 on overrun) | ✅ `[hand]` |
+| Clutch torque transfer (stiffness) | `engine_sim.gd:968` | ✅ `drivetrain_formulas_test.gd` — zero at match, saturates at capacity, sign follows slip, linear in slip when soft | τ = k·Δω·dt; k = CLUTCH_STIFFNESS | ✅ `[closed]` |
 | Gearbox ratios + efficiency | `scripts/model/bike/gearbox_model.gd` | ❌ none | DRIVE_EFFICIENCY=0.93 (crank→wheel) | ❌ |
-| **Wheel slip ratio** | `scripts/sim/wheel.gd:26` | ❌ none | s = (ω·r - v)/v; clamp -1..1; MIN_SPEED=0.5 m/s | ❌ |
-| **Tire μ(slip) curve** | `wheel.gd:35` | ❌ none | Peak 1.05 at 0.12 slip; locked 0.75 (simple peak model) | ❌ |
+| **Wheel slip ratio** | `scripts/sim/wheel.gd:26` | ✅ `tests/unit/sim/drivetrain_formulas_test.gd` — rolling 0, locked -1, spin +1 clamped, crawl floor | s = (ω·r - v)/v; clamp -1..1; MIN_SPEED=0.5 m/s | ✅ `[closed]` |
+| **Tire μ(slip) curve** | `wheel.gd:34` | ✅ `drivetrain_formulas_test.gd` — μ(0)=0, peak 1.05 at 0.12, decaying to the 0.75 asymptote, symmetric | Peak 1.05 at 0.12 slip; locked 0.75 (simple peak model) | ✅ `[hand]` |
 | **Pacejka Magic Formula (MF 6.2)** | ❌ not implemented | ❌ none | Fz, κ, α → Fx, Fy, Mz (tire data needed) | ❌ |
 | **Dynamic load transfer** | `engine_sim.gd:1030` | ❌ none | ΔFz = ±m·a·h/L; h=0.62m, front_static=0.48 | ❌ |
 | **ABS controller (hysteresis)** | `scripts/sim/abs_controller.gd` | ✅ `tests/unit/sim/abs_controller_test.gd` — apply slew, release faster than apply, cycles counted, lever handed back under the cutoff | Release at 1.15×target, reapply at 0.8×target; slew: release 60k, apply 12k N·m/s | ✅ `[hand]` (spec constants, not measured wheel data) |
