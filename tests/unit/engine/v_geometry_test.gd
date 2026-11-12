@@ -46,10 +46,13 @@ func _init() -> void:
 	check(absf(angles[1] - 45.0) < 1.0, "wire 2 cylinder on the +45 degree bank (%.1f)" % angles[1])
 	check(absf(angles[2] + 45.0) < 1.0, "wire 3 cylinder on the -45 degree bank (%.1f)" % angles[2])
 	check(absf(angles[3] - 45.0) < 1.0, "wire 4 cylinder on the +45 degree bank (%.1f)" % angles[3])
-	var pins := {}
-	for x in model._pin_x:
-		pins[snappedf(x, 0.0001)] = true
-	check(pins.size() == 2, "four cylinders share two crank pins (%d)" % pins.size())
+	# The crank itself carries one pin per pair; the two rods of a pair sit side by side on it, so their axial
+	# station differs by a sliver rather than matching exactly.
+	var pin_count: int = model._crank_node.crank_pins.size()
+	check(pin_count == 2, "the crank carries two pins for the four cylinders (%d)" % pin_count)
+	var pair_gap := absf(model._pin_x[1] - model._pin_x[0])
+	var next_gap := absf(model._pin_x[2] - model._pin_x[1])
+	check(pair_gap < next_gap * 0.5, "cylinders 1-2 and 3-4 sit on a common pin (gap %.3f against %.3f)" % [pair_gap, next_gap])
 	# each rod's crank end sits on its crank pin: the pin turns with the crank, at its bank angle plus its fire angle
 	for c in [0.0, 100.0, 333.0, 600.0]:
 		model.update_crank(c)

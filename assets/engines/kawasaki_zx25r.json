@@ -76,8 +76,8 @@
       "quickshifter_cut_time": 0.05,
       "quickshifter_min_rpm": 3000.0,
       "power_mode": "F",
-      "has_launch_control": true,
-      "launch_control": true,
+      "has_launch_control": false,
+      "launch_control": false,
       "launch_rpm": 8000.0,
       "launch_throttle": 0.95,
       "launch_speed_kmh": 30.0

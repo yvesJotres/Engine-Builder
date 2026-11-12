@@ -19,6 +19,13 @@ const IR_MUFFLER := "res://assets/ir/mild_exhaust.wav"
 const IR_OPEN := "res://assets/ir/sharp_01.wav"
 const INTAKE_MIX := 0.15 # intake noise level relative to exhaust
 const INTAKE_HZ := 1400.0 # the intake honk, brighter than the muffled exhaust body
+# Spatial falloff. The tailpipe is a point source: pressure falls as 1/r, 6.02 dB per doubling (SpatialFalloff has
+# the model and why the inverse-SQUARE model would double-count). UNIT_SIZE is the 1/r reference distance, 1.8 m;
+# MAX_DB caps the near field, so the engine is level inside 1.27 m and 1/r from there out; MAX_DISTANCE is Godot's
+# linear cull to silence, placed 100x the reference (40 dB down, 180 m) so it never warps the audible curve.
+const UNIT_SIZE := 18.0
+const MAX_DB := 3.0
+const MAX_DISTANCE := SpatialFalloff.CULL_FACTOR * UNIT_SIZE
 
 static var _kernels := {}
 static var _generated_irs := {} # per-engine bodies built from the base IR + ExhaustIr
@@ -47,6 +54,7 @@ var _flow_scale := ExhaustSound.BASE_FLOW_SCALE
 var _delay := PackedFloat32Array()
 var _dp := 0
 var compressor_load := 0.0
+var output_rms := 0.0 # level of the last rendered block, for the SPL meter at 1 m
 var _compressor_phase := 0.0
 var _compressor_blades := 9.0
 var drive := SoundContext.new() # what the sound layers need to know: the game fills it every frame
@@ -89,10 +97,13 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	gen.mix_rate = RATE
 	gen.buffer_length = 0.25
 	stream = gen
-	# The camera sits about 11 scene units off the engine (1 unit = 10 cm). unit_size keeps that seat loud
-	# and lets a longer camera pull the tailpipe away.
-	unit_size = 18.0
-	max_distance = 80.0
+	# The camera sits about 11 scene units off the engine (1 unit = 10 cm), inside the UNIT_SIZE near field, so the
+	# seat keeps its old level to within 1.2 dB: +2.95 dB here, +1.72 dB with the old 80-unit cull pulling the far end
+	# down. From the cap (12.7 units, 1.27 m) out it is pure 1/r. The model is stated once, in SpatialFalloff.
+	attenuation_model = ATTENUATION_INVERSE_DISTANCE
+	unit_size = UNIT_SIZE
+	max_db = MAX_DB
+	max_distance = MAX_DISTANCE
 	attenuation_filter_cutoff_hz = 5000.0
 
 
@@ -139,6 +150,7 @@ func render(frames: int) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	out.resize(frames)
 	if not audio_enabled or frames <= 0:
+		output_rms = 0.0
 		return out
 	# time since the engine started firing: the rpm-locked layers fade in over it, so a catch does not sweep like a spaceship
 	_fire_frames = _fire_frames + frames if drive.running else 0.0
@@ -174,6 +186,10 @@ func render(frames: int) -> PackedVector2Array:
 	if exh.starved:
 		starved = true
 		exh.starved = false
+	var acc := 0.0
+	for i in frames:
+		acc += out[i].x * out[i].x
+	output_rms = sqrt(acc / float(frames))
 	return out
 
 
@@ -233,6 +249,7 @@ func clear_pending() -> void:
 	exh.reset()
 	_hist.fill(0.0)
 	_delay.fill(0.0)
+	output_rms = 0.0
 	_hp = 0
 	_dp = 0
 	if _conv != null:

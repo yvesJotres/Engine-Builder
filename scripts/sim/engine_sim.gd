@@ -18,6 +18,7 @@ const FMEP_CONST_BAR := REITZ_FMEP_C
 const FMEP_PMAX_BAR := REITZ_PF
 const FMEP_MPS_BAR := REITZ_MPSF
 const SUBSTEPS := 1 # each fixed physics step is taken once
+const OVERRUN_POP_LAMBDA := 0.55 # what a bike that keeps fuelling on the overrun asks for: too rich to light, so it bangs
 var physics_dt := 1.0 / 1200.0 # s per physics step, set from the pause menu: Fast 1/1200, Normal 1/2400, Accurate 1/3600, Ultra 1/7200, Extreme 1/10800, Insane 1/14400, Ludicrous 1/28800
 const MAX_FRAME_TIME := 0.1 # s, the most real time one frame may add; a hitch must not make the sim run in fast-forward
 var _accumulator := 0.0 # real time not yet simulated, s
@@ -46,10 +47,15 @@ const CLUTCH_RELEASE_TIME := 0.05 # s, pulling the clutch in is fast
 const CLUTCH_LEVER_TIME := 0.03 # s, the plates follow the lever with only this much lag
 const CLUTCH_BITE_START := 0.5 # lever pull where the plates start to slip, estimate: the friction zone begins here
 const CLUTCH_BITE_END := 0.9 # lever pull where the plates are fully apart, estimate: the friction zone ends here
-const LAUNCH_CLUTCH_GAIN := 4.0 # per second, how fast the launch clutch closes or opens per unit of slip error, estimate
+const LAUNCH_CLOSE_RATE := 0.30 # per second: the system closes the clutch over about three seconds, a launch, not a drop
+const LAUNCH_CLUTCH_GAIN := 12.0 # per second per unit of relative rpm error: opens the clutch when the engine is dragged down
+const LAUNCH_SAG_TOLERANCE := 0.05 # relative sag below the launch target the clutch may close through without backing off
 const DRIVE_EFFICIENCY := 0.93 # crank to rear wheel, one value for every vehicle. The researched chain-driven bike range is 0.85 to 0.92 (docs/engine_physics/10); 0.93 is one point above it. It is kept because it also sets the clutch/driveline coupling, and moving it to 0.92 dropped the Bugatti's measured crank torque 8.7% (838 to 765 N·m) with no evidence that the new figure is right. Per-vehicle efficiency is the fix, not a global number
-const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg)
+const BRAKE_FORCE := 1800.0 # N, both brakes together, estimate (about 0.85 g on 215 kg); the legacy path, see _brake_force
 const BRAKE_APPLY_TIME := 0.2 # s, brake lever pulls on over this time
+const FRONT_STATIC_SHARE := 0.48 # share of the bike's weight on the front wheel at rest (GRAVITY is the 9.81 above)
+const CG_HEIGHT := 0.62 # m, for load transfer under braking
+const REAR_BRAKE_SHARE := 0.35 # rear caliper capacity as a share of the front
 # Slipper clutch: reduces clutch capacity during engine braking (negative gearbox load) to prevent rear wheel hop
 const SLIPPER_CLUTCH_RAMP := 0.5 # fraction of capacity retained during engine braking (0.5 = 50% capacity on overrun)
 # Fuel evaporating in the intake cools the air drawn in. Only part of the fuel evaporates before the valve shuts (estimate).
@@ -68,6 +74,16 @@ var limiter_active := false # the rev limiter has the spark cut
 var clutch_engage := 1.0 # 0 = clutch open, 1 = fully engaged
 var clutch_pull := 0.0 # 0 to 1 from the clutch lever: 1 = pulled in, 0 = at rest (engaged unless Shift is held)
 var brake := 0.0 # 0 = released, 1 = fully applied
+# Brakes are modelled at the wheels, not as one force on the bike: each has its own speed, slip and grip (Wheel), and the
+# ABS on an equipped bike modulates the caliper torque (AbsController).
+var front_wheel := Wheel.new()
+var rear_wheel := Wheel.new()
+var _front_abs := AbsController.new()
+var _rear_abs := AbsController.new()
+var _abs_key := "" # the spec's ABS settings last configured, so the counters are not reset every frame
+var _abs_on := false # spec.has_abs and spec.abs_enabled, refreshed by _sync_wheels
+var _wheels_ready := false # the wheels have been put on the road at least once
+var _accel_est := 0.0 # m/s² from the last step, for the load transfer
 # Dyno cell only: eddy-current brake force at the wheel, N, and the drum's equivalent mass, kg (0 = the bike's own settings)
 var cell_load_n := 0.0
 var cell_mass_kg := 0.0
@@ -76,6 +92,7 @@ var torque := 0.0 # N·m at the crank, shaft torque averaged over the last step
 var gear := Gearbox.new()
 var intake := IntakeNative.new() # native C++ intake and turbo (gdextension/src/intake_native.cpp)
 var fuel := FuelTank.new()
+var _compression_ratio := 0.0 # the spec's ratio, kept so the accessors answer before the first build
 var cylinders: Array[RefCounted] = [] # Cylinder (four-stroke) or TwoStrokeCylinder: they share the fields the sim reads
 var exhaust: ExhaustNative # one column for every header; null until the cylinders are built. Native C++ solver (gdextension/src/exhaust_gas.cpp)
 var _cyl_key := ""
@@ -291,7 +308,7 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 			ecu.set_power_mode(spec.power_mode)
 			_prev_power_mode = spec.power_mode
 		var base_advance := EngineAir.spark_advance_deg(rpm)
-		var throttle_override := ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear)
+		var throttle_override := ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear, clutch_engage)
 		calibrated_throttle = throttle_override if throttle_override >= 0.0 else throttle
 		var ecu_trim := ecu.trim
 		var ign := 720.0 - (base_advance + spec.ignition_offset_deg + ecu_trim)
@@ -317,13 +334,24 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 				if exhaust_solver and exhaust != null:
 					p_ex = exhaust.port_pressure(ci)
 					t_ex = exhaust.port_temperature(ci)
-				# limiter cuts both spark AND fuel to prevent unburnt mixture in exhaust
-				var cut := intake.limiter_cut or ecu.overrun() or qs_cut
-				# The overrun (decel) cut takes the fuel only. Cutting the spark too would leave a loaded charge unlit,
-				# and that charge pops the exhaust: the spark stays on through a closed-throttle decel.
-				var spark_cut := intake.limiter_cut or qs_cut
+				# The limiter cuts FUEL, and only fuel: _fuel_charge() returns before injecting, so a cut cycle has no
+				# fuel to leave unlit. Cutting the spark as well does not make the cut cleaner - intake.limiter_cut is a
+				# per-frame flag and a cycle spans several frames, so a charge fuelled just before the cut gets its spark
+				# pulled mid-cycle and pops the exhaust on every cycle of the stop (311 pops in 40 s, measured).
+				var overrun := ecu.overrun() # a closed-throttle decel, above the cut's rpm and below its load
+				# The limiter and the overrun cut FUEL. The quickshifter cuts only the SPARK: its charge is already fuelled, and an
+				# unlit charge is what bangs on the shift (cutting its fuel too would leave nothing to bang).
+				var cut := intake.limiter_cut or (overrun and not spec.overrun_pop)
+				# The overrun (decel) cut takes the fuel only, for the same reason. The quickshifter is the one that
+				# intentionally cuts the spark after fuelling: that unlit charge is the pop we want.
+				var spark_cut := qs_cut
 				# Power mode lambda multiplier
 				var mode_lambda := target_lambda * ecu.get_power_mode_lambda_mult()
+				# A bike that keeps fuelling on the overrun (overrun_pop) is asked for a charge far too rich to burn: the wet
+				# manifold keeps delivering fuel while the air is gone, so the excess leaves unburnt and lights the hot pipe all
+				# the way down. Burning the lean part keeps the engine turning, which is what a real decel pop does not disturb.
+				if overrun and spec.overrun_pop:
+					mode_lambda = minf(mode_lambda, OVERRUN_POP_LAMBDA)
 				var res := c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, mode_lambda, running and not spark_cut, cut, p_ex, t_ex)
 				gas += res.x / sub
 				drawn += res.y
@@ -411,7 +439,7 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 	# Ignition timing for 2-stroke: the same ECU idle loop as the four-stroke, so the engine holds its idle at a closed throttle
 	var base_advance := EngineAir.spark_advance_deg(rpm)
 	ecu.target_rpm = spec.idle_target_rpm
-	ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear)
+	ecu.update(h, rpm, throttle, running, spec, speed, clutch_pull, gear.gear, clutch_engage)
 	var ign := 360.0 - (base_advance + spec.ignition_offset_deg + ecu.trim)
 	
 	for _i in SUBSTEPS:
@@ -445,12 +473,21 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 				if exhaust != null:
 					ex_p = exhaust.port_pressure(ci)
 					ex_t = exhaust.port_temperature(ci)
-				var res: Vector2 = c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, target_lambda, running and not intake.limiter_cut, intake.limiter_cut, ex_p, ex_t)
+				# the same rule as the four-stroke: the limiter cuts fuel at the ports, and the spark stays on so a
+				# charge that was already fuelled is never left half-cut
+				var res: Vector2 = c.advance(dphi, sub_h, intake.pressure, intake_temp, ign, running, fuel, target_lambda, running, intake.limiter_cut, ex_p, ex_t)
 				gas += res.x / sub
 				drawn += res.y
 				
 				if exhaust != null:
 					exhaust.apply_valve(ci, c.exhaust_mdot, c.exhaust_power)
+				# a two-stroke pops its chamber as well, and the pop is booked the same way
+				if c.backfire_j > 0.0:
+					backfire_count += 1
+					last_backfire_j = c.backfire_j
+					if exhaust != null:
+						exhaust.add_energy(ci, c.backfire_j * 0.05)
+					c.backfire_j = 0.0
 			# the chambers and pipes move on one step, with every cylinder's flow in
 			if exhaust != null:
 				exhaust.set_record_audio(audio_enabled)
@@ -835,6 +872,7 @@ func _build_cylinders(spec: EngineSpec) -> void:
 	_cyl_key = key
 	var fire := FiringOrders.for_spec(spec)
 	cylinders.clear()
+	_compression_ratio = spec.compression_ratio
 	for i in spec.cylinders:
 		if is_two_stroke:
 			var c := TwoStrokeCylinder.new()
@@ -922,21 +960,97 @@ func _advance_driveline(dt: float, spec: EngineSpec, net: float, inertia: float,
 	var mass := cell_mass_kg if cell_mass_kg > 0.0 else spec.road_mass_kg()
 	var effective_mass := mass + spec.wheel_equivalent_kg()
 	var road_load := 0.0 if cell_mass_kg > 0.0 else road_resistance(speed, mass, spec.drag_area_m2)
-	var free_speed := maxf(speed - (road_load + BRAKE_FORCE * brake + cell_load_n) * dt / effective_mass, 0.0)
+	var brake_force := _brake_force(dt, spec, radius)
+	var free_speed := maxf(speed - (road_load + brake_force + cell_load_n) * dt / effective_mass, 0.0)
 	var free_omega := maxf(omega + net / inertia * dt, 0.0)
 	if ecu.is_launch_active() and ratio > 0.0:
 		if clutch_pull > 0.5:
 			clutch_engage = 0.0
 		else:
+			# The system closes the clutch itself: a steady rate for the engagement, plus a term that opens it again the
+			# moment the engine falls below the launch target. With the error term alone the clutch only closed while the
+			# engine sat above the target, so a launch that actually holds the target would never get the clutch home.
 			var target_omega := ecu.get_launch_target_rpm() * TAU / 60.0
 			var rpm_err := (omega - target_omega) / maxf(target_omega, 1.0)
-			clutch_engage = clampf(clutch_engage + LAUNCH_CLUTCH_GAIN * rpm_err * dt, 0.0, 1.0)
+			# close steadily; back off only if the engine is dragged well under the target
+			var rate := LAUNCH_CLOSE_RATE
+			if rpm_err < -LAUNCH_SAG_TOLERANCE:
+				rate = LAUNCH_CLUTCH_GAIN * (rpm_err + LAUNCH_SAG_TOLERANCE)
+			clutch_engage = clampf(clutch_engage + rate * dt, 0.0, 1.0)
 	var cap := clutch_capacity(spec, gearbox_load) * clutch_engage * clutch_engage
 	var transfer := clutch_transfer_torque(free_omega, free_speed, inertia, effective_mass, ratio, radius, cap, dt, CLUTCH_STIFFNESS)
 	gearbox_load = transfer
 	omega = maxf(free_omega - transfer * dt / inertia, 0.0)
 	var efficiency := DRIVE_EFFICIENCY if transfer >= 0.0 else 1.0 / DRIVE_EFFICIENCY
+	var speed_before := speed
 	speed = maxf(free_speed + transfer * ratio / radius * efficiency * dt / effective_mass, 0.0)
+	_accel_est = (speed - speed_before) / maxf(dt, 1e-6) # the load transfer reads last step's acceleration
+
+
+# Puts the wheels on the road at the current speed and configures the ABS from the spec. Called while braking, so the
+# wheels are resynced on the step the lever is first pulled - before that they were free rolling.
+func _sync_wheels(spec: EngineSpec) -> void:
+	var radius := tire_radius_m(spec)
+	for w in [front_wheel, rear_wheel]:
+		w.radius_m = radius
+		w.inertia_kgm2 = spec.wheel_inertia_kgm2
+	var key := "%f|%f|%f" % [spec.abs_slip_target, spec.abs_cycle_hz, spec.abs_min_speed_kmh]
+	if key != _abs_key:
+		_abs_key = key
+		_front_abs.configure(spec.abs_slip_target, spec.abs_cycle_hz, spec.abs_min_speed_kmh)
+		_rear_abs.configure(spec.abs_slip_target, spec.abs_cycle_hz, spec.abs_min_speed_kmh)
+	# the switch is what decides whether the system works: a factory ABS bike with the switch off still carries the
+	# hardware (EngineSpec.abs_hardware() is what draws it) but brakes like a bike without ABS, which is what the
+	# rider asked for
+	_abs_on = spec.abs_enabled
+
+
+# Retardation from the brakes, N. Returns 0 before touching the wheels when nothing is applied, so an unbraked coast is
+# exactly the arithmetic the simulator did before the wheel model existed (the golden trace depends on it).
+func _brake_force(dt: float, spec: EngineSpec, radius: float) -> float:
+	if brake <= 0.0 and front_wheel.brake_torque <= 0.0 and rear_wheel.brake_torque <= 0.0:
+		return 0.0
+	_sync_wheels(spec)
+	if not _wheels_ready or front_wheel.brake_torque <= 0.0:
+		# the lever was released since the last step: the wheels were free rolling until now, so put them back in step
+		front_wheel.resync(speed)
+		rear_wheel.resync(speed)
+		_wheels_ready = true
+	var mass := cell_mass_kg if cell_mass_kg > 0.0 else spec.road_mass_kg()
+	var weight := mass * GRAVITY
+	var transfer := -_accel_est * mass * CG_HEIGHT / maxf(spec.wheelbase_m(), 0.5) # braking loads the front
+	front_wheel.load_n = maxf(weight * FRONT_STATIC_SHARE + transfer, 0.0)
+	rear_wheel.load_n = maxf(weight * (1.0 - FRONT_STATIC_SHARE) - transfer, 0.0)
+	var front_capacity := brake * spec.brake_torque_nm
+	var rear_capacity := brake * spec.brake_torque_nm * REAR_BRAKE_SHARE
+	var front_torque := front_capacity
+	var rear_torque := rear_capacity
+	if _abs_on:
+		front_torque = _front_abs.step(dt, Wheel.slip_ratio(front_wheel.omega, speed, radius), speed, front_wheel.brake_torque, front_capacity)
+		rear_torque = _rear_abs.step(dt, Wheel.slip_ratio(rear_wheel.omega, speed, radius), speed, rear_wheel.brake_torque, rear_capacity)
+	front_wheel.advance(dt, speed, front_torque)
+	rear_wheel.advance(dt, speed, rear_torque)
+	return front_wheel.grip_force() + rear_wheel.grip_force()
+
+
+# Wheel slip, negative while braking; -1.0 is a locked wheel.
+func front_slip() -> float:
+	return front_wheel.slip()
+
+
+func rear_slip() -> float:
+	return rear_wheel.slip()
+
+
+# Modulation cycles the ABS has made, for the HUD and the tests.
+func abs_cycles() -> int:
+	return _front_abs.cycles + _rear_abs.cycles
+
+
+# True while the ABS is holding a wheel near its slip peak. The lever has to be on: an ABS with nothing applied is not
+# doing anything, even though its controller still reports itself ready.
+func abs_active() -> bool:
+	return _abs_on and brake > 0.0 and (_front_abs.active or _rear_abs.active)
 
 
 func _accumulate_cycle(shaft_torque: float, degrees: float, dt: float, cycle_degrees: float) -> void:
@@ -971,6 +1085,26 @@ static func tire_radius_m(spec: EngineSpec = null) -> float:
 
 
 # Figures from the EngineMetrics module, kept under the old names.
+# The compression ratio of this engine: geometric (from the piston and the chamber) and effective (the charge, from intake
+# closing). They are the same number on a dyno sheet only while the cam is short-duration.
+func compression_ratio_geometric() -> float:
+	if cylinders.is_empty():
+		return _compression_ratio
+	return cylinders[0].compression_ratio_geometric()
+
+
+func compression_ratio_effective() -> float:
+	if cylinders.is_empty():
+		return _compression_ratio
+	var total := 0.0
+	for c in cylinders:
+		if c.has_method("compression_ratio_effective"):
+			total += c.compression_ratio_effective()
+		else:
+			total += c.compression_ratio_geometric()
+	return total / float(cylinders.size())
+
+
 func exhaust_temp_c() -> float:
 	return EngineMetrics.exhaust_temp_c(self)
 

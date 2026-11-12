@@ -23,10 +23,14 @@ const AIR_LIMIT := 5.0 # log units either way: the idle valve can open or close 
 const OVERRUN_CUT := 2.2 # closed throttle above this multiple of the idle target cuts the fuel: above a start overspeed, so the cut cannot fight the idle loop
 const OVERRUN_RESUME := 1.25 # fuel returns here, still above the target, so the idle valve can catch it
 const CATCH_RPM_FRAC := 0.25 # below this fraction of the target the valve opens wide with start air until the engine catches
-# Launch control constants
-const LAUNCH_RAMP_RATE := 500.0 # rpm/s, how fast the launch RPM target ramps up once moving
-const LAUNCH_SLIP_RATE := 0.3 # clutch slip target during launch (0-1)
-const LAUNCH_HOLD_GAIN := 10.0 # throttle closed per unit of rpm error relative to the launch target, proportional, estimate
+# Launch control constants. The hold is a PI loop on the rpm error: the P term trims the throttle against a gust, the I
+# term finds the throttle this engine actually needs to sit at the target. Without the integral the loop parks wherever
+# its own output balances the engine - holding 8,000 rpm needs about 9% throttle, which is a 9% rpm error at a P gain of
+# 10, so every bike held its launch speed ~9% high (measured 8,650 for an 8,000 target, 9,800 for 9,000).
+const LAUNCH_HOLD_GAIN := 10.0 # throttle closed per unit of relative rpm error, proportional
+const LAUNCH_HOLD_KI := 30.0 # throttle bias per unit of relative rpm error per second: nulls the proportional term's offset
+const LAUNCH_BIAS_LIMIT := 1.0 # the bias may ask for the whole throttle either way
+const LAUNCH_LOCK := 0.98 # clutch engagement at which the launch has done its job and hands the driveline back
 
 var target_rpm := 1200.0
 var trim := 0.0 # degrees of spark advance added by the ECU right now
@@ -46,6 +50,8 @@ var _blip_timer := 0.0
 var _launch_active := false # true when launch control is armed and holding RPM
 var _launch_target_rpm := 0.0 # current launch RPM target (ramps up with speed)
 var _launch_throttle := 1.0 # throttle the launch holds the rpm with: wide open at the start, then trimmed to the target
+var _launch_bias := 0.0 # integral part of that trim: the throttle the engine needs at the target, learned while held
+var _launch_gear := 0 # the gear the launch was armed in: a launch is a first-gear manoeuvre
 # Power mode multipliers
 var _power_mode := "F" # "F", "M", "L"
 var _power_mode_lambda_mult := 1.0 # lambda target multiplier for current mode
@@ -95,7 +101,7 @@ func _get_qs_cut_time(spec: EngineSpec, gear: int) -> float:
 	return profile[-1][1] / 1000.0
 
 # Called once per physics step. Returns throttle override (-1 = no override, 0 = cut, >0 = blip throttle)
-func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineSpec = null, speed_ms: float = 0.0, clutch_pull: float = 0.0, gear: int = 0) -> float:
+func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineSpec = null, speed_ms: float = 0.0, clutch_pull: float = 0.0, gear: int = 0, clutch_engage: float = 0.0) -> float:
 	_current_rpm = rpm
 	_current_gear = gear
 	# Disabling an aid must cancel any in-flight intervention on this step.
@@ -107,6 +113,7 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 	if spec == null or not spec.launch_control or not running:
 		_launch_active = false
 		_launch_target_rpm = 0.0
+		_launch_bias = 0.0
 	
 	# Quickshifter upshift cut
 	if _qs_active:
@@ -141,17 +148,25 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 		var launch_armed := throttle >= spec.launch_throttle and clutch_pull > 0.5 and speed_kmh < spec.launch_speed_kmh and rpm < spec.launch_rpm * 1.1
 		if launch_armed and not _launch_active:
 			_launch_active = true
-			_launch_target_rpm = spec.launch_rpm
+			_launch_target_rpm = minf(spec.launch_rpm, spec.redline_rpm * 0.95)
 			_launch_throttle = 1.0
-		elif _launch_active and (speed_kmh >= spec.launch_speed_kmh or throttle < spec.launch_throttle * 0.5):
-			# letting the lever go is the launch itself: the clutch then slips at the target, so it does not end the launch
+			_launch_bias = 0.0
+			_launch_gear = gear
+		elif _launch_active and (clutch_engage >= LAUNCH_LOCK or gear != _launch_gear or throttle < spec.launch_throttle * 0.5):
+			# A launch ends when the clutch is home or the rider shifts, not at a speed. Ending it while the clutch is
+			# still slipping dumps the engine onto the wheel: the H2R's first gear at 9,000 rpm is about 115 km/h, so
+			# cutting the launch at its 40 km/h window dragged the engine from 8,600 to 4,100 rpm in a quarter second.
+			# The speed is only the arming gate now (speed_kmh < launch_speed_kmh above), which is what it names.
 			_launch_active = false
+			_launch_bias = 0.0
 		if _launch_active:
-			# Ramp up target RPM with speed
-			_launch_target_rpm += LAUNCH_RAMP_RATE * dt * clampf(speed_kmh / spec.launch_speed_kmh, 0.0, 1.0)
-			_launch_target_rpm = minf(_launch_target_rpm, spec.redline_rpm * 0.95)
-			# launch holds the target with the throttle: it opens while the engine is under the target and closes above it
-			_launch_throttle = clampf(1.0 - LAUNCH_HOLD_GAIN * (rpm - _launch_target_rpm) / maxf(_launch_target_rpm, 1.0), 0.0, 1.0)
+			# The target stays at launch_rpm for the whole launch. It is not ramped with speed: on these bikes the
+			# hand-over speed in first gear is already below launch_rpm (30 km/h in the ZX-25R's first is 7,540 rpm), so a
+			# target climbing above the gearing only keeps the clutch slipping past the point the road could take over.
+			var err := (rpm - _launch_target_rpm) / maxf(_launch_target_rpm, 1.0)
+			_launch_bias = clampf(_launch_bias - LAUNCH_HOLD_KI * err * dt, -LAUNCH_BIAS_LIMIT, LAUNCH_BIAS_LIMIT)
+			# the throttle opens while the engine is under the target and closes above it
+			_launch_throttle = clampf(1.0 - LAUNCH_HOLD_GAIN * err + _launch_bias, 0.0, 1.0)
 			return _launch_throttle
 	
 	# the ECU stays out of the way while the engine is starting and climbing, and only holds the idle once it is running

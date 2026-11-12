@@ -38,7 +38,7 @@ func _ready() -> void:
 	visible = false
 	layer = 2 # above the touch pads (layer 1), so the menu is not cut across by them
 	# dims the scene and the pads behind the menu. It stops taps, so nothing below it (pads, settings panel, 3D view) can be touched
-	# while paused; the menu's own buttons sit above it and still work. Resume, Esc or Space carry on.
+	# while paused; the menu's own buttons sit above it and still work. Resume or Esc carry on.
 	var dim := ColorRect.new()
 	dim.color = Color(0.0, 0.0, 0.0, 0.5)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -68,7 +68,7 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 36)
 	box.add_child(title)
 	var hint := Label.new()
-	hint.text = "Tap Resume to continue" if OS.has_feature("mobile") else "Esc or Space to carry on"
+	hint.text = "Tap Resume to continue" if OS.has_feature("mobile") else "Esc to carry on"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
 	box.add_child(hint)

@@ -42,7 +42,7 @@ void EcuNative::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_quickshifter_blip_active"), &EcuNative::is_quickshifter_blip_active);
 	ClassDB::bind_method(D_METHOD("is_launch_active"), &EcuNative::is_launch_active);
 	ClassDB::bind_method(D_METHOD("get_launch_target_rpm"), &EcuNative::get_launch_target_rpm);
-	ClassDB::bind_method(D_METHOD("update", "dt", "rpm", "throttle", "running", "spec", "speed_ms", "clutch_pull", "gear"), &EcuNative::update, DEFVAL(Dictionary()), DEFVAL(0.0), DEFVAL(0.0), DEFVAL(0));
+	ClassDB::bind_method(D_METHOD("update", "dt", "rpm", "throttle", "running", "spec", "speed_ms", "clutch_pull", "gear", "clutch_engage"), &EcuNative::update, DEFVAL(Dictionary()), DEFVAL(0.0), DEFVAL(0.0), DEFVAL(0), DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("air_factor"), &EcuNative::air_factor);
 	ClassDB::bind_method(D_METHOD("overrun"), &EcuNative::overrun);
 	ClassDB::bind_method(D_METHOD("trigger_quickshifter", "spec"), &EcuNative::trigger_quickshifter);
@@ -69,12 +69,12 @@ bool EcuNative::is_quickshifter_blip_active() const { return model_.is_quickshif
 bool EcuNative::is_launch_active() const { return model_.is_launch_active(); }
 double EcuNative::get_launch_target_rpm() const { return model_.get_launch_target_rpm(); }
 
-double EcuNative::update(double dt, double rpm, double throttle, bool running, const Dictionary &spec, double speed_ms, double clutch_pull, int64_t gear) {
+double EcuNative::update(double dt, double rpm, double throttle, bool running, const Dictionary &spec, double speed_ms, double clutch_pull, int64_t gear, double clutch_engage) {
 	if (spec.is_empty()) {
-		return model_.update(dt, rpm, throttle, running, nullptr, speed_ms, clutch_pull, (int)gear);
+		return model_.update(dt, rpm, throttle, running, nullptr, speed_ms, clutch_pull, (int)gear, clutch_engage);
 	}
 	engine_physics::EcuSpec s = to_spec(spec);
-	return model_.update(dt, rpm, throttle, running, &s, speed_ms, clutch_pull, (int)gear);
+	return model_.update(dt, rpm, throttle, running, &s, speed_ms, clutch_pull, (int)gear, clutch_engage);
 }
 
 double EcuNative::air_factor() const { return model_.air_factor(); }

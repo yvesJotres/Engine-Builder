@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import secrets
 import tempfile
 import threading
 import unittest
@@ -15,7 +16,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 import patch_common
 import patch_server
 
-SECRET = "test-secret"
+# A fresh throwaway secret per run: nothing to leak, nothing to reuse
+SECRET = secrets.token_urlsafe(24)
 
 
 class PatchServerTest(unittest.TestCase):

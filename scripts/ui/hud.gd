@@ -32,16 +32,23 @@ func flash(text: String) -> void:
 	_panel.flash(text)
 
 
-func update(sim: EngineSim, spec: EngineSpec, clutch_held: bool, throttle: float = 0.0) -> void:
+# spl_db is the meter a metre behind the tailpipe (SplMeter); it is shown next to the rpm so an exhaust change can be
+# read off the dash instead of guessed at by ear.
+func update(sim: EngineSim, spec: EngineSpec, clutch_held: bool, throttle: float = 0.0, spl_db: float = -100.0) -> void:
 	var kmh := sim.speed * 3.6
 	var density: float = FuelTank.PROPERTIES[sim.fuel.kind].density
 	var kml := Units.km_per_litre(kmh, sim.fuel_flow, density)
 	# below this fuel flow the ratio is just noise (it divides by almost nothing), so the readout shows no value
 	var economy := "%.1f km/L" % minf(kml, 999.0) if kmh > 3.0 and kml > 0.0 and sim.fuel_flow > 0.05 else "-- km/L"
-	var hint := "CLUTCH IN" if clutch_held else ("BRAKE" if sim.brake > 0.0 else "")
+	# ABS wins over the plain BRAKE hint while it is modulating: that is the moment the rider needs to see
+	var hint := "ABS" if sim.abs_active() else ("CLUTCH IN" if clutch_held else ("BRAKE" if sim.brake > 0.0 else ""))
 	var state := "RUNNING" if sim.running else ("CRANKING" if sim.rpm > 1.0 else "STOPPED")
-	var info := "Throttle %.0f%%   O2 λ %.2f   Knocks %d" % [throttle * 100.0, sim.o2_lambda(), sim.knock_count] if mode == 1 else "%s   %s" % [economy, hint]
-	_panel.set_values(sim.rpm, spec.redline_rpm, kmh, sim.gear.label(), info, state)
+	# the engine page shows the compression ratio as the gas sees it: late intake closing throws swept volume back out,
+	# so the effective figure sits under the geometric one
+	var info := "Throttle %.0f%%   O2 λ %.2f   Knocks %d   CR %.1f:1 (eff %.1f:1)" % [
+		throttle * 100.0, sim.o2_lambda(), sim.knock_count,
+		sim.compression_ratio_geometric(), sim.compression_ratio_effective()] if mode == 1 else "%s   %s" % [economy, hint]
+	_panel.set_values(sim.rpm, spec.redline_rpm, kmh, sim.gear.label(), info, state, spl_db)
 
 
 # The dashboard itself: everything is drawn here, so it stays crisp at any window size.
@@ -60,6 +67,7 @@ class DashPanel extends Control:
 	var flash_text := ""
 	var flash_time := 0.0 # seconds left to show the shift message
 	var engine_mode := false
+	var spl := -100.0 # dB SPL, a metre behind the tailpipe
 
 	func _init() -> void:
 		custom_minimum_size = Vector2(640, 240)
@@ -77,13 +85,14 @@ class DashPanel extends Control:
 			flash_time = maxf(flash_time - delta, 0.0)
 			queue_redraw()
 
-	func set_values(new_rpm: float, new_redline: float, new_speed: float, new_gear: String, new_info: String, new_top: String) -> void:
+	func set_values(new_rpm: float, new_redline: float, new_speed: float, new_gear: String, new_info: String, new_top: String, new_spl: float) -> void:
 		rpm = new_rpm
 		redline = new_redline
 		speed = new_speed
 		gear = new_gear
 		info = new_info
 		top_info = new_top
+		spl = new_spl
 		queue_redraw()
 
 	func _fit_font_size(font: Font, text: String, width: float, font_size: int) -> int:
@@ -128,5 +137,6 @@ class DashPanel extends Control:
 		draw_string(font, Vector2(414.0, 102.0), "RPM", HORIZONTAL_ALIGNMENT_LEFT, 160, 14, DIM)
 		var rpm_text := str(roundi(rpm))
 		draw_string(font, Vector2(414.0, 160.0), rpm_text, HORIZONTAL_ALIGNMENT_LEFT, size.x - 434.0, _fit_font_size(font, rpm_text, size.x - 434.0, 40), RED if rpm >= redline else TEXT)
+		draw_string(font, Vector2(414.0, 188.0), "MIC 0.5 m 45°  " + SplMeter.text(spl), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 434.0, 15, DIM)
 		draw_line(Vector2(20.0, size.y - 42.0), Vector2(size.x - 20.0, size.y - 42.0), Color(0.24, 0.28, 0.3), 1.0)
 		draw_string(font, Vector2(24.0, size.y - 15.0), info, HORIZONTAL_ALIGNMENT_LEFT, size.x - 48.0, 16, DIM)

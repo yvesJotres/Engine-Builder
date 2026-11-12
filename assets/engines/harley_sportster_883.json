@@ -8,6 +8,7 @@
     "rod_ratio": 1.75,
     "layout": "V",
     "bank_angle": 45.0,
+    "shared_v_crankpins": true,
     "compression_ratio": 9.0,
     "twin_pin_deg": 315.0,
     "fire_deg": [

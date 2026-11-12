@@ -45,9 +45,9 @@ func _init() -> void:
 			continue # set by a preset, not by a slider
 		check(_same(from_panel.get(field), defaults.get(field)), "default engine: %s is %s from the panel, %s in the spec" % [field, str(from_panel.get(field)), str(defaults.get(field))])
 	# every preset
-	var index := 0
 	for name in Presets.PRESETS:
-		panel._on_preset_selected(index)
+		# the dropdown is grouped by make, so its index does not follow Presets.PRESETS: look the id up
+		panel._on_preset_selected(panel._preset_ids.find(name))
 		var got := EngineSpec.new()
 		panel.apply_to(got)
 		var want := EngineSpec.new()
@@ -58,16 +58,18 @@ func _init() -> void:
 			if got.stroke_type == "two_stroke" and field in VALVE_FIELDS:
 				continue
 			var expected = want.get(field)
-			# ABS and traction control are forced off until the wheel physics exists, so the spec is off whatever the preset says
-			if field in ["abs_enabled", "traction_control_enabled"] and not ControlPanel.WHEEL_AIDS_AVAILABLE:
+			# an aid without physics behind it is forced off, so the spec is off whatever the preset says; ABS has
+			# physics now (scripts/sim/wheel.gd), traction control does not
+			if field == "abs_enabled" and not ControlPanel.ABS_AVAILABLE:
+				expected = false
+			if field == "traction_control_enabled" and not ControlPanel.TRACTION_AVAILABLE:
 				expected = false
 			check(_same(got.get(field), expected), "%s: %s is %s from the panel, %s from the preset" % [name, field, str(got.get(field)), str(expected)])
 		check(panel._controls["qs_enabled"].visible, "%s: quickshifter switch is on every bike" % name)
 		check(panel._controls["launch_control"].visible, "%s: launch-control switch is on every bike" % name)
-		check(panel._controls["abs_enabled"].visible == ControlPanel.WHEEL_AIDS_AVAILABLE, "%s: ABS is shown only once the wheel physics is built" % name)
-		check(panel._controls["traction_control_enabled"].visible == ControlPanel.WHEEL_AIDS_AVAILABLE, "%s: traction control is shown only once the wheel physics is built" % name)
+		check(panel._controls["abs_enabled"].visible == ControlPanel.ABS_AVAILABLE, "%s: ABS is shown now that the wheel physics is built" % name)
+		check(panel._controls["traction_control_enabled"].visible == ControlPanel.TRACTION_AVAILABLE, "%s: traction control is shown only once its physics is built" % name)
 		check(got.validation_warning() == "", "%s: the panel's settings pass validation (%s)" % [name, got.validation_warning()])
-		index += 1
 	var frame := panel.get_child(0) as PanelContainer
 	var scroll := _find_scroll(frame)
 	check(is_equal_approx(frame.anchor_bottom, 1.0), "panel tracks viewport height")

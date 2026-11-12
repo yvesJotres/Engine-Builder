@@ -69,6 +69,7 @@
     "launch_control": false,
     "has_abs": true,
     "abs_enabled": false,
+    "brake_torque_nm": 1100.0,
     "has_traction_control": true,
     "traction_control_enabled": false,
     "slipper_clutch": true,

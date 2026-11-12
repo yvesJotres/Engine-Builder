@@ -25,6 +25,13 @@ func _process(_delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
+		# A panel, button, slider or dropdown under the pointer owns the mouse. Without this, the wheel over the
+		# settings panel stepped a spin box and zoomed the bike at the same time: scrolling the page pulled the
+		# camera in with it.
+		if _pointer_over_ui():
+			_orbiting = false
+			_panning = false
+			return
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
 				_orbiting = event.pressed
@@ -47,3 +54,23 @@ func _update() -> void:
 	var offset := Vector3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw))
 	camera.position = target + offset * distance
 	camera.look_at(target)
+
+
+# True when the pointer is over a Control that uses the mouse: a panel, or any button, slider, dropdown or spin box.
+# The camera leaves those events to the UI, so scrolling or clicking a setting never moves the bike.
+func _pointer_over_ui() -> bool:
+	var viewport := get_viewport()
+	if viewport == null:
+		return false
+	var hovered := viewport.gui_get_hovered_control()
+	if hovered == null:
+		return false # the pointer has never moved over the window: nothing to hand the event to
+	if hovered.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		return true
+	# A label inside a panel is IGNORE itself, but the panel under it still owns the area.
+	var node: Node = hovered
+	while node != null:
+		if node is PanelContainer or node is Panel or node is ScrollContainer:
+			return true
+		node = node.get_parent()
+	return false

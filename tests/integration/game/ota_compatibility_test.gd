@@ -53,7 +53,7 @@ func _init() -> void:
 	await process_frame
 	main.set_process(false)
 	main._panel._on_library_ready(presets.PRESETS)
-	var index: int = presets.names().find("bugatti_centodieci")
+	var index: int = main._panel._preset_ids.find("bugatti_centodieci") # the dropdown is grouped by make, not by preset id order
 	check(index >= 0, "Centodieci preset is available")
 	if index >= 0:
 		main._panel._on_preset_selected(index)

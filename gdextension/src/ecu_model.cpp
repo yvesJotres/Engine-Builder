@@ -52,7 +52,7 @@ double EcuModel::air_factor() const {
 	return manual_air > 0.0 ? manual_air : std::exp(air_log_);
 }
 
-double EcuModel::update(double dt, double rpm, double throttle, bool running, const EcuSpec *spec, double speed_ms, double clutch_pull, int gear) {
+double EcuModel::update(double dt, double rpm, double throttle, bool running, const EcuSpec *spec, double speed_ms, double clutch_pull, int gear, double clutch_engage) {
 	current_rpm_ = rpm;
 	current_gear_ = gear;
 	// Disabling an aid must cancel any in-flight intervention on this step.
@@ -65,6 +65,7 @@ double EcuModel::update(double dt, double rpm, double throttle, bool running, co
 	if (spec == nullptr || !spec->launch_control || !running) {
 		launch_active_ = false;
 		launch_target_rpm_ = 0.0;
+		launch_bias_ = 0.0;
 	}
 
 	// Quickshifter upshift cut
@@ -107,18 +108,23 @@ double EcuModel::update(double dt, double rpm, double throttle, bool running, co
 		bool launch_armed = throttle >= spec->launch_throttle && clutch_pull > 0.5 && speed_kmh < spec->launch_speed_kmh && rpm < spec->launch_rpm * 1.1;
 		if (launch_armed && !launch_active_) {
 			launch_active_ = true;
-			launch_target_rpm_ = spec->launch_rpm;
+			launch_target_rpm_ = std::min(spec->launch_rpm, spec->redline_rpm * 0.95);
 			launch_throttle_ = 1.0;
-		} else if (launch_active_ && (speed_kmh >= spec->launch_speed_kmh || throttle < spec->launch_throttle * 0.5)) {
-			// letting the lever go is the launch itself: the clutch then slips at the target, so it does not end the launch
+			launch_bias_ = 0.0;
+			launch_gear_ = gear;
+		} else if (launch_active_ && (clutch_engage >= LAUNCH_LOCK || gear != launch_gear_ || throttle < spec->launch_throttle * 0.5)) {
+			// A launch ends when the clutch is home or the rider shifts, not at a speed: ending it while the clutch is still
+			// slipping dumps the engine onto the wheel. The speed below is only the arming gate, as the parameter names it.
 			launch_active_ = false;
+			launch_bias_ = 0.0;
 		}
 		if (launch_active_) {
-			// Ramp up target RPM with speed
-			launch_target_rpm_ += LAUNCH_RAMP_RATE * dt * clampd(speed_kmh / spec->launch_speed_kmh, 0.0, 1.0);
-			launch_target_rpm_ = std::min(launch_target_rpm_, spec->redline_rpm * 0.95);
-			// launch holds the target with the throttle: it opens while the engine is under the target and closes above it
-			launch_throttle_ = clampd(1.0 - LAUNCH_HOLD_GAIN * (rpm - launch_target_rpm_) / std::max(launch_target_rpm_, 1.0), 0.0, 1.0);
+			// The target stays at launch_rpm for the whole launch: ramping it above what the gearing supports at hand-over
+			// only keeps the clutch slipping past the point where the road could take over.
+			const double err = (rpm - launch_target_rpm_) / std::max(launch_target_rpm_, 1.0);
+			launch_bias_ = clampd(launch_bias_ - LAUNCH_HOLD_KI * err * dt, -LAUNCH_BIAS_LIMIT, LAUNCH_BIAS_LIMIT);
+			// the throttle opens while the engine is under the target and closes above it
+			launch_throttle_ = clampd(1.0 - LAUNCH_HOLD_GAIN * err + launch_bias_, 0.0, 1.0);
 			return launch_throttle_;
 		}
 	}

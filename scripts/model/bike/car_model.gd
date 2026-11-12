@@ -72,7 +72,7 @@ func _add_wheel(at: Vector3, radius: float, rim_radius: float, width: float, tir
 	tire.rotation.z = PI / 2.0
 	tire.scale.y = width / (radius - rim_radius)
 	wheel.add_child(tire)
-	preload("res://assets/3d/generated/drivetrain/tire_tread.gd").add_to(wheel, radius, rim_radius, width, 64)
+	preload("res://scripts/model/bike/parts/tire_tread.gd").add_to(wheel, radius, rim_radius, width, 64)
 	var rim := MeshInstance3D.new()
 	var rim_mesh := TorusMesh.new()
 	rim_mesh.inner_radius = rim_radius - 0.1

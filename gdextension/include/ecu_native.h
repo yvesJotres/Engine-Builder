@@ -29,7 +29,7 @@ public:
 	bool is_launch_active() const;
 	double get_launch_target_rpm() const;
 
-	double update(double dt, double rpm, double throttle, bool running, const Dictionary &spec, double speed_ms, double clutch_pull, int64_t gear);
+	double update(double dt, double rpm, double throttle, bool running, const Dictionary &spec, double speed_ms, double clutch_pull, int64_t gear, double clutch_engage = 0.0);
 	double air_factor() const;
 	bool overrun() const;
 	bool trigger_quickshifter(const Dictionary &spec);

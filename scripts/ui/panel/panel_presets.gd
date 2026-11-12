@@ -20,6 +20,19 @@ static func remember_engine(id: String) -> void:
 	cfg.save(LAST_ENGINE_FILE)
 
 
+# Puts the engine from the previous session back on the panel. The dropdown may not hold it any more
+# (a preset removed or renamed), in which case nothing is applied and the caller's default stands.
+static func restore_last_engine(panel: ControlPanel) -> bool:
+	var id := last_engine()
+	if id.is_empty():
+		return false
+	var index: int = panel._preset_ids.find(id)
+	if index < 0:
+		return false
+	select_preset(panel, index)
+	return true
+
+
 static func select_preset(panel: ControlPanel, index: int) -> void:
 	if index >= panel._preset_ids.size():
 		return
@@ -85,8 +98,8 @@ static func select_preset(panel: ControlPanel, index: int) -> void:
 	panel._controls["crank"].select(0)
 
 	# ---- Plain vars (not on screen, set by preset) ----
-	panel.rod_ratio = p.get("rod_ratio", 1.6)
 	panel.compression_ratio = p.get("compression_ratio", 11.3)
+	panel._set_quiet(panel._controls["cr"], panel.compression_ratio)
 	panel.crossplane = p.get("crossplane", false)
 	panel.fire_deg = p.get("fire_deg", [])
 	panel.bank_angle = p.get("bank_angle", 90.0)

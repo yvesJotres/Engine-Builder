@@ -1,6 +1,6 @@
 extends SceneTree
 
-const CAR_MODEL := preload("res://assets/3d/generated/drivetrain/car_model.gd")
+const CAR_MODEL := preload("res://scripts/model/bike/car_model.gd")
 var _fails := 0
 
 func _init() -> void:
@@ -28,8 +28,12 @@ func _init() -> void:
 	await process_frame
 	main.set_process(false)
 	main._panel._on_library_ready(Presets.PRESETS)
-	var index := Presets.names().find("bugatti_centodieci")
+	var index: int = main._panel._preset_ids.find("bugatti_centodieci") # the dropdown is grouped by make, not by preset id order
 	main._panel._on_preset_selected(index)
+	# the panel change applies the spec at once but the geometry waits REBUILD_DELAY (main.gd), so the car is not built
+	# until that timer has fired: wait for it rather than racing it
+	for frame in 12:
+		await process_frame
 	check(main.spec.vehicle_type == "car" and main.spec.layout == "W", "selecting the preset activates car and W16 mode")
 	check(main._car.visible and not main._drivetrain.visible, "car mode replaces motorcycle visuals")
 	check(main._car._wheels.size() == 4, "selected car has four wheels")
@@ -66,8 +70,10 @@ func _init() -> void:
 	print("W16 launch after 2 seconds: %.1f km/h, %.0f rpm, gear %s" % [main._sim.speed * 3.6, main._sim.rpm, main._sim.gear.label()])
 	check(main._sim.speed > 0.1 and main._sim.running, "car launches without stalling")
 	main._touch_throttle = 0.0
-	var bike := Presets.names().find("honda_cbr150r")
+	var bike: int = main._panel._preset_ids.find("honda_cbr150r")
 	main._panel._on_preset_selected(bike)
+	for frame in 12:
+		await process_frame
 	check(not main._car.visible and main._drivetrain.visible, "switching back restores motorcycle visuals")
 	check(main._sim.fuel.capacity_litres == 12.0, "switching back restores motorcycle tank capacity")
 	main.free()

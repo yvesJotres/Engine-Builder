@@ -21,6 +21,34 @@ const PLATE_HEIGHT := 0.075 # 7.5 mm plate height
 const ROLLER_RADIUS := 0.0388 # 7.75 mm roller diameter
 const ROLLER_LENGTH := 0.078 # between the plates
 const ROLLER_TURN := Basis(Vector3.BACK, PI / 2.0) # turns the cylinder's axis from Y to X
+const ROTOR_THICKNESS := BikeMeshes.ROTOR_THICKNESS
+const ROTOR_INNER := BikeMeshes.ROTOR_INNER
+# The ABS target ring, from how the real part works: a steel disc with teeth round its circumference bolted to the
+# carrier, one pulse per tooth per revolution, read by a pickup whose tip sits over the toothed band with a small air gap.
+# Bosch/aftermarket reluctor rings run 44-52 teeth (48 is the common figure, and 48 pulses/rev is what a 250 mm disc at
+# 100 km/h needs for the module to resolve low speed); the air gap is 0.4-1.2 mm for a passive (inductive) sensor and
+# 0.5-2.0 mm for an active/Hall one, with workshop specs landing around 1.3-1.9 mm on some bikes and 0.1-1.5 mm on
+# others. The ring itself is 1.5-2.5 mm of steel; ours is 2 mm.
+# Real brake sizes, not guesses: a litre-class sport bike runs 330 mm twin front discs with radial four-piston
+# calipers and a 220 mm rear (CBR1000RR-R: "330 mm discs paired with radial-mount Brembo Stylema calipers").
+const FRONT_DISC_RADIUS := BikeBrakes.FRONT_DISC_RADIUS
+const REAR_DISC_RADIUS := BikeBrakes.REAR_DISC_RADIUS
+const CALIPER_ANGLE_DEG := BikeBrakes.CALIPER_ANGLE_DEG
+const FORK_LEG_OFFSET := BikeChassis.FORK_LEG_OFFSET
+const SWINGARM_AXLE_OFFSET := BikeChassis.SWINGARM_AXLE_OFFSET
+const AXLE_FRONT_RADIUS := BikeAxles.AXLE_FRONT_RADIUS
+const AXLE_REAR_RADIUS := BikeAxles.AXLE_REAR_RADIUS
+const TONE_RING_THICKNESS := BikeBrakes.TONE_RING_THICKNESS
+const TONE_RING_TEETH := BikeBrakes.TONE_RING_TEETH
+const TONE_RING_INNER := BikeBrakes.TONE_RING_INNER
+const TONE_RING_OUTER := BikeBrakes.TONE_RING_OUTER
+const TONE_RING_WINDOW_LO := BikeMeshes.TONE_RING_WINDOW_LO
+const TONE_RING_WINDOW_HI := BikeMeshes.TONE_RING_WINDOW_HI
+const TONE_RING_DUTY := BikeMeshes.TONE_RING_DUTY
+# Radius a wheel-speed pickup reads at: the middle of the window band, where a real pole piece sits.
+const TONE_RING_READ_SHARE := BikeBrakes.TONE_RING_READ_SHARE
+const CARRIER_THICKNESS := BikeBrakes.CARRIER_THICKNESS
+const CARRIER_OFFSET := BikeBrakes.CARRIER_OFFSET
 
 var _front_pivot: Node3D
 var _wheel_pivot: Node3D
@@ -43,9 +71,33 @@ var _rear_half := 0.65
 var rear_axle := Vector3.ZERO # rear axle centre, set by build
 var _brake_pedal: Node3D
 var _shift_pedal: Node3D
+var _head := Vector3.ZERO # steering head, set by _build_chassis: where the bars, the fork and the throttle hang
+var _brake_lever: Node3D # front brake lever, swings in as the lever is pulled
+var _clutch_lever: Node3D
+var _throttle_grip: Node3D # the right-hand grip and its tube, which twists
+# Clip-on and lever sizes, in scene units (1 unit = 100 mm): a clip-on tube runs about 320 mm from the fork clamp out to
+# the end of the grip, the grip itself is 120 mm of rubber, and a lever is about 170 mm from its pivot to the tip.
+# A clip-on clamps to the fork tube and runs OUT and back from it: the grips end up wider than the tubes, because a bike's
+# bars are about 720 mm across while its fork legs are 160 mm apart. Splaying them inwards put both grips in the middle of
+# the machine.
+const BAR_END_X := BikeCockpit.BAR_END_X
+const BAR_END_Z := BikeCockpit.BAR_END_Z
+const BAR_RADIUS := BikeCockpit.BAR_RADIUS
+const GRIP_LENGTH := BikeCockpit.GRIP_LENGTH
+const GRIP_RADIUS := BikeCockpit.GRIP_RADIUS
+const LEVER_LENGTH := BikeCockpit.LEVER_LENGTH
+const LEVER_PIVOT_OFFSET := BikeCockpit.LEVER_PIVOT_OFFSET
+const LEVER_TRAVEL := 0.34 # rad the brake and clutch levers swing when pulled right in (~19 degrees)
+const THROTTLE_TWIST := 0.30 # rad a quarter-turn twist grip moves through
 const SHIFT_PEDAL_ANGLE := 0.26
 const SHIFT_PEDAL_RETURN_RATE := 2.0
-const FRONT_CALIPER := preload("res://assets/3d/imported/caliper_simple.glb")
+
+
+# Where the throttle housing sits: the right-hand bar end. The grip turns a tube that hits a mechanical stop, so the
+# clank is a sound at the bar, not at the exhaust: 15 cm inboard of the 1.3-unit tube end, the same axis as the brake
+# master cylinder on the other side.
+func throttle_housing_position() -> Vector3:
+	return to_global(_head + Vector3(1.15, 0.66, -0.16))
 
 
 # Outer radius of the 100/80-17 front tyre, scene units: rim radius plus an 80 mm sidewall (80% of 100 mm).
@@ -65,7 +117,7 @@ func _add_tyre(pivot: Node3D, tire_r: float, tire_width: float, black: Material,
 	tire.rotation.z = PI / 2.0
 	tire.scale.y = tire_width / (tire_r - torus.inner_radius)
 	pivot.add_child(tire)
-	preload("res://assets/3d/generated/drivetrain/tire_tread.gd").add_to(pivot, tire_r, torus.inner_radius, tire_width)
+	preload("res://scripts/model/bike/parts/tire_tread.gd").add_to(pivot, tire_r, torus.inner_radius, tire_width)
 	var authored := rim_scene.instantiate() if rim_scene != null else null
 	if authored is Node3D:
 		authored.name = "AuthoredRim"
@@ -154,12 +206,14 @@ func build(ground_y: float, crank: Vector3, tank_bottom: Vector3 = Vector3.INF, 
 	var axle := Vector3(0.0, axle_y, rear_axle_z(axle_y - crank.y, r_front, r_rear, CHAIN_LINKS * CHAIN_PITCH))
 
 	_front_pivot = Node3D.new()
+	_front_pivot.name = "FrontSprocketPivot" # named so the built scene can be read as a tree
 	_front_pivot.position = Vector3(_chain_x, crank.y, crank.z)
 	add_child(_front_pivot)
 	_front_pivot.add_child(Sprocket.build(TEETH_FRONT, 0.08, steel))
 
 	rear_axle = axle
 	_wheel_pivot = Node3D.new()
+	_wheel_pivot.name = "RearWheel"
 	_wheel_pivot.position = axle
 	add_child(_wheel_pivot)
 	_add_tyre(_wheel_pivot, tire_r, rear_width * MM, black, alu, dark, rear_rim, _rim_scene(preset_id, "rear_rim"))
@@ -169,15 +223,27 @@ func build(ground_y: float, crank: Vector3, tank_bottom: Vector3 = Vector3.INF, 
 	var front_r := front_rim + front_width * (spec.front_tire_aspect if spec != null else 0.80) * MM
 	_front_tire_radius = front_r
 	_front_wheel = Node3D.new()
+	_front_wheel.name = "FrontWheel"
 	_front_wheel.position = Vector3(0.0, ground_y + front_r, axle.z + wheelbase)
 	front_axle = _front_wheel.position
 	add_child(_front_wheel)
 	_add_tyre(_front_wheel, front_r, front_width * MM, black, alu, dark, front_rim, _rim_scene(preset_id, "front_rim"))
-	_add_brake_rotor(_front_wheel, -(_front_half + 0.06), 1.1, steel, dark, has_abs, _rim_scene(preset_id, "front_rotor"))
-	_add_brake_rotor(_wheel_pivot, -(_rear_half + 0.06), 1.0, steel, dark, has_abs, _rim_scene(preset_id, "rear_rotor"))
-	_build_chassis(axle, _front_wheel.position, crank, tank_bottom, frame_half_width, steel, dark, engine_bounds)
-	_build_foot_controls(crank, frame_half_width, steel, dark)
-	_build_brakes(axle, _front_wheel.position, crank, frame_half_width, has_abs, steel, dark)
+	# twin front discs, one either side of the wheel: the standard litre-class layout. The ABS tone ring goes on the
+	# outboard disc only, which is what the single front pickup reads.
+	BikeBrakes.add_brake_rotor(_front_wheel, -(_front_half + 0.06), FRONT_DISC_RADIUS, steel, dark, has_abs, _rim_scene(preset_id, "front_rotor"))
+	BikeBrakes.add_brake_rotor(_front_wheel, _front_half + 0.06, FRONT_DISC_RADIUS, steel, dark, false, null, "Right")
+	BikeBrakes.add_brake_rotor(_wheel_pivot, -(_rear_half + 0.06), REAR_DISC_RADIUS, steel, dark, has_abs, _rim_scene(preset_id, "rear_rotor"))
+	# the axles: the spindles the wheels turn on. They belong to the fork and the swingarm, not to the wheel, so they are
+	# built here and pass through the hub - a wheel with no axle is a wheel hanging in the air.
+	var axles := Node3D.new()
+	axles.name = "Axles"
+	add_child(axles)
+	BikeAxles.add_axle(axles, _front_wheel.position, _front_half + FORK_LEG_OFFSET, AXLE_FRONT_RADIUS, steel, dark, 1.0, "Front")
+	BikeAxles.add_axle(axles, _wheel_pivot.position, _rear_half + SWINGARM_AXLE_OFFSET, AXLE_REAR_RADIUS, steel, dark, -1.0, "Rear")
+	BikeChassis.build_chassis(self, axle, _front_wheel.position, crank, tank_bottom, frame_half_width, steel, dark, engine_bounds)
+	BikeCockpit.build_cockpit(self, _head, steel, alu, black) # the yokes, the clip-ons and the levers that work them
+	BikeChassis.build_foot_controls(self, crank, frame_half_width, steel, dark)
+	BikeBrakes.build_brakes(self, axle, _front_wheel.position, crank, frame_half_width, has_abs, steel, dark)
 	var rear := Sprocket.build(TEETH_REAR, 0.08, steel)
 	rear.position = Vector3(_chain_x, 0.0, 0.0)
 	_wheel_pivot.add_child(rear)
@@ -212,270 +278,19 @@ func add_v3r_bodywork(tank_bottom: Vector3) -> void:
 		body.add_child(panel)
 
 
-func _add_brake_rotor(wheel: Node3D, x: float, radius: float, material: Material, dark: Material, has_abs: bool, rotor_scene: PackedScene = null) -> void:
-	var rotor := MeshInstance3D.new()
-	rotor.name = "BrakeRotor"
-	rotor.mesh = _rotor_mesh(radius)
-	var rotor_material := material.duplicate() as StandardMaterial3D
-	rotor_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	rotor_material.metallic = 0.6
-	rotor.material_override = rotor_material
-	rotor.position.x = x
-	wheel.add_child(rotor)
-	var carrier := MeshInstance3D.new()
-	carrier.name = "RotorCarrier"
-	carrier.mesh = _ring_mesh(radius * 0.28, radius * 0.70, 0.055, false)
-	var carrier_material := dark.duplicate() as StandardMaterial3D
-	carrier_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	carrier.material_override = carrier_material
-	carrier.position.x = x + 0.025
-	wheel.add_child(carrier)
-	for i in 6:
-		var angle := TAU * i / 6.0
-		_add_member(wheel, "RotorBolt%d" % i, Vector3(x - 0.035, radius * 0.58 * cos(angle), radius * 0.58 * sin(angle)), Vector3(x + 0.055, radius * 0.58 * cos(angle), radius * 0.58 * sin(angle)), 0.045, material)
-	var authored := rotor_scene.instantiate() if rotor_scene != null else null
-	if authored is Node3D:
-		authored.name = "AuthoredRotor"
-		authored.position.x = x
-		wheel.add_child(authored)
-		rotor.visible = false
-		carrier.visible = false
-		for i in 6:
-			wheel.get_node("RotorBolt%d" % i).visible = false
-	elif authored != null:
-		authored.free()
-		push_warning("Rotor scene must have a Node3D root")
-	if has_abs:
-		var tone := MeshInstance3D.new()
-		tone.name = "ABSToneRing"
-		tone.mesh = _ring_mesh(radius * 0.38, radius * 0.53, 0.025, true)
-		tone.material_override = rotor_material
-		tone.position.x = x - 0.09
-		wheel.add_child(tone)
-
-
-# Generic hydraulic layout: the calipers and hoses are fixed to the chassis, not the wheels.
-func _build_brakes(rear: Vector3, front: Vector3, countershaft: Vector3, half_width: float, has_abs: bool, steel: Material, dark: Material) -> void:
-	var brakes := Node3D.new()
-	brakes.name = "BrakeHardware"
-	add_child(brakes)
-	var front_caliper := front + Vector3(-(_front_half + 0.06), 0.35, -0.99)
-	var rear_caliper := rear + Vector3(-(_rear_half + 0.06), 0.82, 0.45)
-	# Simplified Blender model: static on the fork, centred on the disc edge.
-	# Its local Z is the disc thickness direction and X is the long axis.
-	var front_mount := Node3D.new()
-	front_mount.name = "FrontCaliper"
-	front_mount.position = front_caliper
-	front_mount.basis = Basis(Vector3.RIGHT, 1.20) * Basis(Vector3.UP, -PI * 0.5)
-	brakes.add_child(front_mount)
-	var imported := FRONT_CALIPER.instantiate() as Node3D
-	imported.name = "ImportedCaliper"
-	imported.scale = Vector3.ONE * 0.58
-	front_mount.add_child(imported)
-	for item in [["RearCaliper", rear_caliper]]:
-		var caliper := MeshInstance3D.new()
-		caliper.name = item[0]
-		var shape := BoxMesh.new()
-		shape.size = Vector3(0.28, 0.46, 0.38)
-		caliper.mesh = shape
-		caliper.material_override = steel
-		caliper.position = item[1]
-		brakes.add_child(caliper)
-	var head := front + Vector3(0.0, 4.0, -1.1)
-	var front_master := head + Vector3(-1.15, 0.66, -0.16)
-	var rear_master := countershaft + Vector3(-half_width - 0.18, 0.05, -1.15)
-	var reservoir_mat := _mat(Color(0.72, 0.69, 0.55), 0.55)
-	for item in [["FrontReservoir", front_master], ["RearReservoir", rear_master + Vector3(0, 0.45, 0)]]:
-		var reservoir := MeshInstance3D.new()
-		reservoir.name = item[0]
-		var shape := CylinderMesh.new()
-		shape.top_radius = 0.13
-		shape.bottom_radius = 0.11
-		shape.height = 0.25
-		reservoir.mesh = shape
-		reservoir.material_override = reservoir_mat
-		reservoir.position = item[1]
-		brakes.add_child(reservoir)
-		_add_member(brakes, "%sCap" % item[0], item[1] + Vector3(0, 0.12, 0), item[1] + Vector3(0, 0.16, 0), 0.14, dark)
-	_add_member(brakes, "RearMasterCylinder", rear_master, rear_master + Vector3(0, -0.3, 0), 0.09, steel)
-	_add_member(brakes, "RearReservoirHose", rear_master, rear_master + Vector3(0, 0.34, 0), 0.025, dark)
-	var front_route := head + Vector3(-(_front_half + 0.06), 0.0, 0.0)
-	if has_abs:
-		for item in [["FrontABSSensor", front, _front_half, 1.1], ["RearABSSensor", rear, _rear_half, 1.0]]:
-			var sensor_pos: Vector3 = item[1] + Vector3(-(float(item[2]) + 0.15), float(item[3]) * 0.54, 0.0)
-			_add_member(brakes, item[0], sensor_pos + Vector3(-0.22, 0.08, 0), sensor_pos, 0.055, dark)
-		var module_pos := countershaft + Vector3(-half_width - 0.10, 0.65, -0.65)
-		var module := MeshInstance3D.new()
-		module.name = "ABSModule"
-		var block := BoxMesh.new()
-		block.size = Vector3(0.32, 0.36, 0.45)
-		module.mesh = block
-		module.material_override = steel
-		module.position = module_pos
-		brakes.add_child(module)
-		_hose(brakes, "FrontFeed", [front_master, front_route, module_pos], dark)
-		_hose(brakes, "FrontBrakeHose", [module_pos, front_route, front_caliper], dark)
-		_hose(brakes, "RearFeed", [rear_master, module_pos], dark)
-		_hose(brakes, "RearBrakeHose", [module_pos, rear_caliper], dark)
-	else:
-		_hose(brakes, "FrontBrakeHose", [front_master, front_route, front_caliper], dark)
-		_hose(brakes, "RearBrakeHose", [rear_master, rear_caliper], dark)
-
-
-func _hose(parent: Node3D, hose_name: String, points: Array, material: Material) -> void:
-	for i in points.size() - 1:
-		_add_member(parent, "%s%d" % [hose_name, i], points[i], points[i + 1], 0.025, material)
-
-
-func _rotor_mesh(radius: float) -> ArrayMesh:
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# Each sector is a curved quadrilateral with an eight-sided through-hole.
-	for segment in 32:
-		var mid := TAU * (segment + 0.5) / 32.0
-		var half := TAU / 64.0
-		var perimeter := [Vector2(0.70, -1), Vector2(0.70, 0), Vector2(0.70, 1), Vector2(0.85, 1), Vector2(1.0, 1), Vector2(1.0, 0), Vector2(1.0, -1), Vector2(0.85, -1)]
-		var holes := []
-		var edges := []
-		for i in 8:
-			var a := mid + float(perimeter[i].y) * half
-			var r := radius * float(perimeter[i].x)
-			edges.append(Vector3(0, r * cos(a), r * sin(a)))
-			var h := PI * 1.25 - TAU * i / 8.0
-			var hole_r := radius * (0.85 + 0.045 * cos(h))
-			var hole_a := mid + half * 0.46 * sin(h)
-			holes.append(Vector3(0, hole_r * cos(hole_a), hole_r * sin(hole_a)))
-		for i in 8:
-			var j := (i + 1) % 8
-			for side in [-1.0, 1.0]:
-				var offset := Vector3(side * 0.025, 0, 0)
-				for point in [edges[i], edges[j], holes[i], holes[i], edges[j], holes[j]]:
-					surface.add_vertex(point + offset)
-			for point in [holes[i] + Vector3(-0.025, 0, 0), holes[j] + Vector3(-0.025, 0, 0), holes[i] + Vector3(0.025, 0, 0), holes[i] + Vector3(0.025, 0, 0), holes[j] + Vector3(-0.025, 0, 0), holes[j] + Vector3(0.025, 0, 0)]:
-				surface.add_vertex(point)
-	surface.generate_normals()
-	return surface.commit()
-
-
-func _ring_mesh(inner: float, outer: float, thickness: float, slotted: bool) -> ArrayMesh:
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for segment in 96:
-		var a := TAU * segment / 96.0
-		var b := TAU * (segment + 1) / 96.0
-		# Alternate short outer teeth with the continuous inner band for the sensor ring.
-		var r := inner + (outer - inner) * 0.45 if slotted and segment % 2 == 0 else outer
-		for side in [-1.0, 1.0]:
-			var x: float = side * thickness * 0.5
-			var p := Vector3(x, inner * cos(a), inner * sin(a))
-			var q := Vector3(x, r * cos(a), r * sin(a))
-			var s := Vector3(x, inner * cos(b), inner * sin(b))
-			var t := Vector3(x, r * cos(b), r * sin(b))
-			for point in [p, q, s, s, q, t]:
-				surface.add_vertex(point)
-	surface.generate_normals()
-	return surface.commit()
-
-
-func _build_chassis(rear: Vector3, front: Vector3, crank: Vector3, tank_bottom: Vector3, frame_half_width: float, steel: Material, dark: Material, engine_bounds: AABB) -> void:
-	var chassis := Node3D.new()
-	chassis.name = "Chassis"
-	add_child(chassis)
-	var head := front + Vector3(0.0, 4.0, -1.1)
-	var upper := crank + Vector3(0.0, 2.8, -0.55)
-	var pivot := crank + Vector3(0.0, 0.15, -0.45)
-	if engine_bounds.has_volume():
-		# Keep the side rails outside the engine and route the rear upright behind it.
-		frame_half_width = maxf(frame_half_width, maxf(absf(engine_bounds.position.x), absf(engine_bounds.end.x)) + 0.25)
-		upper.y = maxf(upper.y, engine_bounds.end.y + 0.25)
-		upper.z = minf(upper.z, engine_bounds.position.z - 0.25)
-		pivot.z = upper.z
-	for side in [-1, 1]:
-		var fork_bottom := front + Vector3(side * (_front_half + 0.16), 0.0, 0.0)
-		var fork_top := head + Vector3(side * (_front_half + 0.16), 0.5, -0.14)
-		var fork_mid := fork_bottom.lerp(fork_top, 0.55)
-		_add_member(chassis, "ForkLower%d" % side, fork_bottom, fork_mid, 0.14, dark)
-		_add_member(chassis, "ForkUpper%d" % side, fork_mid, fork_top, 0.09, steel)
-		var frame_head := head + Vector3(side * 0.65, 0.0, 0.0)
-		var frame_upper := upper + Vector3(side * frame_half_width, 0.0, 0.0)
-		var frame_pivot := pivot + Vector3(side * frame_half_width, 0.0, 0.0)
-		_add_member(chassis, "FrameTop%d" % side, frame_head, frame_upper, 0.11, dark)
-		_add_member(chassis, "FrameDown%d" % side, frame_upper, frame_pivot, 0.12, dark)
-		var axle_end := rear + Vector3(side * (_rear_half + 0.18), 0.0, 0.0)
-		_add_swingarm_beam(chassis, "Swingarm%d" % side, frame_pivot, axle_end, dark)
-		# Axle plate and adjuster make the end of each arm visibly connect to the wheel.
-		_add_member(chassis, "AxlePlate%d" % side, axle_end + Vector3(0, -0.16, -0.16), axle_end + Vector3(0, 0.16, 0.16), 0.16, steel)
-		_add_member(chassis, "AxleAdjuster%d" % side, axle_end + Vector3(0, 0, -0.36), axle_end + Vector3(0, 0, -0.06), 0.045, steel)
-		if tank_bottom.is_finite():
-			var tank_rear := tank_bottom + Vector3(side * 0.6, -0.08, -0.8)
-			var tank_front := tank_bottom + Vector3(side * 0.6, -0.08, 0.8)
-			var seat_rear := tank_bottom + Vector3(side * 0.6, -0.22, -4.0)
-			_add_member(chassis, "TankRail%d" % side, tank_rear, tank_front, 0.09, dark)
-			_add_member(chassis, "TankMount%d" % side, frame_upper, tank_rear, 0.09, dark)
-			_add_member(chassis, "TankFront%d" % side, tank_front, frame_head, 0.09, dark)
-			_add_member(chassis, "SeatRail%d" % side, tank_rear, seat_rear, 0.08, dark)
-			_add_member(chassis, "Subframe%d" % side, frame_pivot, seat_rear, 0.08, dark)
-	_add_member(chassis, "SwingarmPivot", pivot + Vector3(-frame_half_width - 0.08, 0, 0), pivot + Vector3(frame_half_width + 0.08, 0, 0), 0.16, steel)
-	_add_member(chassis, "SwingarmBrace", pivot.lerp(rear, 0.42) + Vector3(-_rear_half - 0.18, 0, 0), pivot.lerp(rear, 0.42) + Vector3(_rear_half + 0.18, 0, 0), 0.11, dark)
-	# Stationary rear axle spans both swingarm ends; the wheel rotates around it.
-	_add_member(chassis, "AxleRear", rear + Vector3(-_rear_half - 0.3, 0, 0), rear + Vector3(_rear_half + 0.3, 0, 0), 0.09, steel)
-	for side in [-1.0, 1.0]:
-		_add_member(chassis, "AxleNut%s" % str(int(side)), rear + Vector3(side * (_rear_half + 0.24), 0, 0), rear + Vector3(side * (_rear_half + 0.34), 0, 0), 0.14, steel)
-	_add_member(chassis, "SteeringStem", head + Vector3(0.0, -0.45, 0.12), head + Vector3(0.0, 0.5, -0.14), 0.18, dark)
-	_add_member(chassis, "Handlebar", head + Vector3(-1.3, 0.62, -0.16), head + Vector3(1.3, 0.62, -0.16), 0.055, steel)
-	if tank_bottom.is_finite():
-		var seat := MeshInstance3D.new()
-		seat.name = "Seat"
-		var seat_mesh := CapsuleMesh.new()
-		seat_mesh.radius = 0.7
-		seat_mesh.height = 3.0
-		seat.mesh = seat_mesh
-		seat.material_override = dark
-		seat.position = tank_bottom + Vector3(0.0, 0.05, -2.55)
-		seat.rotation.x = PI / 2.0
-		seat.scale.z = 0.25
-		chassis.add_child(seat)
-		var shock_top := tank_bottom + Vector3(0.0, -0.3, -3.1)
-		var shock_bottom := pivot.lerp(rear, 0.42)
-		var shock_mid := shock_bottom.lerp(shock_top, 0.48)
-		_add_member(chassis, "ShockBody", shock_bottom, shock_mid, 0.13, dark)
-		_add_member(chassis, "ShockRod", shock_mid, shock_top, 0.07, steel)
-
-
-func _add_swingarm_beam(parent: Node3D, member_name: String, start: Vector3, end: Vector3, material: Material) -> void:
-	var beam := MeshInstance3D.new()
-	beam.name = member_name
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.25, start.distance_to(end), 0.34)
-	beam.mesh = mesh
-	beam.material_override = material
-	beam.position = (start + end) * 0.5
-	beam.quaternion = Quaternion(Vector3.UP, (end - start).normalized())
-	parent.add_child(beam)
-
-
-func _add_member(parent: Node3D, member_name: String, start: Vector3, end: Vector3, radius: float, material: Material) -> void:
-	var member := MeshInstance3D.new()
-	member.name = member_name
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = start.distance_to(end)
-	mesh.radial_segments = 16
-	member.mesh = mesh
-	member.material_override = material
-	member.position = (start + end) * 0.5
-	member.quaternion = Quaternion(Vector3.UP, (end - start).normalized())
-	parent.add_child(member)
-
-
-# crank_deg: 0..720 crank angle. wheel_rpm: from the vehicle speed, so the wheel matches the road.
-# The chain moves at the rear sprocket's pitch speed, so its links travel with the wheel.
-func update(_crank_deg: float, wheel_rpm: float, delta: float, brake: float = 0.0) -> void:
+func update(_crank_deg: float, wheel_rpm: float, delta: float, brake: float = 0.0, throttle: float = 0.0, clutch: float = 0.0) -> void:
 	if _front_pivot == null:
 		return
 	if is_instance_valid(_brake_pedal):
 		_brake_pedal.rotation.x = clampf(brake, 0.0, 1.0) * 0.25
+	# the front brake lever swings in towards the grip, and the clutch lever with it; the throttle tube twists
+	# the blades lie along the bars, so a swing about the vertical is what pulls them back towards the grips
+	if is_instance_valid(_brake_lever):
+		_brake_lever.rotation.y = clampf(brake, 0.0, 1.0) * LEVER_TRAVEL
+	if is_instance_valid(_clutch_lever):
+		_clutch_lever.rotation.y = -clampf(clutch, 0.0, 1.0) * LEVER_TRAVEL
+	if is_instance_valid(_throttle_grip):
+		_throttle_grip.rotation.y = -clampf(throttle, 0.0, 1.0) * THROTTLE_TWIST
 	if is_instance_valid(_shift_pedal):
 		_shift_pedal.rotation.x = move_toward(_shift_pedal.rotation.x, 0.0, SHIFT_PEDAL_RETURN_RATE * maxf(delta, 0.0))
 	_wheel_angle = fmod(_wheel_angle + wheel_rpm * 6.0 * delta, 360.0)
@@ -492,33 +307,6 @@ func animate_shift(up: bool) -> void:
 		_shift_pedal.rotation.x = -SHIFT_PEDAL_ANGLE if up else SHIFT_PEDAL_ANGLE
 
 
-# Generic rearsets, arranged around the frame pivot. +X is the chain/shift side.
-func _build_foot_controls(countershaft: Vector3, half_width: float, steel: Material, rubber: Material) -> void:
-	var controls := Node3D.new()
-	controls.name = "FootControls"
-	add_child(controls)
-	for side in [-1, 1]:
-		var mount := countershaft + Vector3(side * (half_width + 0.06), 0.0, -0.75)
-		var peg_base := mount + Vector3(side * 0.14, -0.38, -0.25)
-		var peg_end := peg_base + Vector3(side * 0.85, 0.0, 0.0)
-		_add_member(controls, "RearsetUpper%d" % side, mount, peg_base, 0.07, steel)
-		_add_member(controls, "RearsetBrace%d" % side, mount + Vector3(0, 0.35, -0.6), peg_base, 0.06, steel)
-		_add_member(controls, "Footpeg%d" % side, peg_base, peg_end, 0.11, rubber)
-		_add_member(controls, "PegEnd%d" % side, peg_end, peg_end + Vector3(side * 0.06, 0, 0), 0.12, steel)
-		var pedal := Node3D.new()
-		pedal.name = "ShiftPedal" if side == 1 else "RearBrakePedal"
-		pedal.position = peg_base + Vector3(side * 0.2, -0.08, 0.0)
-		controls.add_child(pedal)
-		_add_member(pedal, "Lever", Vector3.ZERO, Vector3(0, -0.04, 0.92), 0.055, steel)
-		_add_member(pedal, "ToePad", Vector3(0, -0.04, 0.92), Vector3(side * 0.3, -0.04, 0.92), 0.09, rubber)
-		_add_member(pedal, "Pivot", Vector3(-0.08, 0, 0), Vector3(0.08, 0, 0), 0.10, steel)
-		if side == -1:
-			_brake_pedal = pedal
-		else:
-			_shift_pedal = pedal
-
-
-# A disc with its axis along X at x_offset, plus a marker on its face so spin is visible.
 func _add_disc(parent: Node3D, radius: float, width: float, mat: Material, marker_mat: Material, x: float) -> void:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius
@@ -636,7 +424,4 @@ func _arc(pts: PackedVector2Array, centre: Vector2, r: float, from_angle: float,
 
 
 static func _mat(c: Color, rough: float) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = rough
-	return m
+	return BikeMaterials.make(c, rough)

@@ -16,7 +16,95 @@ constexpr double TAU_ = 2.0 * PI_;
 constexpr double G = 1.4;
 constexpr double R = 287.0;
 constexpr double CV = R / (G - 1.0);
-constexpr double CV_BURNT = 960.0;
+constexpr double CV_BURNT = 960.0; // kept for the reference: the mixture now uses the temperature-dependent table below
+
+// Gas properties, a line-for-line mirror of scripts/sim/gas_properties.gd: air and burnt-gas cp as a function of
+// temperature, u as the integral of cv (trapezoid on the piecewise-linear table), and the inverse of that integral. The
+// two implementations must agree to 1e-9 for tests/unit/engine/cylinder_native_test.gd, so the tables, the interpolation
+// and the Newton loop are identical.
+// declared further down the file, used by the gas-property helpers below
+inline double maxf(double a, double b);
+inline double minf(double a, double b);
+
+constexpr double GP_R = 287.05;
+constexpr double GP_T_MIN = 300.0;
+constexpr double GP_T_MAX = 3000.0;
+constexpr double GP_STEP = 100.0;
+constexpr int GP_N = 29;
+static const double GP_CP_AIR[GP_N] = { 1005.0, 1014.0, 1030.0, 1051.0, 1075.0, 1099.0, 1121.0, 1142.0, 1161.0, 1179.0,
+	1195.0, 1207.0, 1219.0, 1231.0, 1242.0, 1252.0, 1261.0, 1270.0, 1278.0, 1285.0, 1291.0, 1297.0, 1301.0, 1305.0, 1309.0,
+	1313.0, 1317.0, 1321.0, 1328.0 };
+static const double GP_CP_BURNT[GP_N] = { 1105.0, 1118.0, 1135.0, 1152.0, 1168.0, 1182.0, 1195.0, 1207.0, 1217.0, 1227.0,
+	1236.0, 1244.0, 1251.0, 1258.0, 1264.0, 1270.0, 1276.0, 1282.0, 1287.0, 1292.0, 1297.0, 1302.0, 1307.0, 1312.0, 1317.0,
+	1322.0, 1327.0, 1332.0, 1338.0 };
+
+static double gp_u_air[GP_N];
+static double gp_u_burnt[GP_N];
+static bool gp_tables_ready = false;
+
+static void gp_init() {
+	if (gp_tables_ready) {
+		return;
+	}
+	gp_u_air[0] = 0.0;
+	gp_u_burnt[0] = 0.0;
+	for (int i = 1; i < GP_N; i++) {
+		gp_u_air[i] = gp_u_air[i - 1] + 0.5 * (GP_CP_AIR[i - 1] + GP_CP_AIR[i] - 2.0 * GP_R) * GP_STEP;
+		gp_u_burnt[i] = gp_u_burnt[i - 1] + 0.5 * (GP_CP_BURNT[i - 1] + GP_CP_BURNT[i] - 2.0 * GP_R) * GP_STEP;
+	}
+	gp_tables_ready = true;
+}
+
+static void gp_pos(double temp, int &index, double &frac) {
+	const double t = std::min(std::max(temp, GP_T_MIN), GP_T_MAX);
+	const double f = (t - GP_T_MIN) / GP_STEP;
+	index = std::min((int)f, GP_N - 2);
+	frac = f - (double)index;
+}
+
+static double gp_cp(double burnt, double temp) {
+	int i;
+	double f;
+	gp_pos(temp, i, f);
+	const double air = GP_CP_AIR[i] + (GP_CP_AIR[i + 1] - GP_CP_AIR[i]) * f;
+	const double bur = GP_CP_BURNT[i] + (GP_CP_BURNT[i + 1] - GP_CP_BURNT[i]) * f;
+	burnt = std::min(std::max(burnt, 0.0), 1.0);
+	return air + (bur - air) * burnt;
+}
+
+static double gp_cv(double burnt, double temp) {
+	return gp_cp(burnt, temp) - GP_R;
+}
+
+static double gp_u(double burnt, double temp) {
+	gp_init();
+	int i;
+	double f;
+	gp_pos(temp, i, f);
+	const double ua = gp_u_air[i] + (gp_u_air[i + 1] - gp_u_air[i]) * f;
+	const double ub = gp_u_burnt[i] + (gp_u_burnt[i + 1] - gp_u_burnt[i]) * f;
+	burnt = std::min(std::max(burnt, 0.0), 1.0);
+	const double tab = ua + (ub - ua) * burnt;
+	if (temp < GP_T_MIN) {
+		return tab + gp_cv(burnt, GP_T_MIN) * (temp - GP_T_MIN);
+	}
+	if (temp > GP_T_MAX) {
+		return tab + gp_cv(burnt, GP_T_MAX) * (temp - GP_T_MAX);
+	}
+	return tab;
+}
+
+static double gp_h(double burnt, double temp) {
+	return gp_u(burnt, temp) + GP_R * temp;
+}
+
+static double gp_temp_from_u(double burnt, double energy) {
+	double t = std::min(std::max(GP_T_MIN + maxf(energy, 0.0) / 800.0, 200.0), 4000.0);
+	for (int i = 0; i < 5; i++) {
+		t = std::min(std::max(t - (gp_u(burnt, t) - energy) / maxf(gp_cv(burnt, t), 1.0), 200.0), 4000.0);
+	}
+	return t;
+}
 constexpr double P0 = 101325.0;
 constexpr double CD_VALVE = 0.7; // reference coefficient, valve_cd is scaled against it
 // Discharge coefficient against L/D: low at small lift, rising to the knee (SAE 820154; SAE 962527). Mirrors cylinder.gd.
@@ -44,8 +132,10 @@ constexpr double PORT_VOLUME = 0.5e-4;
 constexpr double RUNNER_LOSS = 1.5;
 constexpr double MAX_FLOW_DT = 2.5e-4;
 constexpr double OVERLAP_RETURN_BELOW = 0.9;
+constexpr double PORT_THERMAL_TAU = 3.0; // s of exhaust-flow exposure for the wall to follow its gas, as cylinder.gd
 constexpr double AUTO_IGNITE_K = 900.0;
 constexpr double BACKFIRE_BURN = 0.5;
+constexpr double RICH_MISFIRE_LAMBDA = 0.65; // below this the charge is too rich to burn fully: the rest leaves unburnt
 constexpr int EXHAUST_FLOW_BINS = 90;
 constexpr double FILM_DEPOSIT = 0.3; // share of the sprayed fuel that lands on the port wall, estimate
 constexpr double FILM_EVAP_CYCLES = 3.0; // cycles for the port-wall film to evaporate, estimate
@@ -339,7 +429,7 @@ void fuel_charge(const Cfg &c, Cyl &y, double lambda, bool spark, bool limiter_c
 	y.film_kg += FILM_DEPOSIT * sprayed - evap;
 	double supplied = (1.0 - FILM_DEPOSIT) * sprayed + evap;
 	y.mass += supplied;
-	y.u += supplied * CV * y.temp;
+	y.u += supplied * gp_u(y.burnt, y.temp);
 	// The residual is burnt gas at exhaust temperature, not cold air. Mixing the charge at one temperature charges the
 	// residual to the fresh gas temperature, so at intake closing the chamber reads far colder (and so far denser) than it
 	// really is. That error is small at a steady idle and lethal on the first cycles of a start, which then read too lean to
@@ -348,10 +438,10 @@ void fuel_charge(const Cfg &c, Cyl &y, double lambda, bool spark, bool limiter_c
 		const double mixed = y.mass; // fuel already added above, as in cylinder.gd _fuel_charge
 		if (mixed > 1.0e-12) {
 			const double air_before = maxf(mixed - y.residual_kg, 0.0);
-			const double held = air_before * y.temp + y.residual_kg * y.residual_temp;
-			const double fixed = held / mixed;
-			y.u += mixed * CV * (fixed - y.temp);
-			y.temp = std::min(std::max(fixed, 200.0), 4000.0);
+			const double held = air_before * gp_u(0.0, y.temp) + y.residual_kg * gp_u(1.0, y.residual_temp);
+			const double u_mixed = held / mixed;
+			y.u += mixed * (u_mixed - gp_u(y.burnt, y.temp));
+			y.temp = std::min(std::max(gp_temp_from_u(y.burnt, u_mixed), 200.0), 4000.0);
 		}
 	}
 	if (!lit) {
@@ -363,6 +453,11 @@ void fuel_charge(const Cfg &c, Cyl &y, double lambda, bool spark, bool limiter_c
 		y.last_lambda = fresh / (c.tank_afr * supplied);
 	}
 	double burnable = minf(supplied, fresh / c.tank_afr);
+	// Too rich to light: the air cannot burn all the fuel in the charge, and the rest leaves unburnt (a wet manifold on a
+	// closed-throttle overrun does exactly this, and it is what lights the pipe on the way down).
+	if (fresh / (c.tank_afr * maxf(supplied, 1.0e-12)) < RICH_MISFIRE_LAMBDA) {
+		y.fuel_unburnt_kg = supplied - burnable;
+	}
 	y.burn_energy = burnable * c.tank_lhv * COMBUSTION_EFFICIENCY;
 	y.burn_energy_left = y.burn_energy;
 	y.fired = supplied > 0.0;
@@ -597,13 +692,11 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 				if (y.port_heat > AUTO_IGNITE_K) {
 					y.backfire_j += y.fuel_unburnt_kg * c.tank_lhv * BACKFIRE_BURN;
 				}
-				y.port_heat = 300.0; // T0
+				y.fuel_unburnt_kg = 0.0;
 			}
-			y.fuel_unburnt_kg = 0.0;
 		}
 		if (y.fired && crossed(p0, p1, c.exhaust_open)) {
 			y.exhaust_temp = y.temp;
-			y.port_heat = y.temp;
 		}
 		if (crossed(p0, p1, c.exhaust_close)) {
 			y.residual_kg = y.mass;
@@ -643,21 +736,33 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 		double q_loss = h_wall * wall_area * (y.temp - WALL_TEMP) * sdt * c.wall_heat_scale;
 		y.wall_loss_j += q_loss;
 
-		double cv = CV + y.burnt * (CV_BURNT - CV);
-		double cp = cv + R;
-		double h_in = cp * (m_in >= 0.0 ? tm : y.temp) * m_in;
+		double h_in = gp_h(y.burnt, m_in >= 0.0 ? tm : y.temp) * m_in;
 		y.enthalpy_in_j += h_in;
-		double h_ex = cp * (m_out >= 0.0 ? y.temp : t_ex) * m_out;
+		double h_ex = gp_h(y.burnt, m_out >= 0.0 ? y.temp : t_ex) * m_out;
 		y.enthalpy_out_j += h_ex;
 		ex_mass += m_out;
 		ex_energy += h_ex;
 		double old_pressure = y.pressure;
 		double source_energy = y.u + dq + h_in - h_ex - q_loss;
-		double u = (source_energy - 0.5 * old_pressure * dv) / (1.0 + 0.5 * R / cv * dv / next_volume);
-		y.mass = maxf(y.mass + m_in - m_out, 1e-12);
-		y.temp = clampf(u / (y.mass * cv), 200.0, 4000.0);
-		y.u = y.mass * cv * y.temp;
+		// The endpoint temperature is the root of the first law itself: m·u(T) - source + ½·(p_old + m·R·T/V)·dV = 0,
+		// exact for any u(T) with the same trapezoidal p·dV the torque output uses. Mirrors cylinder.gd.
+		const double new_mass = maxf(y.mass + m_in - m_out, 1e-12);
+		const double half_dv_r = 0.5 * R * dv / next_volume;
+		double t_new = y.temp;
+		for (int i = 0; i < 4; i++) {
+			const double f = new_mass * gp_u(y.burnt, t_new) - source_energy + 0.5 * old_pressure * dv + new_mass * half_dv_r * t_new;
+			const double slope = new_mass * gp_cv(y.burnt, t_new) + new_mass * half_dv_r;
+			t_new = clampf(t_new - f / maxf(slope, 1e-6), 200.0, 4000.0);
+		}
+		y.mass = new_mass;
+		y.temp = t_new;
+		y.u = y.mass * gp_u(y.burnt, y.temp);
 		y.peak_temp = maxf(y.peak_temp, y.temp);
+		// The wall is heated only while exhaust gas flows past it, so it follows THAT gas (the blowdown pulse), and a pop does
+		// not spend the heat: the metal stays hot, as cylinder.gd.
+		if (exhaust_lift_now > 0.0) {
+			y.port_heat += (y.temp - y.port_heat) * minf(sdt / PORT_THERMAL_TAU, 1.0);
+		}
 		y.pressure = clampf(y.mass * R * y.temp / next_volume, 1000.0, 1.0e7);
 		if (sd > 0.0 && y.cycle_deg > 0.0) {
 			y.cycle_max_dp = maxf(y.cycle_max_dp, (y.pressure - y.cycle_p) / sd);

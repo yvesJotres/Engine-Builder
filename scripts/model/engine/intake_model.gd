@@ -17,23 +17,35 @@ const CARB_DIR := Vector3(0.0, 0.0, -1.0) # the carburettor bell faces straight 
 
 const RUNNER_DIR := Vector3(0.0, 0.4, -0.917) # the intake runs up and back from the rear of the head, toward the airbox
 
-const BODY_LENGTH := 0.6 # scene units, throttle body length, estimate
+# Throttle body length, as a share of its bore. A motorcycle body has to hold the butterfly, its shaft and bushes and the
+# injector boss, and nothing else, so it comes out about one and a bit bores long: a 32 mm body is a 38-40 mm casting, not
+# the 60 mm bar it was drawn as. Set from that proportion rather than as a fixed length so a 45 mm body (R1) stays
+# proportional to a 32 mm one (CBR250RR). Real castings for sale quote the bore, not the length, so this is the ratio a
+# parts-bin dimension check lands on, not a measured part: ESTIMATE.
+const OPEN_TUBE_WALL := 0.035 # scene units, 3.5 mm: the wall of a cast aluminium throttle body at its bore
+const BODY_LENGTH_FACTOR := 1.2 # body length over bore, 1.2 bores
+const BODY_LENGTH_MIN := 0.30 # scene units, 30 mm: even a tiny body has room for the shaft and plate
+const BODY_LENGTH_MAX := 0.55 # scene units, 55 mm: a big-bore body stops growing with the bore
 
 
 # Builds one four-stroke intake: the runner from the head to the throttle body, the body with its plate, and the stack.
-static func build_runner(model: EngineModel, bank: Node3D, x: float, bore: float, deck: float, head_h: float, index: int, xf: Transform3D, alu: Material, steel: Material) -> void:
-	# intake: a runner from the rear of the head to the throttle body, as long as the airflow model's runner
+static func build_runner(model: EngineModel, bank: Node3D, x: float, bore: float, deck: float, head_h: float, index: int, xf: Transform3D, alu: Material, steel: Material, inboard := -1.0) -> void:
+	# intake: a runner from the valley side of the head to the throttle body, as long as the airflow model's runner.
+	# inboard is +1 when the valley lies toward +z (a bank leaning back) and -1 when it lies toward -z (a bank leaning
+	# forward, or an upright cylinder, whose intake is at the rear)
 	var runner_r := sqrt(Cylinder.RUNNER_AREA / PI) * Units.M_TO_SCENE
 	var throttle_r := model._spec.throttle_bore_mm * 0.5 * MM
-	var port := Vector3(x, deck + head_h * 0.5, -bore * EngineModel.HEAD_RADIUS)
-	var dir := RUNNER_DIR.normalized()
+	var body_length := clampf(2.0 * throttle_r * BODY_LENGTH_FACTOR, BODY_LENGTH_MIN, BODY_LENGTH_MAX)
+	var side := signf(inboard) if absf(inboard) > 0.001 else -1.0
+	var port := Vector3(x, deck + head_h * 0.5, side * bore * EngineModel.HEAD_RADIUS)
+	var dir := Vector3(RUNNER_DIR.x, RUNNER_DIR.y, absf(RUNNER_DIR.z) * side).normalized()
 	# the throttle body bolts to the head, as on a real bike; the long intake manifold runs from it back to the airbox
 	var at := port + dir * HEAD_TO_THROTTLE
 	var intake_mark := bank.get_child_count()
-	if (at - dir * BODY_LENGTH * 0.5 - port).length() > 0.05:
-		_tube(bank, port, at - dir * BODY_LENGTH * 0.5, runner_r, alu) # the short port-to-body joint
+	if (at - dir * body_length * 0.5 - port).length() > 0.05:
+		_tube(bank, port, at - dir * body_length * 0.5, runner_r, alu) # the short port-to-body joint
 	var rubber := EngineModel._mat(Color(0.06, 0.06, 0.07), 0.8)
-	var body_end := at + dir * BODY_LENGTH * 0.5
+	var body_end := at + dir * body_length * 0.5
 	var stack_length := model._spec.velocity_stack_length_mm * MM if model._spec.intake_display == "velocity_stack" else STOCK_STACK_LENGTH
 	var manifold_end := at + dir * (model._spec.runner_length_m * Units.M_TO_SCENE + stack_length)
 	var manifold_start := manifold_end - dir * stack_length
@@ -47,13 +59,17 @@ static func build_runner(model: EngineModel, bank: Node3D, x: float, bore: float
 	var body := Node3D.new() # the Y axis runs along the flow
 	body.position = at
 	body.quaternion = Quaternion(Vector3.UP, dir)
+	body.name = "ThrottleBody%d" % index
+	body.set_meta("length", body_length) # scene units, so a test can hold the drawn body against its bore
+	body.set_meta("bore", 2.0 * throttle_r)
 	bank.add_child(body)
-	_open_tube(body, throttle_r + 0.04, BODY_LENGTH, EngineModel._mat(Color(0.45, 0.45, 0.48), 0.4)) # open at both ends: the bore and the plate show
+	model._throttle_bodies.append(body)
+	_open_tube(body, throttle_r + 0.04, body_length, EngineModel._mat(Color(0.45, 0.45, 0.48), 0.4)) # open at both ends: the bore and the plate show
 	var shaft := EngineModel._add_cyl(body, 0.012, throttle_r * 3.4, Vector3.ZERO, steel) # the shaft runs through the body, its ends stick out past it
 	shaft.rotation.x = PI / 2.0 # shaft across the bore
 	model._plates.append(EngineModel._add_cyl(body, throttle_r * 0.95, 0.02, Vector3.ZERO, EngineModel._mat(Color(0.82, 0.83, 0.86), 0.3))) # bright plate, so it reads inside the dark bore
 	model._high_points.append(xf * (at + Vector3(0.0, throttle_r + 0.1, 0.0)))
-	model._injector_points.append(xf * (at + Vector3(0.0, 0.0, throttle_r + 0.04))) # nozzle on the front of each body, aimed down the runner
+	model._injector_points.append(xf * (at + Vector3(0.0, 0.0, side * (throttle_r + 0.04)))) # nozzle on the valley face of each body, aimed down the runner
 	if index == 0:
 		model._throttle_local = xf * at
 		model._injector_local = model._injector_points[0]
@@ -165,24 +181,62 @@ static func build_airbox(model: EngineModel, spec: EngineSpec, steel: Material) 
 		EngineModel._add_cyl(model, 0.12, 0.04, duct_end, steel) # the mouth of the duct
 	_tag_intake(model, intake_mark)
 
-# A tube along the node's Y axis with no end caps, so its bore is open at both ends. Two-sided, so the inside shows.
-static func _open_tube(parent: Node3D, radius: float, height: float, mat: Material) -> MeshInstance3D:
+# A tube along the node's Y axis with its bore open at both ends, built as a real wall: an outer skin, an inner bore
+# and a rim at each mouth, so the end reads as a 3.5 mm casting edge instead of a paper edge. Two-sided, so the bore
+# shows from either side.
+static func _open_tube(parent: Node3D, radius: float, height: float, mat: Material, wall := OPEN_TUBE_WALL) -> MeshInstance3D:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
 	var segments := 24
+	var inner := maxf(radius - wall, radius * 0.4) # never let a thin wall collapse the bore
+	var y0 := -height * 0.5
+	var y1 := height * 0.5
+	# outer skin, normals out
+	var outer := verts.size()
 	for i in segments + 1:
 		var angle := TAU * float(i) / segments
 		var n := Vector3(cos(angle), 0.0, sin(angle))
-		for y in [-height * 0.5, height * 0.5]:
+		for y in [y0, y1]:
 			verts.append(n * radius + Vector3(0.0, y, 0.0))
 			normals.append(n)
+	# bore, normals in
+	var bore := verts.size()
+	for i in segments + 1:
+		var angle := TAU * float(i) / segments
+		var n := Vector3(cos(angle), 0.0, sin(angle))
+		for y in [y0, y1]:
+			verts.append(n * inner + Vector3(0.0, y, 0.0))
+			normals.append(-n)
 	for i in segments:
-		var a := i * 2
+		var a := outer + i * 2
 		var b := a + 1
 		var c := a + 2
 		var d := a + 3
 		indices.append_array([a, b, c, b, d, c])
+		var ia := bore + i * 2
+		var ib := ia + 1
+		var ic := ia + 2
+		var id := ia + 3
+		indices.append_array([ia, ic, ib, ib, ic, id]) # wound the other way, so it faces the bore
+	# the rim at each mouth: an annulus from the outer skin to the bore, normal along the axis
+	for end in 2:
+		var y: float = y0 if end == 0 else y1
+		var axis_normal := Vector3(0.0, -1.0 if end == 0 else 1.0, 0.0)
+		var rim := verts.size()
+		for i in segments + 1:
+			var angle := TAU * float(i) / segments
+			var n := Vector3(cos(angle), 0.0, sin(angle))
+			verts.append(n * radius + Vector3(0.0, y, 0.0))
+			normals.append(axis_normal)
+			verts.append(n * inner + Vector3(0.0, y, 0.0))
+			normals.append(axis_normal)
+		for i in segments:
+			var a := rim + i * 2
+			var b := a + 1
+			var c := rim + ((i + 1) % segments) * 2
+			var d := c + 1
+			indices.append_array([a, b, c, b, d, c])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts

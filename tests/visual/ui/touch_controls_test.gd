@@ -8,9 +8,19 @@ var _touch: CanvasLayer
 var _step := 0
 var _wait := 0
 var _fails := 0
+var _frames := 0
+
+# A frame budget, so a test that stops early fails loudly instead of exiting 0 with most checks never run.
+const MAX_FRAMES := 1200
 
 
 func _process(_delta: float) -> bool:
+	_frames += 1
+	if _frames > MAX_FRAMES:
+		print("FAIL the test stopped making progress at step %d" % _step)
+		print("RESULT: FAIL")
+		quit(1)
+		return true
 	_wait += 1
 	if _step == 0:
 		if _wait == 1:
@@ -22,6 +32,11 @@ func _process(_delta: float) -> bool:
 			if child is TouchControls:
 				_touch = child
 		_touch.visible = true
+		# The app opens on whatever engine was last used, and the car's dual-clutch ignores the gear lever, so
+		# pin a bike gearbox: a shift check on a car would compare 0 against 0 and mean nothing.
+		_main.spec.vehicle_type = "motorcycle"
+		_main.spec.transmission_type = "manual"
+		_main._sim.gear.gear_ratios = _main.spec.gear_ratios
 		_step = 1
 		_wait = 0
 		return false
@@ -54,6 +69,8 @@ func _process(_delta: float) -> bool:
 				return false
 			_wait = 0
 			_check("clutch lever springs back to engaged on release", _main._touch_clutch == 0.0)
+			# A lost release is covered on its own in touch_release_test.gd. It cannot be checked here: an await
+			# inside this frame callback ends the coroutine, and the steps after it would never run.
 			_step = 5
 		5:
 			var gear_before: int = _main._sim.gear.gear

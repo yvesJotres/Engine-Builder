@@ -8,7 +8,7 @@ extends Node3D
 # Single-cylinder engines are just one unit. V layouts are drawn from their bank and fire angles, as engine-sim's panigale_v4.mr places them.
 
 const MM := Units.MM_TO_SCENE
-const PITCH_FACTOR := 1.3 # cylinder centre spacing, in bores
+const PITCH_FACTOR := EngineSpec.CYLINDER_PITCH_FACTOR # cylinder centre spacing, in bores
 const ENGINE_LOW := 0.75 # scene units, how far the lowest engine part hangs below the crank (the balancer weight)
 const PISTON_CROWN := 0.30 # crown height above the piston pin, in bores, estimate
 const PISTON_SKIRT := 0.32 # skirt depth below the pin, in bores, estimate
@@ -19,6 +19,17 @@ const STEEL_DENSITY := 7800.0 # kg/m³
 const STUB := 0.45 # scene units, crank shaft past the outer cylinder's throw on each side, holds the flywheel and the primary gear
 const CAM_BASE := 0.12 # scene units, cam base circle radius, 12 mm, estimate
 const LOBE_WIDTH := 0.08 # scene units, estimate
+# Combustion, drawn from the simulation's own burn state: the charge lights at the plug, the flame front fills the
+# chamber as burn_energy_left falls, and the colour follows the gas temperature. The flame is a glow, not a combustion
+# model - its SIZE is chosen to read on a 5 cm bore, its TIMING and heat are the simulation's. The spark is a flash plus
+# a light, so it still shows with the covers on: the covers hide the flame, they cannot hide the light through them.
+const FLAME_COOL_K := 1500.0 # K, a rich flame just after the spark: deep orange
+const FLAME_HOT_K := 2500.0 # K, a fully burned charge at its peak: yellow-white
+const FLAME_MIN_SCALE := 0.18 # bore radii: the kernel at the plug
+const FLAME_MAX_SCALE := 0.49 # bore radii: the front reaching the barrel wall, never through it
+const FLAME_FADE := 0.05 # s the glow takes to die once the burn is over
+const SPARK_FLASH_TIME := 0.06 # s, long enough to read at 60 fps instead of flickering on a frame boundary
+const SPARK_LIGHT_ENERGY := 4.0 # the flash's light, bright enough to light the head from inside
 
 var _pistons: Array[Node3D] = []
 var _rods: Array[Node3D] = [] # rod groups, one per cylinder
@@ -32,6 +43,8 @@ var _ports: Array[Vector3] = [] # exhaust port per cylinder, model space
 var _cams: Array[Dictionary] = [] # each: node, intake flag, cylinder index
 var _spec: EngineSpec # the spec the drawing was built from: its cam timing and lift drive the valves
 var _valves: Array[Dictionary] = [] # each: node, seat height, intake flag, cylinder index; intake first within a cylinder
+var _banks: Array[Node3D] = [] # one per cylinder: the bank's own turned frame, so a test can ask which way it faces
+var _throttle_bodies: Array[Node3D] = [] # one per cylinder: the drawn throttle body, carrying its length and bore
 var _high_points: Array[Vector3] = [] # highest parts (plugs, throttle bodies), model space, so the tank can sit above them
 var _injector_local := Vector3.ZERO # nozzle on the first throttle body, model space
 var _throttle_local := Vector3.ZERO # centre of the first throttle body, model space
@@ -52,6 +65,14 @@ var _assembled := false
 var _covers: Array[Node3D] = []
 var _inspection_shells: Array[Node3D] = []
 var _two_stroke_exterior: Array[MeshInstance3D] = []
+var _chambers: Array[Dictionary] = [] # per cylinder: the bank frame, the plug point and the bore, for the flame and spark
+var _flames: Array[MeshInstance3D] = []
+var _sparks: Array[MeshInstance3D] = []
+var _spark_lights: Array[OmniLight3D] = []
+var _spark_left: Array[float] = [] # s the spark still shows for
+var _burn_seen: Array[float] = [] # burn fraction last frame, so this frame's ignition can be found
+var _flame_level: Array[float] = [] # 0..1 brightness, held for FLAME_FADE after the burn ends
+var _flame_front: Array[float] = [] # 0..1 of the way from the plug to the wall: the flame front's radius
 
 
 # Height of the crank above the ground: the exhaust runs under the engine at the ground clearance, so the engine sits on it.
@@ -91,9 +112,19 @@ func _build_engine(spec: EngineSpec) -> void:
 	_injector_points.clear()
 	_carb_feed_points.clear()
 	_intake_mouths.clear()
+	_banks.clear()
+	_throttle_bodies.clear()
 	_covers.clear()
 	_inspection_shells.clear()
 	_two_stroke_exterior.clear()
+	_chambers.clear()
+	_flames.clear()
+	_sparks.clear()
+	_spark_lights.clear()
+	_spark_left.clear()
+	_burn_seen.clear()
+	_flame_level.clear()
+	_flame_front.clear()
 	_airbox_gap = 0.0
 
 	var n := spec.cylinders
@@ -138,15 +169,15 @@ func _build_engine(spec: EngineSpec) -> void:
 				pins.append(pin_deg[i])
 			pin_of.append(int(i / 2.0))
 			continue
-		var k := -1
 		if is_v:
-			for j in pins.size():
-				if absf(pins[j] - pin_deg[i]) < 0.01:
-					k = j
-		if k < 0:
+			# A dual-pin V gives every cylinder its own journal, even when two of them sit at the same angle (0 or
+			# 360 degrees of separation). Merging them by angle drew a single-pin crank while the firing was dual-pin.
 			pins.append(pin_deg[i])
-			k = pins.size() - 1
-		pin_of.append(k)
+			pin_of.append(pins.size() - 1)
+			continue
+		# inline: one pin per cylinder
+		pins.append(pin_deg[i])
+		pin_of.append(pins.size() - 1)
 	var stations := ceili(n / 4.0) if is_w else pins.size()
 	_span = (stations - 1) * pitch
 	_shaft_len = _span + EngineSpec.SHAFT_LENGTH * Units.M_TO_SCENE
@@ -165,31 +196,19 @@ func _build_engine(spec: EngineSpec) -> void:
 			var bolt := _add_cyl(case, bore * 0.035, bore * 0.025, Vector3(end * (_shaft_len * 0.5), side * bore * 0.36, bore * 0.58), fastener)
 			bolt.rotation.x = PI / 2.0
 
-	# crank: shaft, one flywheel, then one pin and two webs per cylinder, all at the sizes EngineSpec uses for its inertia
+	# crank: nose pulley, main journals, counterweights, crank pins and the flywheel flange, built by Crankshaft from
+	# EngineSpec's own sizes, so the drawing and crank_mass_kg()/crank_inertia() describe the same hardware
 	var m := Units.M_TO_SCENE
-	var pin_r := EngineSpec.PIN_RADIUS * m
-	var shaft_r := EngineSpec.SHAFT_RADIUS * m
-	var pin_len := minf(EngineSpec.PIN_LENGTH * m, pitch * 0.4)
-	if shared_pairs:
-		pin_len = maxf(pin_len, bore * 0.35)
-	var web_t := minf(EngineSpec.WEB_THICKNESS * m, (pitch - pin_len) * 0.45)
-	var web_r := r + pin_r # discs around the crank axis, reaching past the pin by the pin radius
-	_shaft_len = _span + EngineSpec.SHAFT_LENGTH * m
-	_crank_node = Node3D.new()
+	var crank_layout: Array = []
+	for k in pins.size():
+		var x := -(stations - 1) * pitch * 0.5 + (pin_of[k] if is_w else k) * pitch
+		crank_layout.append({"deg": pins[k], "x": x})
+	var crank := Crankshaft.new()
+	crank.build(spec, crank_layout, pitch, _shaft_len * 0.5 + STUB)
+	_crank_node = crank
 	_crank_node.position = Vector3(0, _crank_y, 0)
 	add_child(_crank_node)
-	var shaft := _add_cyl(_crank_node, shaft_r, _shaft_len + 2.0 * STUB, Vector3.ZERO, steel)
-	shaft.rotation.z = PI / 2.0
-	# the flywheel is a steel disc of the spec's mass and radius, so its thickness follows from the two
-	var fw_r := spec.flywheel_radius_m()
-	var fw_t := spec.flywheel_kg / (STEEL_DENSITY * PI * fw_r * fw_r) * m
-	var fw_x := _shaft_len * 0.5 + 0.05 + fw_t * 0.5
-	_flywheel = Node3D.new()
-	_flywheel.position = Vector3(fw_x, 0.0, 0.0)
-	_crank_node.add_child(_flywheel)
-	var fw := _add_cyl(_flywheel, fw_r * m, fw_t, Vector3.ZERO, iron)
-	fw.rotation.z = PI / 2.0
-	_add_box(_flywheel, Vector3(fw_t * 1.05, 0.1, 0.1), Vector3(0.0, fw_r * m, 0.0), _mat(Color(0.9, 0.9, 0.9), 0.5)) # timing mark
+	_flywheel = crank.flywheel
 
 	for i in n:
 		var x := -(stations - 1) * pitch * 0.5 + pin_of[i] * pitch
@@ -197,18 +216,6 @@ func _build_engine(spec: EngineSpec) -> void:
 			x += (-1.0 if i % 2 == 0 else 1.0) * bore * 0.075
 		_pin_x.append(x)
 		_pin_phase.append(-fire[i]) # crank - fire, as the simulator's cylinder phase
-	for k in pins.size():
-		# one crank pin with its webs per unique pin angle; the pin turns with that angle
-		var x := -(stations - 1) * pitch * 0.5 + (pin_of[k] if is_w else k) * pitch
-		var throw := Node3D.new()
-		throw.position = Vector3(x, 0, 0)
-		throw.rotation.x = deg_to_rad(pins[k])
-		_crank_node.add_child(throw)
-		var pin := _add_cyl(throw, pin_r, pin_len + 2.0 * web_t + 0.06, Vector3(0, r, 0), steel) # ends show past the webs
-		pin.rotation.z = PI / 2.0
-		for side in [-1, 1]:
-			var web := _add_cyl(throw, web_r, web_t, Vector3(side * (pin_len + web_t) * 0.5, 0.0, 0.0), steel)
-			web.rotation.z = PI / 2.0
 
 	# balancer shaft below and ahead of the crank, its weight of balancer_kg at BALANCER_RADIUS, turning opposite the crank
 	_balancer = Node3D.new()
@@ -228,8 +235,13 @@ func _build_engine(spec: EngineSpec) -> void:
 		var xf := Transform3D(rot, centre - rot * centre)
 		var bank := Node3D.new()
 		bank.transform = xf
+		bank.name = "Bank%d" % i
 		add_child(bank)
-		_build_cylinder(spec, _pin_x[i], bore, s, alu, steel, i, bank, xf)
+		_banks.append(bank)
+		# a bank's exhaust leaves on its outside and its intake faces the valley, so the sign of the lean picks the side;
+		# an upright cylinder has no valley, and keeps the exhaust at the front
+		var outboard := -1.0 if alpha[i] < 0.0 else 1.0
+		_build_cylinder(spec, _pin_x[i], bore, s, alu, steel, i, bank, xf, outboard)
 	if spec.induction == "injection" and _injector_points.size() > 1:
 		IntakeModel.build_fuel_rail(self, steel)
 	# fuel-injected four-strokes breathe straight from their velocity stacks for now; only carburettors get the airbox
@@ -247,7 +259,7 @@ func set_assembled_view(assembled: bool) -> void:
 
 
 # One cylinder: barrel, head with its plug, piston, rod, exhaust port, and the intake runner to a throttle body with its injector.
-func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Material, steel: Material, index: int, bank: Node3D, xf: Transform3D) -> void:
+func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Material, steel: Material, index: int, bank: Node3D, xf: Transform3D, outboard := 1.0) -> void:
 	if spec.stroke_type == "two_stroke":
 		_build_two_stroke_cylinder(spec, x, bore, s, alu, steel, index, bank, xf)
 		return
@@ -273,15 +285,17 @@ func _build_cylinder(spec: EngineSpec, x: float, bore: float, s: float, alu: Mat
 	var rocker := _add_box(bank, Vector3(bore * 0.95, bore * 0.22, bore * 0.95), Vector3(x, deck + head_h * 1.15 + CAM_BASE, 0), iron_material())
 	rocker.name = "RockerCover%d" % index
 	_covers.append(rocker)
-	_build_valves(x, bore, deck, head_h, bore * PITCH_FACTOR, index, steel, bank)
+	_build_valves(x, bore, deck, head_h, bore * PITCH_FACTOR, index, steel, bank, outboard)
 	var plug_top := deck + head_h + 0.5
 	_add_cyl(bank, 0.07, 0.5, Vector3(x, deck + head_h + 0.25, 0), black)
 	_high_points.append(xf * Vector3(x, plug_top, 0.0))
-	_ports.append(xf * Vector3(x, deck + head_h * 0.5, bore * HEAD_RADIUS)) # exhaust port on the front of the head
+	# exhaust port on the outside of the head: the front on an upright cylinder, the outboard face of a V bank
+	_ports.append(xf * Vector3(x, deck + head_h * 0.5, outboard * bore * HEAD_RADIUS))
 
-	IntakeModel.build_runner(self, bank, x, bore, deck, head_h, index, xf, alu, steel)
+	IntakeModel.build_runner(self, bank, x, bore, deck, head_h, index, xf, alu, steel, -outboard)
 
 	_build_piston_rod(bank, bore, steel)
+	_add_combustion(bank, x, bore, deck)
 
 
 # Every nozzle, in world space: the fuel rail and the injector pulses use these.
@@ -358,15 +372,16 @@ func _build_two_stroke_cylinder(spec: EngineSpec, x: float, bore: float, s: floa
 	if spec.induction == "carburettor":
 		IntakeModel.build_carburettor(self, bank, x, bore, bottom, xf, index)
 	_build_piston_rod(bank, bore, steel)
+	_add_combustion(bank, x, bore, deck)
 
 
-# Two intake valves toward the rear and two exhaust valves toward the front, sized from the Cylinder constants (shrunk to fit a
-# small bore), each pushed down by a cam lobe on a camshaft above it. The lobe outline is the Cylinder lift curve, so the cam
-# and the valve agree; the camshaft turns once per two crank turns.
-func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: float, index: int, mat: Material, bank: Node3D) -> void:
+# Two intake valves toward the valley and two exhaust valves toward the outside of the bank, sized from the Cylinder
+# constants (shrunk to fit a small bore), each pushed down by a cam lobe on a camshaft above it. The lobe outline is the
+# Cylinder lift curve, so the cam and the valve agree; the camshaft turns once per two crank turns.
+func _build_valves(x: float, bore: float, deck: float, head_h: float, pitch: float, index: int, mat: Material, bank: Node3D, outboard := 1.0) -> void:
 	for intake in [true, false]:
 		var d: float = minf(Cylinder.INTAKE_VALVE_D if intake else Cylinder.EXHAUST_VALVE_D, bore * 0.36 / Units.M_TO_SCENE) * Units.M_TO_SCENE
-		var z := (-1.0 if intake else 1.0) * bore * 0.22
+		var z := (-1.0 if intake else 1.0) * bore * 0.22 * outboard # intake inboard, exhaust outboard
 		var cam := Node3D.new() # the camshaft's turn for this cylinder, axis along x above the valve stems
 		cam.position = Vector3(x, deck + head_h * 1.1 + CAM_BASE, z)
 		bank.add_child(cam)
@@ -507,6 +522,195 @@ func _update_rod(i: int, theta: float) -> void:
 	box.size = size
 	_rod_smalls[i].position = Vector3(0.0, -length * 0.5, 0.0)
 	_rod_bigs[i].position = Vector3(0.0, length * 0.5, 0.0)
+
+
+# The chamber's flame and spark, built inside the cylinder's own bank frame. The plug sits in the head, so its electrode
+# is at the chamber roof: the flame is centred there and grows down into the bore.
+func _add_combustion(bank: Node3D, x: float, bore: float, deck: float) -> void:
+	var roof := deck - 0.01 # the head's underside, where the plug's electrode reaches into the charge
+	var index := _flames.size()
+	var piston: Node3D = _pistons.back() if not _pistons.is_empty() else null
+	_flames.append(_add_flame(bank, index, Vector3(x, roof, 0.0)))
+	_sparks.append(_add_spark(bank, index, Vector3(x, roof - 0.02, 0.0)))
+	_spark_lights.append(_add_combustion_light(bank, index, Vector3(x, roof - 0.05, 0.0), bore))
+	_spark_left.append(0.0)
+	_burn_seen.append(0.0)
+	_flame_level.append(0.0)
+	_flame_front.append(0.0)
+	_chambers.append({"bank": bank, "x": x, "roof": roof, "bore": bore, "piston": piston, "crown": PISTON_CROWN * bore})
+
+
+# The flame is a disc of light the diameter of the bore and the height of the chamber, so it fills the chamber and no more
+# of it: the top sits on the head, the bottom on the piston crown, and the sides just inside the barrel wall. A sphere
+# sized for the look would have poked through the head and out of the barrel.
+func _add_flame(bank: Node3D, index: int, at: Vector3) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 1.0
+	mesh.bottom_radius = 1.0
+	mesh.height = 1.0
+	mesh.radial_segments = 16
+	var flame := MeshInstance3D.new()
+	flame.name = "Flame%d" % index
+	flame.mesh = mesh
+	flame.material_override = _flame_material()
+	flame.position = at
+	flame.scale = Vector3.ONE * 0.001
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.visible = false
+	bank.add_child(flame)
+	return flame
+
+
+func _add_spark(bank: Node3D, index: int, at: Vector3) -> MeshInstance3D:
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.035
+	mesh.height = 0.07
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(0.85, 0.95, 1.0, 1.0)
+	var spark := MeshInstance3D.new()
+	spark.name = "Spark%d" % index
+	spark.mesh = mesh
+	spark.material_override = mat
+	spark.position = at
+	spark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	spark.visible = false
+	bank.add_child(spark)
+	return spark
+
+
+func _add_combustion_light(bank: Node3D, index: int, at: Vector3, bore: float) -> OmniLight3D:
+	var light := OmniLight3D.new()
+	light.name = "CombustionLight%d" % index
+	light.position = at
+	light.omni_range = bore * 2.6
+	light.light_color = Color(1.0, 0.72, 0.4)
+	light.light_energy = 0.0
+	light.shadow_enabled = false # a flash this short is not worth a shadow map, and it would flicker
+	light.visible = false
+	bank.add_child(light)
+	return light
+
+
+# One material per flame: the colour changes every frame with the gas temperature.
+func _flame_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(1.0, 0.5, 0.12, 0.0)
+	mat.disable_receive_shadows = true
+	return mat
+
+
+# Fires the flame and the spark from the simulation's own numbers. cyls are the sim's cylinders (Cylinder or
+# TwoStrokeCylinder: both carry burn_energy, burn_energy_left and temp). Call after update_crank, so the chamber is where
+# the piston has just put it.
+func update_combustion(cyls: Array, delta: float) -> void:
+	if _flames.is_empty():
+		return
+	for i in mini(cyls.size(), _flames.size()):
+		var c = cyls[i]
+		var total: float = float(c.burn_energy)
+		var left: float = float(c.burn_energy_left)
+		var temp: float = float(c.temp)
+		var bore: float = _chambers[i].bore
+		var fraction := 0.0
+		if total > 1e-9:
+			fraction = clampf(1.0 - left / total, 0.0, 1.0)
+		# the charge lights: burn_energy_left starts falling. That instant is the spark.
+		if fraction > 0.0 and _burn_seen[i] <= 0.0:
+			_spark_left[i] = SPARK_FLASH_TIME
+		_burn_seen[i] = fraction
+		# Two things, kept apart because they are two different facts: the FRONT grows with the burned fraction (a
+		# sphere of flame from the plug, sqrt of the burned mass by volume), and the BRIGHTNESS peaks part way through,
+		# when the burn is fastest. The burn ends at frame N, so the glow is held for FLAME_FADE instead of snapping.
+		var target := 0.0
+		if fraction > 0.0 and fraction < 1.0:
+			target = pow(sin(PI * fraction), 0.6)
+			_flame_front[i] = sqrt(fraction)
+		elif fraction <= 0.0:
+			_flame_front[i] = 0.0 # the charge was reset for a new cycle
+		_flame_level[i] = target if target >= _flame_level[i] else maxf(target, _flame_level[i] - delta / FLAME_FADE)
+		var glow := _flame_level[i]
+		var heat := clampf((temp - FLAME_COOL_K) / (FLAME_HOT_K - FLAME_COOL_K), 0.0, 1.0) if temp > 0.0 else 0.5
+		var flame := _flames[i]
+		flame.visible = glow > 0.01
+		# contained: the chamber is between the crown at this crank angle and the head, and inside the bore
+		var piston: Node3D = _chambers[i].piston
+		var crown: float = float(_chambers[i].roof)
+		if piston != null:
+			crown = piston.position.y + float(_chambers[i].crown)
+		var height := maxf(float(_chambers[i].roof) - crown, 0.004)
+		var r := bore * lerpf(FLAME_MIN_SCALE, FLAME_MAX_SCALE, _flame_front[i])
+		flame.scale = Vector3(maxf(r, 0.001), height, maxf(r, 0.001))
+		flame.position.y = crown + height * 0.5
+		var mat: StandardMaterial3D = flame.material_override
+		mat.albedo_color = Color(1.0, lerpf(0.32, 0.82, heat), lerpf(0.05, 0.5, heat), glow)
+		_spark_left[i] = maxf(_spark_left[i] - delta, 0.0)
+		var flash := _spark_left[i] / SPARK_FLASH_TIME
+		_sparks[i].visible = flash > 0.0
+		# the light is the spark's flash AND the burn's glow: with the covers on, the flame is hidden inside the head but
+		# the light it makes is not, so the engine flashes from the combustion rather than only from the spark plug
+		_spark_lights[i].visible = flash > 0.0 or glow > 0.02
+		if _spark_lights[i].visible:
+			_spark_lights[i].light_energy = SPARK_LIGHT_ENERGY * maxf(flash, glow * 0.7)
+			_spark_lights[i].light_color = Color(1.0, lerpf(0.5, 0.82, heat), lerpf(0.15, 0.55, heat))
+
+
+# ---- what a test (or a HUD) can ask about the combustion ----
+func flame_count() -> int:
+	return _flames.size()
+
+
+func flame_visible(i: int) -> bool:
+	return i >= 0 and i < _flames.size() and _flames[i].visible
+
+
+func flame_radius(i: int) -> float:
+	return _flames[i].scale.x if i >= 0 and i < _flames.size() else 0.0
+
+
+func flame_position(i: int) -> Vector3:
+	return _flames[i].global_position if i >= 0 and i < _flames.size() else Vector3.ZERO
+
+
+# Local (bank) space, so a test can see the flame is inside the chamber rather than in the head or the crankcase.
+func chamber_local(i: int) -> Dictionary:
+	if i < 0 or i >= _chambers.size():
+		return {}
+	var c: Dictionary = _chambers[i]
+	var piston: Node3D = c.piston
+	var crown: float = float(c.roof)
+	if piston != null:
+		crown = piston.position.y + float(c.crown)
+	return {"crown": crown, "roof": float(c.roof), "bore": float(c.bore)}
+
+
+func flame_local(i: int) -> Dictionary:
+	if i < 0 or i >= _flames.size():
+		return {}
+	var f := _flames[i]
+	return {"bottom": f.position.y - f.scale.y * 0.5, "top": f.position.y + f.scale.y * 0.5, "radius": f.scale.x}
+
+
+func chamber_plug(i: int) -> Vector3:
+	if i < 0 or i >= _chambers.size():
+		return Vector3.ZERO
+	var c: Dictionary = _chambers[i]
+	return c.bank.to_global(Vector3(c.x, c.roof, 0.0))
+
+
+func combustion_light_energy(i: int) -> float:
+	return _spark_lights[i].light_energy if i >= 0 and i < _spark_lights.size() and _spark_lights[i].visible else 0.0
+
+
+func spark_visible(i: int) -> bool:
+	return i >= 0 and i < _sparks.size() and _sparks[i].visible
 
 
 static func _add_box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:

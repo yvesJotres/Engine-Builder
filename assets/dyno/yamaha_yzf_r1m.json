@@ -1,0 +1,127 @@
+{
+  "preset_id": "yamaha_yzf_r1m",
+  "title": "Motorcycle.com / Attack Performance 2015 stock R1",
+  "source_url": "https://www.motorcycle.com/manufacturer/yamaha/yamaha-r1/2015-yamaha-yzf-r1-tested-dyno.html",
+  "chart_url": "https://cdn-fastly.motorcycle.com/media/2023/02/23/8813077/2015-yamaha-yzf-r1-tested-on-the-dyno.jpg",
+  "year": 2015,
+  "market": "US",
+  "tested_trim": "base YZF-R1; the R1M uses the same 998 cc crossplane engine",
+  "configuration": "stock, tuned only by the comparing shop for the second curve; blue trace is the stock run",
+  "basis": "rear_wheel",
+  "power_unit": "mechanical_hp",
+  "torque_unit": "lb_ft_engine_equivalent",
+  "correction": "Dynojet 250i at Attack Performance; the correction factor is not printed on the chart",
+  "peak_power_hp": 178.2,
+  "peak_power_rpm": 12700,
+  "peak_torque_lb_ft": 80.4,
+  "peak_torque_rpm": 8800,
+  "curve_method": "Digitized from the published stock power trace by colour-threshold extraction (no sample markers printed); y axis from the 0-200 hp gridlines, x axis from the 4200-14200 rpm labels. Readings agree with the tester's annotated 178.2 hp at 12,700 rpm to within 0.2%.",
+  "curve_uncertainty_hp": 2,
+  "power_samples": [
+    [
+      4200,
+      40.1
+    ],
+    [
+      4600,
+      54.6
+    ],
+    [
+      5000,
+      56.5
+    ],
+    [
+      5400,
+      59.5
+    ],
+    [
+      5800,
+      63.4
+    ],
+    [
+      6200,
+      67.6
+    ],
+    [
+      6600,
+      73.3
+    ],
+    [
+      7000,
+      77.5
+    ],
+    [
+      7400,
+      93.9
+    ],
+    [
+      7800,
+      106.9
+    ],
+    [
+      8200,
+      121.4
+    ],
+    [
+      8600,
+      134
+    ],
+    [
+      9000,
+      138.5
+    ],
+    [
+      9400,
+      141.2
+    ],
+    [
+      9800,
+      147.3
+    ],
+    [
+      10200,
+      155.7
+    ],
+    [
+      10600,
+      160.7
+    ],
+    [
+      11000,
+      165.3
+    ],
+    [
+      11400,
+      172.1
+    ],
+    [
+      11800,
+      176
+    ],
+    [
+      12200,
+      177.6
+    ],
+    [
+      12700,
+      178.2
+    ],
+    [
+      13000,
+      177.1
+    ],
+    [
+      13400,
+      175.2
+    ],
+    [
+      13800,
+      173.3
+    ],
+    [
+      14200,
+      169.8
+    ]
+  ],
+  "notes": "Three published rear-wheel tests of the same 2015 R1 disagree by 20 hp: this Attack Performance run 178.2 hp / 80.4 lb-ft, Cycle World 167.4 hp at 12,270 / 77 lb-ft at 8,810, and the Moto Shop 'Heartbreaker' run 158.2 hp. This chart was chosen because it is the only one whose full trace could be digitized, and because 178.2 hp is consistent with the 147.1 kW (197 hp) crankshaft claim at the simulator's 0.93 drivetrain estimate (183 hp). The 0.93 loss is an estimate, not a measured coastdown, and the chart's correction factor is unpublished, so the peak remains uncertain by a few percent. Wheel measurements must not be overlaid on crank output."
+}

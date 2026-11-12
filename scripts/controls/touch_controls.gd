@@ -131,6 +131,14 @@ class Pad extends Panel:
 			return
 		accept_event()
 
+	# A finger lifted while it has slid off the pad never sends its release here, and the phone would leave
+	# this control held down for good (brake on, starter cranking). The release ends the press wherever it lands.
+	func _input(event: InputEvent) -> void:
+		if event is InputEventScreenTouch and not event.pressed and event.index == _finger:
+			_finger = -1
+			_set_down(false)
+			get_viewport().set_input_as_handled()
+
 	func _set_down(down: bool) -> void:
 		if down != _down:
 			_down = down
@@ -181,6 +189,14 @@ class Lever extends Panel:
 		elif _dragging and ((event is InputEventScreenDrag and event.index == _finger) or (event is InputEventMouseMotion and _finger == -1)):
 			_set_from(event.position.y)
 			accept_event()
+
+	# A finger lifted off the lever never sends its release here, and the lever would stay held: a throttle
+	# stuck open. The release ends the drag wherever it lands, so the lever springs back.
+	func _input(event: InputEvent) -> void:
+		if event is InputEventScreenTouch and not event.pressed and event.index == _finger:
+			_finger = -1
+			_dragging = false
+			get_viewport().set_input_as_handled()
 
 	func _set_from(y: float) -> void:
 		_set_amount(clampf(1.0 - y / size.y, 0.0, 1.0))

@@ -11,6 +11,10 @@ build/
 server/signing/
 server/patches/
 config/server.local.cfg
+server/config/
+# Debug output: the patch server used to print its secret here
+server/server_output.txt
+server_output.txt
 
 # Logs and scratch files
 *.log

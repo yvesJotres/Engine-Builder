@@ -32,6 +32,8 @@ const SPECIAL_TOGGLE := {
 static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 	# ---- 1. Settings pass: vehicle and drivetrain settings from preset/settings ----
 	var default_spec := EngineSpec.new()
+	# The panel's own settings exist once a preset or a saved build is chosen. A preset that says nothing about a
+	# vehicle setting must not inherit the previous engine's: a bike would come back as the last car.
 	for key in ["vehicle_type", "transmission_type", "wheelbase_mm", "wheel_radius_m", "vehicle_length_mm", "vehicle_width_mm", "vehicle_height_mm", "front_track_mm", "rear_track_mm", "front_wheel_radius_m", "front_tire_width_mm", "rear_tire_width_mm", "front_tire_aspect", "rear_tire_aspect", "front_rim_in", "rear_rim_in", "fuel_capacity_l", "drag_area_m2", "electric_compressor", "intake_area_scale", "manifold_volume_scale", "clutch_capacity_nm", "ecu_binary", "has_quickshifter", "has_launch_control", "has_abs", "has_traction_control"]:
 		spec.set(key, panel._vehicle_settings.get(key, default_spec.get(key)))
 	for key in ["throttle_bore_mm", "throttle_count", "runner_bore_mm", "rider_kg", "vehicle_mass_includes_rider"]:
@@ -85,7 +87,9 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 				if mode == "selected_eq_1":
 					value = toggle.selected == 1
 				elif mode == "wheel_aids_and_selected_eq_1":
-					value = ControlPanel.WHEEL_AIDS_AVAILABLE and toggle.selected == 1
+					# per aid: ABS has physics behind it now, traction control does not
+					var available: bool = ControlPanel.ABS_AVAILABLE if key == "abs_enabled" else ControlPanel.TRACTION_AVAILABLE
+					value = available and toggle.selected == 1
 			else:
 				value = toggle.selected == 1
 			spec.set(spec_field, value)
@@ -97,8 +101,13 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 	spec.induction = str(panel._vehicle_settings.get("induction", "injection"))
 
 	# ---- Plain vars (not controls, set on panel by preset) ----
-	spec.rod_ratio = panel.rod_ratio
-	spec.compression_ratio = panel.compression_ratio
+	# The split crankpin of a V4 is wiring, not a control: without this the spec lost the flag and any engine whose
+	# firing angles are generated rather than listed came out as a plain V4.
+	spec.split_pin_v4 = bool(panel._vehicle_settings.get("split_pin_v4", false))
+	# the control is the source of truth now that the ratio is on screen; the plain var mirrors it so a saved build and a
+	# preset keep each bike's own number
+	spec.compression_ratio = panel._controls["cr"].value
+	panel.compression_ratio = spec.compression_ratio
 	spec.crossplane = panel.crossplane
 	spec.fire_deg = panel.fire_deg
 	spec.shared_v_crankpins = spec.layout == "V" and panel._controls["shared_pins"].selected == 1
@@ -159,6 +168,6 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 
 	# ABS and traction control apply only when the bike has them and the wheel physics is built.
 	spec.launch_control = panel._controls["launch_control"].selected == 1
-	spec.abs_enabled = ControlPanel.WHEEL_AIDS_AVAILABLE and panel._controls["abs_enabled"].selected == 1
-	spec.traction_control_enabled = ControlPanel.WHEEL_AIDS_AVAILABLE and panel._controls["traction_control_enabled"].selected == 1
+	spec.abs_enabled = ControlPanel.ABS_AVAILABLE and panel._controls["abs_enabled"].selected == 1
+	spec.traction_control_enabled = ControlPanel.TRACTION_AVAILABLE and panel._controls["traction_control_enabled"].selected == 1
 	spec.slipper_clutch = panel._controls["slipper_clutch"].selected == 1

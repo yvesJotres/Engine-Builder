@@ -6,6 +6,7 @@ server cannot publish a patch the app accepts. Drafts are never served.
 
 Start it with:  python patch_server.py --port 8799 --secret YOUR_SECRET   (8799 is its own port; Flatframe uses 8787 and 8788)
 (or set the ENGINE_BUILDER_SECRET environment variable). It refuses to start without a secret; --open is for local tests.
+It listens on 127.0.0.1 only; pass --host 0.0.0.0 to expose it on a VPS, and never log the secret.
 Endpoints (GET):
   /health                              public and secret-free: {ok, uptime_seconds, patches}
   /patch/library                       engine library (presets) - public, no secret needed
@@ -164,17 +165,11 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "EngineBuilderPatches/1.0"
     timeout = 10  # seconds a silent connection may stay open
 
-    def __init__(self, *args, **kwargs):
-        with open("handler_init.log", "a") as f:
-            f.write(f"Handler __init__\n")
-        super().__init__(*args, **kwargs)
-
     def log_message(self, fmt, *args):  # one line per request: method and path
         if hasattr(self, "command"):
             print("%s %s" % (self.command, self.path.split("?")[0]), flush=True)
 
     def send_json(self, status: int, body: dict) -> None:
-        body['_debug_server_pid'] = os.getpid()
         raw = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -183,7 +178,6 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def secret_ok(self) -> bool:
-        print(f"DEBUG secret_ok: SECRET={repr(SECRET)}, header={repr(self.headers.get('X-Engine-Builder-Secret', ''))}", flush=True)
         if SECRET == "":
             return True
         # Headers arrive decoded as latin-1; encoding back gives the bytes the app sent (UTF-8)
@@ -191,9 +185,6 @@ class Handler(BaseHTTPRequestHandler):
         return hmac.compare_digest(sent, SECRET.encode("utf-8"))
 
     def do_GET(self):
-        with open("request_debug.log", "a") as f:
-            f.write(f"do_GET: path={self.path}\n")
-        print(f"DEBUG do_GET: path={self.path}", flush=True)
         if self.path == "/health":
             return self.send_json(200, health())
         if LIBRARY_ROUTE.match(self.path.split("?")[0]):
@@ -229,7 +220,7 @@ def main() -> None:
     global SECRET
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=int(os.environ.get("ENGINE_BUILDER_PORT", "8799")))
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--secret", default=os.environ.get("ENGINE_BUILDER_SECRET", ""))
     parser.add_argument("--open", action="store_true", help="run without a secret (local tests only)")
     args = parser.parse_args()
@@ -237,8 +228,9 @@ def main() -> None:
         print("Refusing to start without a secret. Pass --secret or set ENGINE_BUILDER_SECRET.", file=sys.stderr)
         sys.exit(2)
     SECRET = "" if args.open else args.secret
-    print(f"DEBUG STARTUP: args.open={args.open}, args.secret={repr(args.secret)}, SECRET={repr(SECRET)}", flush=True)
     print("Engine Builder patch server on %s:%d (patches %s)" % (args.host, args.port, PATCH_DIR), flush=True)
+    if not SECRET:
+        print("WARNING: running with --open; every request is accepted.", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

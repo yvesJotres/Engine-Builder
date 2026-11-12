@@ -56,8 +56,13 @@ const PORT_VOLUME := 0.5e-4 # m³, effective port and runner gas volume, estimat
 const RUNNER_LOSS := 1.5 # dynamic-pressure loss coefficient of the runner, estimate
 const MAX_FLOW_DT := 2.5e-4 # s, longest port step, the port volume is stiff against the valve flow
 const OVERLAP_RETURN_BELOW := 0.9 # fraction of atmosphere: below this the overlap push stays in the port and is drawn back in
-const AUTO_IGNITE_K := 900.0 # K, exhaust gas temperature above which unlit fuel leaving the cylinder can catch, estimate
+const PORT_THERMAL_TAU := 3.0 # s of exhaust-flow exposure for the port/header wall to follow its gas. The valve is only
+# open part of the cycle, so a few seconds of flow is the tens of seconds a real header takes to heat or cool - which is why
+# a bike still bangs seconds after the throttle shuts, and why a fuel-cut limiter does not cool the pipe in one. Estimate
+# from the wall mass; ExhaustHeat uses the same idea for the glow.
+const AUTO_IGNITE_K := 900.0 # K, port WALL temperature above which unlit fuel leaving the cylinder catches, estimate
 const BACKFIRE_BURN := 0.5 # share of the unlit charge that burns in the hot exhaust when it catches, estimate
+const RICH_MISFIRE_LAMBDA := 0.65 # below this the charge is too rich to burn fully: the rest of the fuel leaves unburnt
 const FILM_DEPOSIT := 0.3 # share of the sprayed fuel that lands on the port wall, estimate
 const FILM_EVAP_CYCLES := 3.0 # cycles for the port-wall film to evaporate back into the charge, estimate
 const EXHAUST_FLOW_BINS := 90
@@ -115,7 +120,7 @@ var last_lambda := 1.0 # the mixture the O2 sensor reads, relative to stoichiome
 var _fired := false # true when this cycle's charge was lit, so its exhaust is hot
 var film_kg := 0.0 # kg of fuel on the port wall, released into the charge over a few cycles
 var fuel_unburnt_kg := 0.0 # kg of fuel injected into this charge but not lit: it leaves unburnt
-var _port_heat := T0 # K, the exhaust port's heat from the last firing; an unlit charge can catch from it, and it is spent once used
+var _port_heat := T0 # K, the port/header WALL temperature: an unlit charge catches from it, and it lags the gas by seconds
 var backfire_j := 0.0 # J released by backfires since the engine last read it
 var _residual_kg := 0.0 # kg of burnt gas left in the cylinder when the exhaust valve closed
 var _residual_temp := T0 # K, that gas's temperature when the exhaust valve closed: it is hot, not fresh charge
@@ -163,7 +168,7 @@ func setup(bore_mm: float, stroke_mm: float, compression_ratio: float, recip: fl
 	pressure = P0
 	temp = T0
 	mass = pressure * clearance / (R * temp)
-	_u = mass * CV * temp
+	_u = mass * GasProperties.u(0.0, temp)
 	phi = 0.0
 	port_p = P0
 	runner_q = 0.0
@@ -208,7 +213,23 @@ func set_cams(spec: EngineSpec) -> void:
 func start_at(phase_deg: float) -> void:
 	phi = fposmod(phase_deg, 720.0)
 	mass = pressure * volume(phi) / (R * temp)
-	_u = mass * CV * temp
+	_u = mass * GasProperties.u(0.0, temp)
+
+
+# The compression ratio the geometry gives: (swept + clearance) / clearance, i.e. what setup() was handed. It is checked
+# against every preset, so the number in the data and the volume the gas is squeezed into cannot drift apart.
+func compression_ratio_geometric() -> float:
+	return (swept + clearance) / maxf(clearance, 1e-12)
+
+
+# The compression ratio the CHARGE actually sees: the cylinder volume when the intake valve shuts, over the clearance
+# volume at TDC. A late intake closing pushes part of the swept volume back into the port, so this sits below the
+# geometric ratio - which is why a long-duration cam loses compression at low speed without the piston changing. Before
+# the first intake closing there is no measured state yet, so the geometric ratio is returned.
+func compression_ratio_effective() -> float:
+	if _ivc_v <= 0.0:
+		return compression_ratio_geometric()
+	return _ivc_v / maxf(volume(0.0), 1e-12)
 
 
 # Cylinder volume at phase phi, m³.
@@ -605,15 +626,13 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 
 		# exhaust valve closes: what is left in the cylinder is burnt gas from the last cycle, not fresh air
 		if _crossed(p0, p1, exhaust_open):
-			# unlit fuel leaving into hot exhaust catches and pops; the exhaust sensor holds the heat of the last fired cycle
+			# unlit fuel leaving into hot exhaust catches and pops
 			if fuel_unburnt_kg > 0.0:
 				if _port_heat > AUTO_IGNITE_K:
 					backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
-				_port_heat = T0 # the heat of the last firing is spent on this charge, so one unlit charge pops per firing
-			fuel_unburnt_kg = 0.0
+				fuel_unburnt_kg = 0.0
 		if _fired and _crossed(p0, p1, exhaust_open):
 			exhaust_temp = temp # the exhaust temperature sensor reads burnt gas as the exhaust valve opens, held through a limiter cut
-			_port_heat = temp # the exhaust port is hot from a firing: this is what an unlit charge can catch from
 		if _crossed(p0, p1, exhaust_close):
 			_residual_kg = mass
 			# the gas left at exhaust closing is burnt products, not air, and it is hot: carry its temperature
@@ -650,13 +669,12 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt * wall_heat_scale
 		wall_loss_j += q_loss # running total, for the combustion checks
 
-		# first law for the gas in the cylinder
-		# the heat capacity moves from air to combustion products as the charge burns (CV_BURNT once it is all burnt)
-		var cv := CV + _burnt * (CV_BURNT - CV)
-		var cp := cv + R
-		var h_in := cp * (tm if m_in >= 0.0 else temp) * m_in
+		# First law for the gas in the cylinder. The specific heats are functions of temperature and of how much of the
+		# charge has burned (GasProperties), and u is the INTEGRAL of cv: a charge at 2,000 K holds more energy than
+		# cv·T with air's cold cv says, which is what the constant-cv version was missing.
+		var h_in := GasProperties.h(_burnt, tm if m_in >= 0.0 else temp) * m_in
 		enthalpy_in_j += h_in # running totals, for the energy balance check
-		var h_ex := cp * (temp if m_out >= 0.0 else t_ex) * m_out
+		var h_ex := GasProperties.h(_burnt, temp if m_out >= 0.0 else t_ex) * m_out
 		enthalpy_out_j += h_ex
 		ex_mass += m_out
 		ex_energy += h_ex
@@ -664,12 +682,28 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		# Use the same trapezoidal P*dV work in the energy equation and shaft
 		# output. Solve the ideal-gas endpoint pressure implicitly.
 		var source_energy := _u + dq + h_in - h_ex - q_loss
-		var u := (source_energy - 0.5 * old_pressure * dv) / (1.0 + 0.5 * R / cv * dv / next_volume)
-		mass = maxf(mass + m_in - m_out, 1e-12)
-		# guard: a single step must never push the gas outside physical limits
-		temp = clampf(u / (mass * cv), 200.0, 4000.0)
-		_u = mass * cv * temp
+		var new_mass := maxf(mass + m_in - m_out, 1e-12)
+		# The endpoint temperature is the root of the first law itself, not of a linearisation of it:
+		#     m·u(T) - source + ½·(p_old + m·R·T/V)·dV = 0
+		# which is exact for any u(T), with the same trapezoidal p·dV the torque output uses. (A step with cv held
+		# constant, the shape the model had before u became temperature-dependent, leaves a fraction of a joule behind on
+		# every step - that is what the closed-cylinder balance measures, and it closed to 1e-4 J before this.)
+		var half_dv_r := 0.5 * R * dv / next_volume
+		var t_new := temp
+		for _i in 4:
+			var f := new_mass * GasProperties.u(_burnt, t_new) - source_energy + 0.5 * old_pressure * dv + new_mass * half_dv_r * t_new
+			var slope := new_mass * GasProperties.cv(_burnt, t_new) + new_mass * half_dv_r
+			t_new = clampf(t_new - f / maxf(slope, 1e-6), 200.0, 4000.0)
+		mass = new_mass
+		temp = t_new
+		_u = mass * GasProperties.u(_burnt, temp)
 		peak_temp = maxf(peak_temp, temp) # the hottest gas this cycle: the chamber temperature sensor
+		# The port/header wall is heated only while exhaust gas flows past it, so it equilibrates to THAT gas - the blowdown
+		# is the hottest thing it sees - and not to the mean chamber temperature. A pop does not spend this heat: the metal
+		# stays hot, which is why a real bike crackles all the way down an overrun instead of popping once.
+		if exhaust_lift_now > 0.0:
+			_port_heat += (temp - _port_heat) * minf(sdt / PORT_THERMAL_TAU, 1.0)
+
 		pressure = clampf(mass * R * temp / next_volume, 1000.0, 1.0e7)
 		if sd > 0.0 and _cycle_deg > 0.0:
 			_cycle_max_dp = maxf(_cycle_max_dp, (pressure - _cycle_p) / sd)
@@ -739,18 +773,20 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool 
 	film_kg += FILM_DEPOSIT * sprayed - evap
 	var supplied := (1.0 - FILM_DEPOSIT) * sprayed + evap
 	mass += supplied # the fuel joins the charge, so the gas carries the mass it releases energy from
-	_u += supplied * CV * temp # at the gas temperature, so the mix stays at the same temperature
+	_u += supplied * GasProperties.u(_burnt, temp) # at the gas temperature, so the mix stays at the same temperature
 	# The residual is burnt gas at exhaust temperature, not cold air. Mixing the whole charge at one temperature charges the
 	# residual to the fresh gas temperature, so at intake closing the chamber reads far colder (and so far denser) than it
 	# really is. That error is small at a steady idle and lethal on the first cycles of a start, which then read too lean to
 	# light. Put the residual's own enthalpy back into the mixed state (air-gas mixture of the same heat capacity).
 	var mixed := mass
 	if mixed > 1.0e-12:
+		# mix the two charges by ENERGY: the residual is burnt gas at its own temperature, and the two gases do not have
+		# the same cv, so a mass-weighted mean temperature would not conserve energy
 		var air_before := maxf(mixed - _residual_kg, 0.0)
-		var held := air_before * temp + _residual_kg * _residual_temp
-		var fixed := held / mixed
-		_u += mixed * CV * (fixed - temp)
-		temp = clampf(fixed, 200.0, 4000.0)
+		var held := air_before * GasProperties.u(0.0, temp) + _residual_kg * GasProperties.u(1.0, _residual_temp)
+		var u_mixed := held / mixed
+		_u += mixed * (u_mixed - GasProperties.u(_burnt, temp))
+		temp = clampf(GasProperties.temp_from_u(_burnt, u_mixed), 200.0, 4000.0)
 	if not lit:
 		fuel_unburnt_kg = supplied # injected but not lit: it stays unburnt and leaves with the exhaust
 		return
@@ -759,6 +795,10 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool 
 		last_lambda = fresh / (tank.afr * supplied) # the air-fuel ratio actually burned, relative to stoichiometric: what the O2 sensor sees
 	# only the fuel the air can burn releases energy: in a rich mixture the excess passes through unburnt and cools the exhaust
 	var burnable := minf(supplied, fresh / tank.afr)
+	# Too rich to light: the air cannot burn all the fuel that is in the charge, and the rest leaves unburnt. This is what a
+	# wet manifold passes into the pipe on a closed-throttle overrun, and it is what lights the pipe on the way down.
+	if fresh / (tank.afr * maxf(supplied, 1.0e-12)) < RICH_MISFIRE_LAMBDA:
+		fuel_unburnt_kg = supplied - burnable
 	burn_energy = burnable * tank.lhv * COMBUSTION_EFFICIENCY
 	burn_energy_left = burn_energy
 	_fired = supplied > 0.0

@@ -33,7 +33,10 @@ static func for_spec(spec: EngineSpec) -> Array[float]:
 			out.append(float(a))
 	else:
 		out = fire_angles(spec.cylinders, spec.twin_pin_deg, spec.crossplane, spec.split_pin_v4)
-	if spec.layout == "V" and spec.shared_v_crankpins:
+	if spec.layout == "V" and spec.shared_v_crankpins and not spec.split_pin_v4:
+		# A split-pin V4 (Panigale) already has its own wiring for the two pins, 70 degrees apart, and the pair
+		# angles in it are measured on the pin, not on the bank: rewriting them here moved a cylinder a whole
+		# revolution in the cycle (630 became 270).
 		for i in range(0, out.size() - 1, 2):
 			# Opposite banks share a crankpin when bank_angle + second firing angle
 			# equals the first firing angle modulo one crank revolution.
@@ -44,6 +47,12 @@ static func for_spec(spec: EngineSpec) -> Array[float]:
 			var d1 := absf(fposmod(first - old + 360.0, 720.0) - 360.0)
 			var d2 := absf(fposmod(second - old + 360.0, 720.0) - 360.0)
 			out[i + 1] = first if d1 <= d2 else second
+	elif spec.layout == "V" and spec.cylinders == 2 and spec.fire_deg.size() != 2:
+		# An unshared pair: the second journal stands off the first by crank_pin_sep_deg, so that cylinder reaches TDC
+		# bank_angle - separation after the first. Journals aligned (0) fire exactly like a shared pin; separating them
+		# by the bank angle makes both cylinders fire together, which is why a dual-pin crank is used to even a V out.
+		var interval := spec.bank_angle - spec.crank_pin_sep_deg
+		out[1] = fposmod(out[0] - interval, 360.0)
 	return out
 
 

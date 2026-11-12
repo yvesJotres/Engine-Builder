@@ -18,6 +18,7 @@
     "compression_ratio": 14.8,
     "twin_pin_deg": 360.0,
     "split_pin_v4": true,
+    "shared_v_crankpins": true,
     "crossplane": false,
     "fire_deg": [
       0.0,
