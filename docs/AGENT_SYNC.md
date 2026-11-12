@@ -24,9 +24,15 @@ available, the branches and the ownership table below are already the right cut 
 | Test | Why it is red | Owner / next step |
 |---|---|---|
 | `unit/drivetrain/shift_behavior_test.gd` | `gearbox_load` swings ±90 N m between firing pulses at 4,270 rpm (61.6 → −86.5 → −5.0, capacity 200 N m, unloaded threshold 16 N m), so the shift state machine sees "unloaded" at wide open and drops to neutral. | Orchestrator: cycle-mean `gearbox_load` in `_advance_driveline`. Do not encode the jump as the expected behaviour. |
+| `integration/dyno/dyno_cbr250rr.gd` | 29.48 kW at 12,500 rpm against Honda's 28 kW factbook figure (+5.3%, gate is ±3%). **Not** the uncommitted header change: re-running the gate with `header_primary_mm` back at the committed 42 mm gives the same 29.48 kW. The over-prediction is in committed physics. | Physics: bisect the checkpoint (`1b64243`) — gas properties, exhaust collector/canister and Woschni are the three changes in that window. Gate stays at 28 kW. |
+
+Flaky, not fixed: `unit/engine/engine_stats_test.gd` failed once inside the full sweep and passes 3 of 3 alone; it
+touches no file, clock or RNG.
 
 Resolved 2026-11-12: `unit/engine/two_stroke_native_test.gd` — the native kernel now carries all five GDScript two-stroke
 fixes (commit `6e50e2d`), 540 field comparisons across reed and piston paths, 0 problems.
+`integration/dyno/dyno_cell_test.gd` — the pull compared one frame, whose firing phase outweighed a 200 N load; it now
+compares the mean of the last half second (`3bc98c3`).
 
 ---
 
