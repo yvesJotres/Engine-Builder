@@ -109,6 +109,15 @@ func _init() -> void:
 	check(got_exch > cyl.woschni_h(OMEGA, p_exch, t_exch, 1.2e-4, false, false),
 		"gas exchange passes more gas over the walls than compression at the same state")
 
+	# ---- 3b. the constants themselves are the published triple, not tuned per bike ----
+	# Qasemian and Rezaei 2020 (the paper is in docs/papers/): C1 and C2 are 6.18 and 0.0 for gas exchange, 2.28 and 0.0
+	# for compression, and 2.28 and 0.00324 for combustion and expansion. Retuning these to bring a dyno curve down is the
+	# fudge factor GEMINI.md section 5 forbids, so this is the line that makes that visible.
+	check(is_equal_approx(Cylinder.WOSCHNI_C1, C1_COMP), "C1 compression/expansion is the published 2.28 (%.5f)" % Cylinder.WOSCHNI_C1)
+	check(is_equal_approx(Cylinder.WOSCHNI_C1_GAS, C1_EXCH), "C1 gas exchange is the published 6.18 (%.5f)" % Cylinder.WOSCHNI_C1_GAS)
+	check(is_equal_approx(Cylinder.WOSCHNI_C2, C2), "C2 is the published 0.00324 m/(s K) (%.6f)" % Cylinder.WOSCHNI_C2)
+	check(is_equal_approx(Cylinder.WOSCHNI_H, 3.26), "the prefactor is the published 3.26 (%.4f)" % Cylinder.WOSCHNI_H)
+
 	# ---- 4. the exponents: doubling the pressure must scale h by 2^0.8 ----
 	var half := cyl.woschni_h(OMEGA, p_comp * 0.5, t_comp, 4.0e-5, false, false)
 	check(near(got_comp / half, pow(2.0, 0.8), 1.0e-9),

@@ -34,6 +34,13 @@ in as one commit, and it means code-level bisecting starts from `1b64243`, not b
 Tooling for the open question: `tools/diagnostics/probe_cbr_power_sensitivity.gd` prints the 12,500 rpm hold at four
 settings (shipped, no wall heat, double wall heat, 1D solver on).
 
+Context for anyone tempted to close it by tuning: the Woschni source in `docs/papers/` (Qasemian and Rezaei 2020, §3.1)
+measures the original correlation against a pressure trace and finds "an average of 13 percent" error in expansion
+before re-fitting its constants for that engine. A 5 % power gap is inside that band, so the honest options are a
+measured trace for this engine or a sourced, engine-specific constant set — not a scale factor. `woschni_validation_test`
+now fails if `WOSCHNI_C1`/`_C1_GAS`/`_C2`/`WOSCHNI_H` drift from the published values, so a silent re-tune shows up in
+the gate rather than in a dyno curve nobody re-reads.
+
 Flaky, not fixed: `unit/engine/engine_stats_test.gd` failed once inside the full sweep and passes 3 of 3 alone; it
 touches no file, clock or RNG.
 

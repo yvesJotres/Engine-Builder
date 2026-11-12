@@ -57,6 +57,8 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 
 **Key references:** Heywood Ch.6 (valve flow), Ch.9 (combustion), Ch.12 (heat transfer); Woschni SAE 670931; Qasemian 2020 (IOP) for Woschni constants per phase.
 
+**How accurate can heat transfer be?** The paper itself is in `docs/papers/` (Qasemian and Rezaei 2020, §3.1). Against a measured HCCI pressure trace it reports the original Woschni correlation is worst in expansion: "The error is more evident in expansion stroke, which has an average of 13 percent." The authors then re-fit the constants for that engine with a genetic algorithm, which is to say the published triple is engine-dependent at the ±10 % level. Nothing in this repo pins the correlation tighter than that, and it is the reason the CBR250RR power gate sits 5 % high (see [AGENT_SYNC.md](AGENT_SYNC.md)): the gap is inside the model's own quoted accuracy, not a bug to be tuned away by scaling `wall_heat_scale`.
+
 ---
 
 ## 3. Two-Stroke Cylinder
