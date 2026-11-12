@@ -44,7 +44,7 @@ Config/serde, UI, and unit-conversion helpers are skipped.
 | Model | Source in Code | Test | Reference Value | Status |
 |-------|----------------|------|-----------------|--------|
 | Volume vs crank angle (slider-crank) | `scripts/engine/cylinder.gd:480` | ❌ none | V(θ) = V_c + ½V_s[1-cosθ + (1-√(1-λ²sin²θ))/λ] λ=r/L | ❌ |
-| Valve curtain area vs lift (Heywood) | `cylinder.gd:500` `cylinder_kernel.cpp:30` | ❌ none | A = π·d_valve·lift·Cd; Cd vs L/D from SAE 820154/962527 | ❌ |
+| Valve curtain area vs lift (Heywood) | `cylinder.gd:310` `_intake_area:367` | ✅ `tests/unit/engine/valve_curtain_test.gd` — 2·π·d·L below the cap, 2·(π/4)·d² at it, linear in lift, one opening per cycle | A = π·d_valve·lift per valve, capped at the valve head area. The Cd-vs-L/D shape is still gap 4 | ✅ `[closed]` geometry |
 | Orifice mass flow (Heywood App C) | `cylinder.gd:318` `cylinder_kernel.cpp:180` | ✅ `tests/unit/engine/orifice_flow_test.gd` — choked, subsonic, continuity at 0.5283, sign symmetry, linearity | Choked: ṁ = Cd·A·p0·√(γ/R/T0)·(2/(γ+1))^((γ+1)/(2(γ-1))) | ✅ `[closed]` |
 | Wiebe burn fraction | `cylinder.gd:700` `cylinder_kernel.cpp:580` | ❌ none | x_b = 1-exp(-a·((θ-θ0)/Δθ)^(m+1)); a=5, m=2 typical | ❌ |
 | **Heat transfer: Woschni (1967) SAE 670931** | `cylinder.gd:600` `cylinder_kernel.cpp:540` | ✅ `tests/unit/engine/woschni_validation_test.gd` (hand calc at motored / fired / gas-exchange points) + `woschni_test.gd` (conservation) | h = 3.26·B⁻⁰·²·p⁰·⁸·T⁻⁰·⁵⁵·w⁰·⁸; w = C1·v_p + C2·(V_d·T_r·(p-p_m))/p_r·V_r | ✅ `[hand]` |
