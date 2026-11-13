@@ -258,6 +258,7 @@ func _ready() -> void:
 
 	_pause = preload("res://scenes/pause_menu.tscn").instantiate()
 	add_child(_pause)
+	_pause.probe_requested.connect(_run_frame_probe)
 	_pause.resume_requested.connect(func() -> void: _set_paused(false))
 	_pause.quality_changed.connect(_on_quality_changed)
 	_pause.accuracy_changed.connect(_on_accuracy_changed)
@@ -270,6 +271,7 @@ func _ready() -> void:
 	add_child(fps)
 	_pause.fps_toggled.connect(func(on: bool) -> void: fps.shown = on)
 	_pause.hud_changed.connect(_hud.set_mode)
+	_pause.fps_cap_changed.connect(_apply_fps_cap)
 	_pause.apply_settings()
 	_touch = TouchControls.new()
 	add_child(_touch)
@@ -293,6 +295,11 @@ func _ready() -> void:
 
 	_on_panel_changed()
 	flush_rebuild() # startup wants the bike now, not in 120 ms
+	# A marker file in the app's data folder runs the frame cost probe at start-up, so a measurement
+	# can be taken over USB without tapping through the menu. Nothing creates this file by itself.
+	if FileAccess.file_exists("user://run_probe"):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path("user://run_probe"))
+		_run_frame_probe()
 	# Open with the engine from the previous session: the dropdown already shows that name, so the engine inside
 	# has to be the same one. It waits for the library to load, which lands a frame or two after this.
 	_panel.restore_last_engine()
@@ -724,6 +731,33 @@ func _process(delta: float) -> void:
 	if _frame <= 3: _trace("hud updated")
 	if _dyno_view.is_open():
 		_dyno_view.refresh(_dyno)
+
+
+# On the phone the app runs uncapped by default: Godot's vsync is off (project.godot sets
+# vsync_mode 0), so the renderer posts a frame every ~8 ms - 125 fps on this handset - while the
+# panel shows 60. More than half the CPU time and the whole GPU heat budget go on frames nobody
+# sees, and that heat is what turns into stutter after a few minutes of running. 60 fps is the
+# panel's own rate, so the cap costs no visible smoothness. The pause menu's "Frame rate" option
+# picks between the cap and no cap; this is the default and the ceiling.
+const MOBILE_MAX_FPS := 60
+
+
+func _apply_fps_cap(index: int) -> void:
+	Engine.max_fps = preload("res://scripts/ui/pause_menu.gd").FPS_CAPS[clampi(index, 0, 1)]
+
+
+# Times one frame of the running app on this device, phase by phase, into user://frame_phases.txt.
+# Loaded by path, not preloaded: this file ships inside the APK, but a project that strips it must
+# never stop the game from opening.
+func _run_frame_probe() -> void:
+	var script: Resource = load("res://scripts/diagnostics/frame_phases.gd")
+	if script == null:
+		_hud.flash("FRAME PROBE NOT IN THIS BUILD")
+		return
+	var probe: Node = (script as GDScript).new()
+	probe.name = "FramePhasesProbe"
+	add_child(probe)
+	_hud.flash("FRAME PROBE RUNNING")
 
 
 func _shift(up: bool) -> void:
