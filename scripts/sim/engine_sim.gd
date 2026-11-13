@@ -362,12 +362,13 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 				# per-frame flag and a cycle spans several frames, so a charge fuelled just before the cut gets its spark
 				# pulled mid-cycle and pops the exhaust on every cycle of the stop (311 pops in 40 s, measured).
 				var overrun := ecu.overrun() # a closed-throttle decel, above the cut's rpm and below its load
-				# The limiter and the overrun cut FUEL. The quickshifter cuts only the SPARK: its charge is already fuelled, and an
-				# unlit charge is what bangs on the shift (cutting its fuel too would leave nothing to bang).
-				var cut := intake.limiter_cut or (overrun and not spec.overrun_pop)
+				# The limiter cuts FUEL, unless the bike is set up to cut the spark instead (limiter_spark_cut): then the fuel keeps
+				# coming and the unlit charge bangs, which is what a rev bomb is. One or the other, never both.
+				var limiter := intake.limiter_cut
+				var cut := (limiter and not spec.limiter_spark_cut) or (overrun and not spec.overrun_pop)
 				# The overrun (decel) cut takes the fuel only, for the same reason. The quickshifter is the one that
 				# intentionally cuts the spark after fuelling: that unlit charge is the pop we want.
-				var spark_cut := qs_cut
+				var spark_cut := qs_cut or (limiter and spec.limiter_spark_cut)
 				# Power mode lambda multiplier
 				var mode_lambda := target_lambda * ecu.get_power_mode_lambda_mult()
 				# A bike that keeps fuelling on the overrun (overrun_pop) is asked for a charge far too rich to burn: the wet

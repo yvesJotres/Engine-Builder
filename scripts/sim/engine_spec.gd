@@ -100,6 +100,7 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 # Quickshifter: cuts ignition/fuel during upshift to unload the gearbox for clutchless shift
 @export var decel_cut := true # ECU cuts fuel and spark on overrun (closed throttle, high rpm). Off: the charge keeps burning, as on an ECU without decel cut
 @export var quickshifter := false # rider switch, only valid when has_quickshifter
+@export var limiter_spark_cut := false # true: the rev limiter cuts the SPARK and keeps the fuel, so it bangs (a rev bomb)
 @export var overrun_pop := false # true: the decel cut takes the spark and leaves the fuel, so a hot pipe bangs on the overrun
 @export var quickshifter_cut_time := 0.05 # s, ignition+fuel cut duration during upshift
 @export var quickshifter_cut_profile: Array = [] # per-gear cut time profile: [ [ [rpm, cut_ms], ... ], ... ] for gears 1-6
