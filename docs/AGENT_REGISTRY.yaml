@@ -39,6 +39,31 @@ agents:
     known_red:
       - unit/engine/two_stroke_native_test.gd   # native kernel not yet ported
 
+  builder:
+    owns:
+      - scripts/app/
+      - scripts/ui/
+      - scripts/platform/
+      - scripts/dyno/
+      - scripts/presets/
+      - scenes/
+      # meshes, materials, node lifecycle, clip checks. Equations in scripts/model/ stay physics.
+      - scripts/model/
+    contracts:
+      - signal_subscription
+      - feature_toggles
+      - user_settings
+      - preset_schema
+    test_pattern: "tests/unit/{controls,structure,model}/** and tests/visual/**"
+    gate: "run_test.bat --ui && run_test.bat --drivetrain"
+    # branch name follows the feat/<seat>-natural-feel pattern; reconcile with the integration branch before use.
+    branch: feat/builder-natural-feel
+
+  # The three keys below describe seats that no longer exist on this team
+  # (see docs/TEAM-CHARTER.md sections 1 and 2). Their paths are now owned by
+  # physics (scripts/audio/, assets/sfx/, assets/ir/) and builder (scripts/ui/,
+  # scenes/, scripts/model/, assets/engines/, assets/compressor_maps/).
+  # Kept as-is until Yves approves retiring the rows; do not assign work from them.
   geometry:
     owns:
       - assets/engines/
