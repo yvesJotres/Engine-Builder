@@ -689,8 +689,10 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 
 		if (crossed(p0, p1, c.exhaust_open)) {
 			if (y.fuel_unburnt_kg > 0.0) {
-				if (y.port_heat > AUTO_IGNITE_K) {
-					y.backfire_j += y.fuel_unburnt_kg * c.tank_lhv * BACKFIRE_BURN;
+				// only what the charge's air can burn pops; the rest passes as hydrocarbons
+				double burnable = fmin(y.fuel_unburnt_kg, y.last_fresh_kg / c.tank_afr);
+				if (y.port_heat > AUTO_IGNITE_K && burnable > 0.0) {
+					y.backfire_j += burnable * c.tank_lhv * BACKFIRE_BURN;
 				}
 				y.fuel_unburnt_kg = 0.0;
 			}

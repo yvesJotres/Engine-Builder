@@ -283,7 +283,9 @@ Vector2 Cylinder::advance(float dphi, float dt, float pm, float tm, float ign_ph
         if (_crossed(p0, p1, exhaust_open)) {
             if (fuel_unburnt_kg > 0.0f) {
                 if (_port_heat > AUTO_IGNITE_K) {
-                    backfire_j += fuel_unburnt_kg * tank->lhv * BACKFIRE_BURN;
+                    // only what the charge's air can burn pops; the rest passes as hydrocarbons
+                    double burnable = fmin(fuel_unburnt_kg, last_fresh_kg / tank->afr);
+                    backfire_j += burnable * tank->lhv * BACKFIRE_BURN;
                 }
                 _port_heat = T0;
                 fuel_unburnt_kg = 0.0f;

@@ -52,7 +52,7 @@ const EXHAUST_PORT_AREA := 2.0 * PI * 0.0105 * 0.0105 # m², estimate
 # That lumped resonance is what makes volumetric efficiency rise to a peak at one engine speed (ram tuning).
 const RUNNER_AREA := 6.6e-4 # m², runner cross-section, 29 mm bore, estimate
 const RUNNER_LENGTH := 0.25 # m, throttle body to valve, estimate
-const PORT_VOLUME := 0.5e-4 # m³, effective port and runner gas volume, estimate, sets the tuned rpm
+const PORT_VOLUME := 1.5e-4 # m³, effective port and runner gas volume, estimate, sets the tuned rpm
 const RUNNER_LOSS := 1.5 # dynamic-pressure loss coefficient of the runner, estimate
 const MAX_FLOW_DT := 2.5e-4 # s, longest port step, the port volume is stiff against the valve flow
 const OVERLAP_RETURN_BELOW := 0.9 # fraction of atmosphere: below this the overlap push stays in the port and is drawn back in
@@ -628,8 +628,11 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		if _crossed(p0, p1, exhaust_open):
 			# unlit fuel leaving into hot exhaust catches and pops
 			if fuel_unburnt_kg > 0.0:
-				if _port_heat > AUTO_IGNITE_K:
-					backfire_j += fuel_unburnt_kg * tank.lhv * BACKFIRE_BURN
+				# Only what the charge's air can burn pops: a rich charge passes down the pipe as hydrocarbons. Without
+				# this every hot, rich overrun popped on a metronome.
+				var burnable := minf(fuel_unburnt_kg, last_fresh_kg / tank.afr)
+				if _port_heat > AUTO_IGNITE_K and burnable > 0.0:
+					backfire_j += burnable * tank.lhv * BACKFIRE_BURN
 				fuel_unburnt_kg = 0.0
 		if _fired and _crossed(p0, p1, exhaust_open):
 			exhaust_temp = temp # the exhaust temperature sensor reads burnt gas as the exhaust valve opens, held through a limiter cut
