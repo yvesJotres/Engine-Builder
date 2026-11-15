@@ -54,7 +54,7 @@ struct Cfg {
 	double transfer_open, transfer_close, exhaust_open, exhaust_close, intake_open, intake_close;
 	double transfer_area, exhaust_area, intake_area, crankcase_volume, oil_ratio;
 	int intake_type;
-	double crank_radius;
+	double crank_radius, wall_temp;
 	double tank_afr, tank_lhv;
 };
 
@@ -169,7 +169,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 		double intake_p, double intake_temp, double ign_phi, bool running, double tank_afr, double tank_lhv, double lambda,
 		bool spark, bool limiter_cut, double p_ex, double t_ex) {
 	(void)running; // advance takes it but never reads it
-	if (state.size() < S_SIZE || cfg.size() < C_SIZE) {
+	if (state.size() < S_SIZE || cfg.size() < C_WALL_TEMP) {
 		return state;
 	}
 	const double *k = cfg.ptr();
@@ -194,6 +194,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	c.oil_ratio = k[C_OIL_RATIO];
 	c.intake_type = (int)k[C_INTAKE_TYPE];
 	c.crank_radius = k[C_CRANK_RADIUS];
+	c.wall_temp = cfg.size() > C_WALL_TEMP ? k[C_WALL_TEMP] : WALL_TEMP;
 	c.tank_afr = tank_afr;
 	c.tank_lhv = tank_lhv;
 
@@ -403,7 +404,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 		double wall_area = 2.0 * c.piston_area + PI_ * c.bore * maxf(liner, 0.0);
 		double w = std::fabs(phi * PI_ / 180.0); // rough crank speed estimate
 		double h_wall = WALL_HEAT * std::pow(maxf(w, 1.0) / WALL_REF_W, 0.8);
-		double q_loss = h_wall * wall_area * (temp - WALL_TEMP) * sdt;
+		double q_loss = h_wall * wall_area * (temp - c.wall_temp) * sdt;
 		wall_loss_j += q_loss;
 		u -= q_loss;
 

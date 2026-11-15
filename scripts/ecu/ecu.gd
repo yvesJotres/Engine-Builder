@@ -38,6 +38,7 @@ var _integral := 0.0
 var _air_log := 0.0 # log of the idle-air multiplier: 0 = the engine's own idle air, positive = more air
 var _air_integral := 0.0
 var manual_air := -1.0 # diagnostics only: when above 0, the idle air is held at this factor
+var cycle_degrees := 720.0 # crank degrees per firing cycle: 720 four-stroke, 360 two-stroke. The idle loop gains scale by this ratio
 var _overrun := false # closed-throttle fuel cut while the crank is well above idle
 # Quickshifter state
 var _qs_active := false # true during quickshifter cut
@@ -208,11 +209,15 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 		effective_target = _launch_target_rpm
 	
 	var error := effective_target - rpm
+	# A two-stroke fires every 360 deg instead of 720, so the same spark advance and idle air produce about twice the
+	# torque per revolution. Scale the idle loop's gains by the firing-interval ratio so the loop responds the same way
+	# on a 700 rpm V6, a 1500 rpm four, and a two-stroke, instead of oscillating on the faster-firing engine.
+	var gain := clampf(cycle_degrees, 1.0, 720.0) / 720.0
 	# the idle-air valve: below the target it opens, above it closes. The error is relative to the target, so the loop gains
 	# the same response at a 700 rpm V6 idle and a 1500 rpm four.
 	var error_frac := error / maxf(effective_target, 1.0)
-	_air_integral = clampf(_air_integral + KI_AIR * error_frac * dt, -AIR_LIMIT, AIR_LIMIT)
-	_air_log = clampf(KP_AIR * error_frac + _air_integral, -AIR_LIMIT, AIR_LIMIT)
+	_air_integral = clampf(_air_integral + KI_AIR * gain * error_frac * dt, -AIR_LIMIT, AIR_LIMIT)
+	_air_log = clampf(KP_AIR * gain * error_frac + _air_integral, -AIR_LIMIT, AIR_LIMIT)
 	# start boost: a just-fired engine is well below the idle speed, so the valve opens wide at once, as an ECU's start air does.
 	# It is held to a crank speed the engine cannot sustain on its own: above that the idle loop must do the work, or the boost
 	# and the idle loop fight and the speed hunts between them.
@@ -222,8 +227,8 @@ func update(dt: float, rpm: float, throttle: float, running: bool, spec: EngineS
 	# loop is measuring a speed it can no longer control. Open the valve all the way until the charge lights again.
 	if rpm < effective_target * CATCH_RPM_FRAC:
 		_air_log = AIR_LIMIT
-	_integral = clampf(_integral + KI * error * dt, TRIM_MIN, TRIM_MAX) # clamped so it cannot wind up
-	trim = clampf(KP * error + _integral, TRIM_MIN, TRIM_MAX)
+	_integral = clampf(_integral + KI * gain * error * dt, TRIM_MIN, TRIM_MAX) # clamped so it cannot wind up
+	trim = clampf(KP * gain * error + _integral, TRIM_MIN, TRIM_MAX)
 	# Add power mode timing offset
 	trim += _power_mode_timing_offset
 	return -1.0

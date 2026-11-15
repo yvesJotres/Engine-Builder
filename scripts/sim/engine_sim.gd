@@ -1,6 +1,8 @@
 class_name EngineSim
 extends RefCounted
 
+const ThermalBalance = preload("res://scripts/sim/thermal_balance.gd")
+
 # Whole-bike physics with no scene nodes, so tests can run it directly.
 # Each cylinder is a crank-angle gas model (Cylinder) at its firing angle, sharing one intake manifold.
 # Crank speed comes from torque balance; the clutch joins the crank to the bike through
@@ -125,6 +127,8 @@ var cycle_ready := false # true once one full cycle of shaft torque has been ave
 var oil_c := 100.0 # °C, warms toward the spec's operating temperature; cold oil raises friction
 var coolant_c := 90.0 # °C, a hot coolant trims the knock margin
 var _fluids_set := false
+var _thermal: RefCounted
+var _thermal_key := ""
 var _prev_power_mode := "F" # track power mode changes for ECU sync
 var audio_enabled := true # record intake and exhaust samples for the sound
 # Transient fuel: a quick throttle opening richens the mixture, as the accelerator pump does on a carburettor and the
@@ -175,6 +179,7 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 	last_starter_held = starter_held # the sound reads this: the starter motor is turning
 	_sync_ecu_calibration(spec)
 	_build_cylinders(spec)
+	_prepare_thermal(spec)
 	# the turbo's compressor map loads once per map id; without it the intake never boosts
 	# the spec is refreshed every frame (the panel edits it in place); the map is only reloaded when its id changes
 	if not _intake_loaded or spec.compressor_map_id != _intake_map_id:
@@ -188,6 +193,7 @@ func step(delta: float, spec: EngineSpec, throttle: float, ignition: bool, start
 		intake.compressor_load = 0.0
 		_update_controls(minf(delta, MAX_FRAME_TIME), clutch_held, brake_held)
 		_warm_fluids(minf(delta, MAX_FRAME_TIME), spec)
+		_advance_thermal(minf(delta, MAX_FRAME_TIME), 0.0, spec)
 		gear.gear_ratios = spec.gear_ratios
 		_update_limiter(minf(delta, MAX_FRAME_TIME), effective_limiter_rpm(spec))
 		limiter_active = intake.limiter_cut
@@ -259,6 +265,7 @@ func _transient_lambda_mult(throttle: float, delta: float) -> float:
 func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, starter_held: bool,
 		clutch_held: bool, brake_held: bool, lambda: float) -> void:
 	var is_two_stroke := spec.stroke_type == "two_stroke"
+	ecu.cycle_degrees = 360.0 if is_two_stroke else 720.0
 	if is_two_stroke:
 		_advance_two_stroke(delta, spec, throttle, ignition, starter_held, clutch_held, brake_held, lambda)
 		return
@@ -278,6 +285,11 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 	var torque_sum := 0.0
 	# knock: the rider's advance past what the fuel and compression allow, which costs torque and counts as a knock
 	_warm_fluids(delta, spec)
+	var wall_loss_start := 0.0
+	if _thermal != null:
+		for cylinder in cylinders:
+			cylinder.wall_temp_k = _thermal.wall_k
+			wall_loss_start += cylinder.wall_loss_j
 	var knock_limit := knock_limit_deg(fuel.octane, spec.compression_ratio) - coolant_knock_penalty_deg(coolant_c)
 	knock_excess = maxf(spec.ignition_offset_deg - knock_limit, 0.0)
 	if running and knock_excess > 0.0 and not _knocking:
@@ -421,6 +433,11 @@ func _advance(delta: float, spec: EngineSpec, throttle: float, ignition: bool, s
 		rpm = omega * 60.0 / TAU
 	limiter_active = intake.limiter_cut
 	torque = torque_sum / SUBSTEPS
+	if _thermal != null:
+		var wall_loss_end := 0.0
+		for cylinder in cylinders:
+			wall_loss_end += cylinder.wall_loss_j
+		_advance_thermal(delta, wall_loss_end - wall_loss_start, spec)
 
 
 # Two-stroke physics step: crankcase compression + cylinder combustion + expansion chamber
@@ -442,6 +459,11 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 	var torque_sum := 0.0
 	
 	_warm_fluids(delta, spec)
+	var wall_loss_start := 0.0
+	if _thermal != null:
+		for cylinder in cylinders:
+			cylinder.wall_temp_k = _thermal.wall_k
+			wall_loss_start += cylinder.wall_loss_j
 	var knock_limit := knock_limit_deg(fuel.octane, spec.compression_ratio) - coolant_knock_penalty_deg(coolant_c)
 	knock_excess = maxf(spec.ignition_offset_deg - knock_limit, 0.0)
 	if running and knock_excess > 0.0 and not _knocking:
@@ -529,6 +551,11 @@ func _advance_two_stroke(delta: float, spec: EngineSpec, throttle: float, igniti
 	rpm = omega * 60.0 / TAU
 	limiter_active = intake.limiter_cut
 	torque = torque_sum / SUBSTEPS
+	if _thermal != null:
+		var wall_loss_end := 0.0
+		for cylinder in cylinders:
+			wall_loss_end += cylinder.wall_loss_j
+		_advance_thermal(delta, wall_loss_end - wall_loss_start, spec)
 
 
 # Volume flow into the intake valves since the last take, one sample per audio frame. The caller owns the array.
@@ -940,8 +967,36 @@ func _warm_fluids(dt: float, spec: EngineSpec) -> void:
 	var burn_w := fuel_flow * 0.001 * fuel.lhv
 	var oil_gap := maxf(spec.oil_operating_c - oil_c, 0.0)
 	oil_c = minf(oil_c + (oil_gap / 80.0 + (burn_w * 0.000015 if oil_gap > 0.0 else 0.0)) * dt, spec.oil_operating_c)
-	var cool_gap := maxf(spec.coolant_operating_c - coolant_c, 0.0)
-	coolant_c = minf(coolant_c + (cool_gap / 50.0 + (burn_w * 0.00002 if cool_gap > 0.0 else 0.0)) * dt, spec.coolant_operating_c)
+	if _thermal == null:
+		var cool_gap := maxf(spec.coolant_operating_c - coolant_c, 0.0)
+		coolant_c = minf(coolant_c + (cool_gap / 50.0 + (burn_w * 0.00002 if cool_gap > 0.0 else 0.0)) * dt, spec.coolant_operating_c)
+
+
+func _prepare_thermal(spec: EngineSpec) -> void:
+	var values := [spec.wall_heat_capacity_j_k, spec.coolant_heat_capacity_j_k, spec.wall_coolant_conductance_w_k, spec.radiator_conductance_w_k]
+	if not spec.thermal_balance_enabled():
+		if _thermal != null:
+			for cylinder in cylinders:
+				if cylinder is Cylinder:
+					cylinder.wall_temp_k = Cylinder.WALL_TEMP
+				elif cylinder is TwoStrokeCylinder:
+					cylinder.wall_temp_k = TwoStrokeCylinder.WALL_TEMP
+		_thermal = null
+		_thermal_key = ""
+		return
+	var key := str(values)
+	if _thermal == null or key != _thermal_key:
+		var coolant_k := (coolant_c if _fluids_set else spec.coolant_temp_c) + 273.15
+		var wall_k: float = _thermal.wall_k if _thermal != null else coolant_k
+		_thermal = ThermalBalance.new(values[0], values[1], wall_k, coolant_k)
+		_thermal_key = key
+
+
+func _advance_thermal(dt: float, gas_heat_j: float, spec: EngineSpec) -> void:
+	if _thermal == null:
+		return
+	_thermal.advance(dt, gas_heat_j, spec.wall_coolant_conductance_w_k, spec.radiator_conductance_w_k, spec.ambient_temp_k)
+	coolant_c = _thermal.coolant_k - 273.15
 
 
 # How far the ignition can be advanced past the stock map before the engine knocks, degrees.

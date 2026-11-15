@@ -72,6 +72,10 @@ func _init() -> void:
 		return
 	for port in ["reed", "piston"]:
 		_compare(port)
+	if TwoStrokeKernel.config_size() >= 21:
+		_compare("piston", true)
+	if TwoStrokeKernel.config_size() < 21:
+		print("SKIP: installed native kernel has no configurable wall temperature")
 	print("two_stroke_native_test: %s" % ("PASSED" if failures == 0 else "FAILED (%d problems)" % failures))
 	quit(0 if failures == 0 else 1)
 
@@ -107,7 +111,7 @@ func _close(a: float, b: float, tol: float = REL_TOL) -> bool:
 	return absf(a - b) <= tol * maxf(1.0e-9, maxf(absf(a), absf(b)))
 
 
-func _compare(port: String) -> void:
+func _compare(port: String, variable_wall := false) -> void:
 	var spec := EngineSpec.new()
 	var p: Dictionary = Presets.PRESETS[PRESET]
 	for key in p.keys():
@@ -118,12 +122,17 @@ func _compare(port: String) -> void:
 	cyl.start_at(0.0)
 	var tank := FuelTank.new()
 	var cfg := _config(cyl)
+	if variable_wall:
+		cfg.append(cyl.wall_temp_k)
 	var state := _state(cyl, tank)
 	var step := 0
 	var bad := 0
 	for stage in SCRIPT:
 		var dphi: float = stage[0] * 6.0 * DT
 		for f in int(stage[8]):
+			if variable_wall:
+				cyl.wall_temp_k = 340.0 if step < 120 else 500.0
+				cfg[20] = cyl.wall_temp_k
 			var res: Vector2 = cyl.advance(dphi, DT, stage[1] * P0, 300.0, stage[7], true, tank, stage[2], stage[3], stage[4],
 				stage[5] * P0, stage[6])
 			state = TwoStrokeKernel.advance(state, cfg, dphi, DT, stage[1] * P0, 300.0, stage[7], true, tank.afr, tank.lhv,
@@ -166,4 +175,4 @@ func _compare(port: String) -> void:
 		if bad > 0:
 			break
 	failures += bad
-	print("%s: %d steps, %d problems" % [port, step, bad])
+	print("%s%s: %d steps, %d problems" % [port, " variable wall" if variable_wall else "", step, bad])

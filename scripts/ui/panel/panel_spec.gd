@@ -171,3 +171,19 @@ static func apply(panel: ControlPanel, spec: EngineSpec) -> void:
 	spec.abs_enabled = ControlPanel.ABS_AVAILABLE and panel._controls["abs_enabled"].selected == 1
 	spec.traction_control_enabled = ControlPanel.TRACTION_AVAILABLE and panel._controls["traction_control_enabled"].selected == 1
 	spec.slipper_clutch = panel._controls["slipper_clutch"].selected == 1
+
+	# ---- Two-stroke port geometry (no control on any page, so it comes straight from the preset) ----
+	# The four-stroke branch above writes valve timing from controls. A two-stroke is piston-ported: its port areas,
+	# port timings and crankcase pumping have no control anywhere on the panel, so nothing wrote them and the spec kept
+	# EngineSpec's defaults - transfer/exhaust/intake port area 0 mm2, expansion chamber off, crankcase ratio 1.5.
+	# That is why the RD350 fired while the starter was held and died the moment it was released.
+	if panel_stroke_type == "two_stroke":
+		for key in ["transfer_port_area_mm2", "exhaust_port_area_mm2", "intake_port_area_mm2",
+				"exhaust_port_open_deg", "exhaust_port_close_deg",
+				"intake_centre_deg", "intake_duration_deg", "intake_lift_mm",
+				"exhaust_centre_deg", "exhaust_duration_deg", "exhaust_lift_mm",
+				"reed_stiffness", "reed_damping", "oil_pump_type",
+				"expansion_chamber", "expansion_chamber_length_m", "expansion_chamber_volume_cc",
+				"header_primary_mm", "crankcase_compression_ratio"]:
+			if panel._vehicle_settings.has(key):
+				spec.set(key, panel._vehicle_settings[key])

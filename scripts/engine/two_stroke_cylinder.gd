@@ -79,6 +79,7 @@ var _residual_temp := T0 # K, its temperature: it is hot exhaust the scavenge le
 var _overlap_out := 0.0
 var _burnt := 0.0
 var wall_loss_j := 0.0
+var wall_temp_k := WALL_TEMP
 var _u := 0.0
 var enthalpy_in_j := 0.0
 var enthalpy_out_j := 0.0
@@ -398,7 +399,7 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		var wall_area := 2.0 * piston_area + PI * bore * maxf(liner, 0.0)
 		var w := absf(phi * PI / 180.0) # rough crank speed estimate
 		var h_wall := WALL_HEAT * pow(maxf(w, 1.0) / WALL_REF_W, 0.8)
-		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt
+		var q_loss := h_wall * wall_area * (temp - wall_temp_k) * sdt
 		wall_loss_j += q_loss
 		_u -= q_loss
 
