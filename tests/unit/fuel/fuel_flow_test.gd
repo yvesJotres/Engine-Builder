@@ -25,15 +25,24 @@ func _init() -> void:
 	var zero_frames := 0
 	var lo := 1.0e9
 	var hi := 0.0
+	var samples: Array[float] = []
 	for i in 240: # four seconds, read once per frame as the game does
 		sim.step(1.0 / 60.0, spec, 0.0, true, false, false, false, 1.0)
-		if sim.fuel_flow < 0.01:
-			zero_frames += 1
+		samples.append(sim.fuel_flow)
 		lo = minf(lo, sim.fuel_flow)
 		hi = maxf(hi, sim.fuel_flow)
-	print("fuel flow at idle: %.3f to %.3f g/s, %d of 240 frames near zero" % [lo, hi, zero_frames])
-	check(zero_frames == 0, "the fuel flow never drops to zero between injections, %d frames did" % zero_frames)
-	check(hi < 3.0 * maxf(lo, 0.001), "the fuel flow is steady at idle (%.3f to %.3f g/s)" % [lo, hi])
+	var sorted := samples.duplicate()
+	sorted.sort()
+	var median: float = sorted[sorted.size() / 2]
+	# The check is on a dropout, not on an absolute level: idle fuel flow is around 0.01 g/s, so a fixed floor
+	# sits right on the operating point and flips on the mixture, not on a dropout. A frame at half the median
+	# or below is what "the reading fell between injections" looks like.
+	for value in samples:
+		if value <= median * 0.5:
+			zero_frames += 1
+	print("fuel flow at idle: %.4f to %.4f g/s, median %.4f, %d of 240 frames below half the median" % [lo, hi, median, zero_frames])
+	check(zero_frames == 0, "the fuel flow never drops out between injections, %d frames did" % zero_frames)
+	check(hi < 3.0 * maxf(lo, 0.001), "the fuel flow is steady at idle (%.4f to %.4f g/s)" % [lo, hi])
 	var cylinder := sim.cylinders[0]
 	var peak_exhaust_flow := 0.0
 	for angle in range(0, 720, 4):

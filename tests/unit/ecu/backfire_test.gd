@@ -1,7 +1,8 @@
 extends SceneTree
 
-# Checks backfire: none at idle or while the spark fires, and at least one once the rev limiter cuts the spark with fuel still
-# going in. Run: godot --headless -s tests/unit/ecu/backfire_test.gd (exit code 1 on failure)
+# Checks backfire: none at idle, none while the engine makes power, and none on the rev limiter. The limiter cuts the FUEL
+# (per cycle, at intake closing), so a cut cycle carries nothing unlit into the exhaust.
+# Run: godot --headless -s tests/unit/ecu/backfire_test.gd (exit code 1 on failure)
 
 var _fails := 0
 
@@ -21,7 +22,7 @@ func _init() -> void:
 	for i in 600:
 		sim.step(1.0 / 60.0, spec, 0.0, true, false, false, false, 1.0)
 	check(sim.running and sim.backfire_count == 0, "idle: running, no backfire (%d)" % sim.backfire_count)
-	# full throttle until the limiter cuts the spark
+	# full throttle until the limiter cuts the fuel
 	var before_limiter := -1
 	var cut_seen := false
 	for i in 3600:
@@ -31,9 +32,9 @@ func _init() -> void:
 			before_limiter = sim.backfire_count
 		if cut_seen and sim.backfire_count > 0:
 			break
-	check(cut_seen, "the limiter cut the spark (rpm %.0f)" % sim.rpm)
+	check(cut_seen, "the limiter cut the fuel (rpm %.0f)" % sim.rpm)
 	check(before_limiter == 0, "no backfire while the spark fired up to the limiter (%d)" % before_limiter)
-	check(sim.backfire_count == 0, "no backfire during the limiter cut, because the limiter cuts fuel as well as spark (%d)" % sim.backfire_count)
+	check(sim.backfire_count == 0, "no backfire during the limiter cut, because a cut cycle gets no fuel at all (%d)" % sim.backfire_count)
 	check(sim.last_backfire_j == 0.0, "no backfire energy is released in a limiter cut (%.1f J)" % sim.last_backfire_j)
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))
 	quit(1 if _fails > 0 else 0)

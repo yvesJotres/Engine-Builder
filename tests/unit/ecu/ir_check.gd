@@ -57,8 +57,12 @@ func _init() -> void:
 	# the exact pulse timing, which the fuel film changes during a tip-in. A band stays put, and an over-filtered response would send it near 0.
 	var mid_avg := _band(output, 1500.0, 2500.0)
 	var high_avg := _band(output, 3500.0, 4500.0)
-	check(mid_avg > 0.05, "simulated exhaust retains audible 2 kHz content")
-	check(high_avg > 0.02, "simulated exhaust retains audible 4 kHz content")
+	# The gates are ratios to the block's own RMS, not absolute levels: the absolute energy at 2 and 4 kHz moves
+	# with whatever flow the exhaust model hands the synth (the collector/canister work changed it by about 4 dB),
+	# but a muffled response that gutted the top end would drop the ratio, and that is what these check. For
+	# reference on the current model: mid 6.0x RMS, high 2.8x RMS.
+	check(mid_avg > 4.0 * rms, "simulated exhaust retains audible 2 kHz content (%.1fx RMS, wanted >4x)" % (mid_avg / maxf(rms, 1e-9)))
+	check(high_avg > 2.0 * rms, "simulated exhaust retains audible 4 kHz content (%.1fx RMS, wanted >2x)" % (high_avg / maxf(rms, 1e-9)))
 	print("generated RMS %.3f, 2 kHz probe %.3f, 4 kHz probe %.3f, 2 kHz band %.3f, 4 kHz band %.3f, render 0.1 s %.2f ms" % [rms, mid_band, high_band, mid_avg, high_avg, elapsed_ms])
 	sound.free()
 	print("RESULT: " + ("FAIL" if _fails > 0 else "PASS"))

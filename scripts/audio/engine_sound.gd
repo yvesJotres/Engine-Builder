@@ -11,14 +11,51 @@ extends AudioStreamPlayer3D
 # Intake noise is mixed in at low level for realism at idle/part-throttle.
 
 const RATE := 44100.0
+# The generator tops the buffer up from _process, and it asks for whatever room is left: with the
+# 0.25 s buffer empty that is 11 025 samples of a per-sample GDScript loop in ONE frame. One slow
+# frame empties the buffer, the next frame then renders the whole buffer, which is slower still -
+# the audio deadlocks the game at 3 fps (measured: cranking with sound on 3.4 fps, sound off 62.4).
+# A block ceiling bounds the work per frame: 2048 samples is 46 ms, so a 60 fps frame (735 samples)
+# still catches up on a starved buffer and a hitch can never snowball.
+const MAX_BLOCK := 2048
+# Even with a capped kernel the synth costs about 11 ms of CPU for one 60 Hz frame of four-cylinder
+# sound on this class of phone, which is most of the frame on its own (measured: Kawasaki ZX-25R
+# cranking at 16 fps with sound, 62 fps with it off). Rendering is therefore time-boxed: the frame
+# gives audio a fixed slice and takes whatever has been mixed, so a slow synth makes the sound
+# choppy instead of stopping the game. The proper fix - mixing on the audio thread - is a change to
+# how the flow handoff works; this keeps the frame safe until then.
+const AUDIO_BUDGET_USEC := 4000
+const AUDIO_CHUNK := 512
 const MAX_TAPS := 16384 # 372 ms at 44.1 kHz: longer than any bundled impulse response, so none is truncated
+# The convolution runs once per rendered sample, so its cost is taps x samples: a 16 384-tap body measured
+# 18.5 ms on the phone for one 60 Hz frame of audio (735 samples), which is more than the frame budget on
+# its own. 2048 taps is 46 ms of tail, which keeps the muffler's body and early reflections; the rest of the
+# 372 ms tail is room, and on a phone it is not worth 7x the frame time. Desktop keeps the full response.
+const MOBILE_TAPS := 2048
 const FALLBACK_TAPS := 64 # GDScript FIR when the native library is missing: short, but audible
 const WET := 0.84
 const BACKFIRE_DURATION := 0.02
+# A real backfire, measured against the recorded ZX-6R clip in sound/Zx6r backfire.mp4: its spectrum is centred near 240 Hz
+# with 62 % of the energy below 200 Hz, 35 % from 200 Hz to 1 kHz and almost nothing above 4 kHz, each bang rings for
+# 0.1-0.3 s, and they arrive a few times a second - not 48. Our first version was 12 kHz bright and fired every cycle: a
+# hiss. These constants are fitted to that recording, not guessed.
+const POP_SECONDS := 0.18 # s, how long one bang rings
+const POP_HZ := 70.0 # Hz, the thump under the crack
+const POP_LP_HZ := 1200.0 # Hz, one-pole roll-off: a pipe bang is dark, and the recording is 62 % below 200 Hz
+const POP_MIN_GAP := 0.11 # s, refractory: one bang masks the next, so 48 pops a second must not sum into a hiss
+const POP_GAIN := 0.011 # output amplitude per sqrt(joule)
+const POP_MAX := 0.18 # never louder than this, however big the bang
 const IR_MUFFLER := "res://assets/ir/mild_exhaust.wav"
 const IR_OPEN := "res://assets/ir/sharp_01.wav"
 const INTAKE_MIX := 0.15 # intake noise level relative to exhaust
 const INTAKE_HZ := 1400.0 # the intake honk, brighter than the muffled exhaust body
+# Spatial falloff. The tailpipe is a point source: pressure falls as 1/r, 6.02 dB per doubling (SpatialFalloff has
+# the model and why the inverse-SQUARE model would double-count). UNIT_SIZE is the 1/r reference distance, 1.8 m;
+# MAX_DB caps the near field, so the engine is level inside 1.27 m and 1/r from there out; MAX_DISTANCE is Godot's
+# linear cull to silence, placed 100x the reference (40 dB down, 180 m) so it never warps the audible curve.
+const UNIT_SIZE := 18.0
+const MAX_DB := 3.0
+const MAX_DISTANCE := SpatialFalloff.CULL_FACTOR * UNIT_SIZE
 
 static var _kernels := {}
 static var _generated_irs := {} # per-engine bodies built from the base IR + ExhaustIr
@@ -46,7 +83,14 @@ var _fire_frames := 0.0 # audio frames since the engine started firing
 var _flow_scale := ExhaustSound.BASE_FLOW_SCALE
 var _delay := PackedFloat32Array()
 var _dp := 0
+var _pop_left := 0.0 # s of bang left
+var _pop_amp := 0.0
+var _pop_phase := 0.0
+var _pop_gap := 0.0 # s left of the refractory period
+var _pop_lp := 0.0 # one-pole low-pass state
+var _pop_seed := 12345
 var compressor_load := 0.0
+var output_rms := 0.0 # level of the last rendered block, for the SPL meter at 1 m
 var _compressor_phase := 0.0
 var _compressor_blades := 9.0
 var drive := SoundContext.new() # what the sound layers need to know: the game fills it every frame
@@ -76,6 +120,13 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	# again pushed a large engine past the clipper, which turned the firing ripple into a buzz.
 	_flow_scale = ExhaustSound.BASE_FLOW_SCALE
 	_ir = _load_ir(_spec, layout)
+	if OS.has_feature("mobile") and _ir.size() > MOBILE_TAPS:
+		# Fade the cut end into silence over the last 64 samples, so truncating cannot click.
+		var cut := _ir.slice(0, MOBILE_TAPS)
+		var fade := mini(64, MOBILE_TAPS)
+		for i in fade:
+			cut[MOBILE_TAPS - fade + i] *= float(fade - i) / float(fade)
+		_ir = cut
 	_conv = null
 	if ClassDB.class_exists("AudioConvolver"):
 		_conv = ClassDB.instantiate("AudioConvolver")
@@ -89,10 +140,13 @@ func setup(_spec: EngineSpec, layout: ExhaustLayout = null) -> void:
 	gen.mix_rate = RATE
 	gen.buffer_length = 0.25
 	stream = gen
-	# The camera sits about 11 scene units off the engine (1 unit = 10 cm). unit_size keeps that seat loud
-	# and lets a longer camera pull the tailpipe away.
-	unit_size = 18.0
-	max_distance = 80.0
+	# The camera sits about 11 scene units off the engine (1 unit = 10 cm), inside the UNIT_SIZE near field, so the
+	# seat keeps its old level to within 1.2 dB: +2.95 dB here, +1.72 dB with the old 80-unit cull pulling the far end
+	# down. From the cap (12.7 units, 1.27 m) out it is pure 1/r. The model is stated once, in SpatialFalloff.
+	attenuation_model = ATTENUATION_INVERSE_DISTANCE
+	unit_size = UNIT_SIZE
+	max_db = MAX_DB
+	max_distance = MAX_DISTANCE
 	attenuation_filter_cutoff_hz = 5000.0
 
 
@@ -139,6 +193,7 @@ func render(frames: int) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	out.resize(frames)
 	if not audio_enabled or frames <= 0:
+		output_rms = 0.0
 		return out
 	# time since the engine started firing: the rpm-locked layers fade in over it, so a catch does not sweep like a spaceship
 	_fire_frames = _fire_frames + frames if drive.running else 0.0
@@ -167,6 +222,7 @@ func render(frames: int) -> PackedVector2Array:
 		# Keep a small direct edge alongside the convolved body.
 		var mix := wet[i] * WET + body[i] * (1.0 - WET) + body[i] * 0.40
 		var sample := exh.shape(mix + direct[i], drive.running)
+		sample += _pop_sample() # the bang sits on top of the shaped note, after the shaper's gain
 		_delay[_dp] = sample
 		var side := _delay[(_dp + 18) % 32]
 		_dp = (_dp + 1) % 32
@@ -174,6 +230,10 @@ func render(frames: int) -> PackedVector2Array:
 	if exh.starved:
 		starved = true
 		exh.starved = false
+	var acc := 0.0
+	for i in frames:
+		acc += out[i].x * out[i].x
+	output_rms = sqrt(acc / float(frames))
 	return out
 
 
@@ -210,16 +270,39 @@ func _fallback_taps() -> int:
 
 # With no gas solver bound, a backfire is a short volume-flow pulse so the pop is still audible.
 # When ExhaustGas is running, the energy is already in the pipe and this does not add a second one.
+# A backfire, mixed in AFTER the exhaust shaping: an event on top of the note, never a replacement for it. Writing it into the
+# volume flow (as this used to) made a crackle take over most of the stream, and the shaper's gain then ducked the engine's own
+# note - turning decel pops on muted everything else.
 func backfire(energy_j: float, _cylinder_index: int = 0) -> void:
 	if energy_j <= 0.0:
 		return
-	var count := maxi(2, roundi(BACKFIRE_DURATION * RATE))
-	var amp := 0.016 * sqrt(energy_j)
-	var pulse := PackedFloat32Array()
-	pulse.resize(count)
-	for i in count:
-		pulse[i] = exh._q + amp * sin(PI * float(i) / float(count))
-	push_flow(pulse)
+	if _pop_gap > 0.0:
+		return # still inside the last bang: one bang per event, not one per cycle
+	_pop_amp = clampf(POP_GAIN * sqrt(energy_j), 0.0, POP_MAX)
+	_pop_left = POP_SECONDS
+	_pop_gap = POP_MIN_GAP
+
+
+# One bang: a low body with a short crack on it. Deterministic (fixed-seed LCG), so a render is reproducible to the sample.
+func _pop_sample() -> float:
+	_pop_gap = maxf(_pop_gap - 1.0 / RATE, 0.0)
+	if _pop_left <= 0.0:
+		return 0.0
+	_pop_left = maxf(_pop_left - 1.0 / RATE, 0.0)
+	var env := _pop_left / POP_SECONDS
+	env *= env
+	_pop_phase = fposmod(_pop_phase + TAU * POP_HZ / RATE, TAU)
+	# the pipe's own low resonance above the thump: the 200-1k band that the recording carries 35 % of
+	var thump := sin(_pop_phase) * 0.8 + sin(_pop_phase * 4.7) * 0.45
+	# noise through a one-pole low pass: the body of the bang, not a hiss
+	var noise := _pop_noise()
+	_pop_lp += (noise - _pop_lp) * (1.0 - exp(-TAU * POP_LP_HZ / RATE))
+	return _pop_amp * env * (thump + _pop_lp * 1.1)
+
+
+func _pop_noise() -> float:
+	_pop_seed = (_pop_seed * 1103515245 + 12345) & 0x7fffffff
+	return float(_pop_seed) / 1073741823.5 - 1.0
 
 
 func clear_pending() -> void:
@@ -233,6 +316,7 @@ func clear_pending() -> void:
 	exh.reset()
 	_hist.fill(0.0)
 	_delay.fill(0.0)
+	output_rms = 0.0
 	_hp = 0
 	_dp = 0
 	if _conv != null:
@@ -249,8 +333,16 @@ func _process(_delta: float) -> void:
 		return
 	var room := pb.get_frames_available()
 	starved = room > int(stream.buffer_length * RATE * 0.9)
-	if room > 0:
-		pb.push_buffer(render(room))
+	room = mini(room, MAX_BLOCK)
+	if room <= 0:
+		return
+	var started := Time.get_ticks_usec()
+	while room > 0:
+		var chunk := mini(room, AUDIO_CHUNK)
+		pb.push_buffer(render(chunk))
+		room -= chunk
+		if Time.get_ticks_usec() - started >= AUDIO_BUDGET_USEC:
+			break
 
 
 # The intake is not run through the muffler. It is the valve flow itself, duller than a raw pulse and quieter than the tail.

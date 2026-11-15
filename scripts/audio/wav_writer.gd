@@ -73,18 +73,31 @@ func store_samples(frames: PackedVector2Array) -> void:
 			_store_sample(frames[i].y)
 	data_size += frame_count * block_align
 
+# Scales a sample to a signed integer of the given full-scale value. +1.0 and -1.0 have different room in two's
+# complement (32767 against -32768), so each side is scaled by its own limit: scaling -1.0 by 32767 gives -32767,
+# and scaling it by -32768 after a clamp would wrap to +32768 and clip as a click.
+func _to_int(value: float, full: int) -> int:
+	if value >= 0.0:
+		return int(value * float(full))
+	return int(value * float(full + 1))
+
+
 func _store_sample(value: float) -> void:
 	value = clampf(value, -1.0, 1.0)
 	if bits_per_sample == 16:
-		file.store_16(int(value * 32767.0))
+		file.store_16(_to_int(value, 32767))
 	elif bits_per_sample == 24:
-		file.store_buffer(_i24_to_bytes(int(value * 8388607.0)))
+		file.store_buffer(_i24_to_bytes(_to_int(value, 8388607)))
 	else:
 		file.store_float(value)
 
 # Finishes the WAV: patches the RIFF and data chunk sizes, closes the file.
 func finish() -> void:
 	if not header_written:
+		# Nothing was written, but the file was opened: close it, or the handle leaks (and on Windows the file stays locked).
+		if file != null:
+			file.close()
+			file = null
 		return
 	file.seek_end()
 	var padding := data_size % 2

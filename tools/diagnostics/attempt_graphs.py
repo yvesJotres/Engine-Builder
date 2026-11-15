@@ -50,6 +50,8 @@ ATTEMPTS = [
     # Diagnostic sensitivity only: runner length (ATG cbr250rr_sp.mr [EST] 240 mm) with the Cd 0.45 diagnostic.
     ("cd045_runner240", "native", ["valve_cd=0.45", "runner_length_m=0.24"]),
     ("cd045_runner080", "native", ["valve_cd=0.45", "runner_length_m=0.08"]),
+    # Chen-Flynn Reitz friction + 170 mm runner, 8.0/7.5 mm lift, 252 deg exhaust centre, Cd 0.75.
+    ("cbr2020_physical_friction", "native", []),
 ]
 
 

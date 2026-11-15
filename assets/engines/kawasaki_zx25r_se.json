@@ -39,7 +39,7 @@
     "slipper_ramp": 0.5
   },
   "valvetrain": {
-    "header_primary_mm": 42.0,
+    "header_primary_mm": 27.0,
     "runner_length_m": 0.103,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,
@@ -76,8 +76,8 @@
       "quickshifter_cut_time": 0.05,
       "quickshifter_min_rpm": 3000.0,
       "power_mode": "F",
-      "has_launch_control": true,
-      "launch_control": true,
+      "has_launch_control": false,
+      "launch_control": false,
       "launch_rpm": 8000.0,
       "launch_throttle": 0.95,
       "launch_speed_kmh": 30.0

@@ -1,0 +1,24 @@
+[remap]
+
+importer="wav"
+type="AudioStreamWAV"
+uid="uid://cipmajnpntah3"
+path="res://.godot/imported/WhatsApp Video 2026-11-10 at 21.14.55.wav-830ab886cc5c8d002b865354290e73c7.sample"
+
+[deps]
+
+source_file="res://assets/WhatsApp Video 2026-11-10 at 21.14.55.wav"
+dest_files=["res://.godot/imported/WhatsApp Video 2026-11-10 at 21.14.55.wav-830ab886cc5c8d002b865354290e73c7.sample"]
+
+[params]
+
+force/8_bit=false
+force/mono=false
+force/max_rate=false
+force/max_rate_hz=44100
+edit/trim=false
+edit/normalize=false
+edit/loop_mode=0
+edit/loop_begin=0
+edit/loop_end=-1
+compress/mode=2

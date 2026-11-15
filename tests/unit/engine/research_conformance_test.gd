@@ -117,9 +117,14 @@ func _heat_transfer() -> void:
 # --- 9. Friction -------------------------------------------------------------
 func _friction() -> void:
 	# Chen-Flynn form: a constant, a peak-pressure term and a mean-piston-speed term.
-	_near(EngineSim.REITZ_FMEP_C, 0.25, 1e-9, "Chen-Flynn constant term is 0.25 bar (Reitz 2018) [09]")
-	_near(EngineSim.REITZ_PF, 0.005, 1e-9, "Chen-Flynn peak-pressure factor is 0.005 (Reitz 2018) [09]")
-	_check(EngineSim.REITZ_MPSF > 0.0, "friction carries a mean-piston-speed term [09]")
+	_near(EngineSim.FMEP_CONST_BAR, 0.25, 1e-9, "Chen-Flynn constant term is 0.25 bar (Reitz 2018) [09]")
+	_near(EngineSim.FMEP_PMAX_BAR, 0.005, 1e-9, "Chen-Flynn peak-pressure factor is 0.005 (Reitz 2018) [09]")
+	_check(EngineSim.FMEP_MPS_BAR > 0.0, "friction carries a mean-piston-speed term [09]")
+	var spec := EngineSpec.new()
+	spec.stroke_mm = 41.4
+	var low: float = EngineSim.fmep_pa_for(spec, 3000.0, 40.0e5) / 1e5
+	var high: float = EngineSim.fmep_pa_for(spec, 13000.0, 60.0e5) / 1e5
+	_check(high > low and low > 0.0, "FMEP rises with speed and load (%.2f to %.2f bar)" % [low, high])
 
 
 # --- 10. Drivetrain ----------------------------------------------------------

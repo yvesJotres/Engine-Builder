@@ -5,7 +5,8 @@ const ONLINE := preload("res://scripts/dyno/online_dyno.gd")
 func _init() -> void:
 	var reference := ONLINE.for_preset("honda_cbr1000rrr_sp")
 	assert(reference.year == 2020 and reference.market == "UK")
-	assert(ONLINE.for_preset("yamaha_yzf_r1m").is_empty())
+	assert(ONLINE.for_preset("yamaha_yzf_r1m").peak_power_hp == 178.2) # the R1M's own rear-wheel reference
+	assert(ONLINE.for_preset("yamaha_mt07").is_empty()) # a preset with no reference file reads as none
 	assert(ONLINE.for_preset("../honda_cbr1000rrr_sp").is_empty())
 	var source := [{"rpm": 10000.0, "torque": 100.0, "hp": 140.0}]
 	var wheel := ONLINE.wheel_estimate(source)
@@ -61,7 +62,8 @@ func _init() -> void:
 	assert(view._panel.get_rect().end.y <= 720.0 - 250.0)
 	var scroll: ScrollContainer = view._panel.get_child(0)
 	assert(scroll.get_v_scroll_bar().max_value > scroll.get_v_scroll_bar().page)
-	dyno.reference_id = "yamaha_yzf_r1m"
+	# A bike with no reference file must show no online comparison. The R1M has one now, so use one that does not.
+	dyno.reference_id = "yamaha_mt07"
 	view.refresh(dyno)
 	assert(not view._basis.visible and view._basis.selected == 0 and not view._online_status.visible)
 	assert(not view._graph._reference_power and view._graph._reference.is_empty())

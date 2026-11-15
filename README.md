@@ -36,13 +36,13 @@ godot --path D:/Projects/Engine\ Builder
 ### Controls
 | Input | Action |
 |-------|--------|
-| `W` / `↑` | Throttle / starter crank |
+| `W` / `↑` | Throttle |
 | `S` / `↓` | Close throttle |
 | `Shift` | Pull clutch fully |
 | `Q` / `E` | Downshift / upshift |
-| `B` | Brake |
+| `B` / `Space` | Brake |
 | `K` | Toggle kill switch |
-| `Space` / `Esc` | Pause |
+| `Esc` | Pause |
 | Touch | On-screen throttle/clutch/brake/shift/starter |
 
 ---

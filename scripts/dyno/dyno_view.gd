@@ -17,7 +17,9 @@ const ABOVE_DASH := 266.0 # the dashboard occupies the bottom 250px plus a gap
 const GEAR_ROWS := 10
 const DYNO_GRAPH_SCRIPT := preload("res://scripts/dyno/dyno_graph.gd")
 const ONLINE_DYNO := preload("res://scripts/dyno/online_dyno.gd")
-const GRAPH_FOLDER := "C:/Users/Yves Caesario/Downloads/dyno_graphs"
+# Inside the app's own data folder. It used to be one developer's Downloads folder, which only exists on that PC:
+# on every other machine and on every phone the graph could not be written, and the screen said "Could not save".
+const GRAPH_FOLDER := "user://dyno_graphs"
 
 var _root: Control
 var _panel: PanelContainer

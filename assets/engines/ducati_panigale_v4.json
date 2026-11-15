@@ -18,6 +18,7 @@
     "compression_ratio": 14.8,
     "twin_pin_deg": 360.0,
     "split_pin_v4": true,
+    "shared_v_crankpins": true,
     "crossplane": false,
     "fire_deg": [
       0.0,
@@ -38,7 +39,7 @@
     "wheel_radius_m": 0.3069
   },
   "valvetrain": {
-    "header_primary_mm": 52.0,
+    "header_primary_mm": 40.0,
     "runner_length_m": 0.123,
     "intake_centre_deg": 470.0,
     "intake_duration_deg": 240.0,

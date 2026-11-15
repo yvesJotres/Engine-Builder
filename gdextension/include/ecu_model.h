@@ -47,9 +47,10 @@ public:
 	static constexpr double OVERRUN_CUT = 2.2;
 	static constexpr double OVERRUN_RESUME = 1.25;
 	static constexpr double CATCH_RPM_FRAC = 0.25; // below this fraction of the target the valve opens wide until the engine catches
-	static constexpr double LAUNCH_RAMP_RATE = 500.0;
-	static constexpr double LAUNCH_SLIP_RATE = 0.3;
-	static constexpr double LAUNCH_HOLD_GAIN = 10.0; // estimate, as in ecu.gd
+	static constexpr double LAUNCH_HOLD_GAIN = 10.0; // proportional, as in ecu.gd
+	static constexpr double LAUNCH_HOLD_KI = 30.0; // integral: nulls the proportional term's steady rpm offset
+	static constexpr double LAUNCH_BIAS_LIMIT = 1.0;
+	static constexpr double LAUNCH_LOCK = 0.98; // clutch engagement at which the launch hands the driveline back
 
 	double target_rpm = 1200.0;
 	double trim = 0.0;
@@ -66,7 +67,7 @@ public:
 	double air_factor() const;
 
 	// spec may be null (ecu.gd's default). Returns the throttle override: -1 none, 0 cut, >0 blip.
-	double update(double dt, double rpm, double throttle, bool running, const EcuSpec *spec, double speed_ms, double clutch_pull, int gear);
+	double update(double dt, double rpm, double throttle, bool running, const EcuSpec *spec, double speed_ms = 0.0, double clutch_pull = 0.0, int gear = 0, double clutch_engage = 0.0);
 	bool trigger_quickshifter(const EcuSpec &spec);
 	bool trigger_quickshifter_downshift(const EcuSpec &spec);
 
@@ -85,6 +86,8 @@ private:
 	bool launch_active_ = false;
 	double launch_target_rpm_ = 0.0;
 	double launch_throttle_ = 1.0;
+	double launch_bias_ = 0.0;
+	int launch_gear_ = 0;
 	double power_mode_lambda_mult_ = 1.0;
 	double power_mode_timing_offset_ = 0.0;
 	double current_rpm_ = 0.0;

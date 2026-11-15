@@ -96,7 +96,7 @@ static func write_build(panel: ControlPanel, build_name: String) -> void:
 	config.set_value(build_name, "controls", values)
 	config.set_value(build_name, "preset_data", panel._vehicle_settings)
 	config.set_value(build_name, "preset_id", panel._preset_ids[panel._preset_button.selected] if panel._preset_button.selected >= 0 else "")
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
+	for key in ["compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
 		config.set_value(build_name, key, panel.get(key))
 	var err := config.save(panel.builds_path)
 	panel._build_status.text = "Saved: " + build_name if err == OK else "Could not save build (error %d)." % err
@@ -138,12 +138,13 @@ static func load_build(panel: ControlPanel) -> void:
 		values["qs_enabled"] = values["quickshifter"]
 	for key in ["qs_enabled", "launch_control", "abs_enabled", "traction_control_enabled"]:
 		panel._controls[key].select(0)
-	for key in ["rod_ratio", "compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
+	for key in ["compression_ratio", "crossplane", "fire_deg", "bank_angle", "vehicle_kg", "primary_ratio", "exhaust_valve_mm", "wall_heat_scale", "valve_cd", "final_drive", "gear_ratios"]:
 		var value: Variant = config.get_value(build_name, key, panel.get(key))
 		if typeof(value) == typeof(panel.get(key)):
 			panel.set(key, value)
-	# Builds saved before the intake valve and runner were controls kept them as plain values: move them across.
-	for key in ["intake_valve_mm", "runner_length_m"]:
+	# Builds saved before the intake valve and runner were controls kept them as plain values: move them across. The
+	# same for the conrod ratio, which used to be a preset value with no row on screen.
+	for key in ["intake_valve_mm", "runner_length_m", "rod_ratio"]:
 		if not values.has(key) and config.has_section_key(build_name, key):
 			values[key] = config.get_value(build_name, key)
 	panel._set_quiet(panel._controls["bank_angle"], panel.bank_angle)
@@ -163,6 +164,10 @@ static func load_build(panel: ControlPanel) -> void:
 			panel._select_text(control, values[key])
 		elif (def.type == "toggle") and values[key] is bool:
 			control.select(1 if values[key] else 0)
+	# The ratio is a control now, so it is restored from the build's own section key AFTER the controls dictionary: an
+	# older build's controls block carries the value the panel happened to be showing, which would overwrite the tweak.
+	panel._set_quiet(panel._controls["cr"], panel.compression_ratio)
+	panel.compression_ratio = panel._controls["cr"].value
 	panel.bank_angle = panel._controls["bank_angle"].value
 	var preset_index := panel._preset_ids.find(str(config.get_value(build_name, "preset_id", "")))
 	if preset_index >= 0:

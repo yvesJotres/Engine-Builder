@@ -27,7 +27,8 @@ public:
 		S_CRANKCASE_MASS, S_CRANKCASE_TEMP, S_CRANKCASE_PRESSURE, S_OIL_IN_CRANKCASE_KG,
 		S_TANK_MASS, // in and out: kg of fuel left in the tank
 		S_OUT_WORK, // out: cycle work returned by advance (Vector2.x), J
-		S_OUT_FUEL, // out: fuel consumed returned by advance (Vector2.y), kg (the GDScript never sets it, so always 0)
+		S_OUT_FUEL, // out: the air the intake manifold supplied, kg (TwoStrokeCylinder.advance returns this as Vector2.y)
+		S_FRESH_IN_KG, // fresh charge delivered during the scavenge window, kg: what the fuel charge is sized from
 		S_SIZE
 	};
 

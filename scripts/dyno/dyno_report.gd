@@ -162,6 +162,7 @@ static func to_csv(report: Dictionary) -> String:
 	var lines := PackedStringArray()
 	lines.append("gear,torque_nm,torque_rpm,hp,hp_rpm,top_kmh,top_kmh_rpm,end_reason,slip_mean_rpm,slip_peak_rpm,slip_peak_pct,slip_samples,reference_kmh,top_speed_error,top_speed_status")
 	for r in report.gears:
+		# slip_pct_peak is already a percentage (DynoTest stores slip / rpm * 100), so it is written as it is.
 		lines.append("%d,%.3f,%.0f,%.3f,%.0f,%.2f,%.0f,%s,%.2f,%.2f,%.3f,%.0f,%.2f,%.4f,%s" % [
 			r.gear, r.torque_nm, r.torque_rpm, r.hp, r.hp_rpm, r.top_kmh, r.top_kmh_rpm, r.end_reason,
 			r.slip_rpm_mean, r.slip_rpm_peak, r.slip_pct_peak, r.slip_samples, r.reference_kmh, r.top_speed_error, r.top_speed_status])

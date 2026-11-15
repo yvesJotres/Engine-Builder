@@ -107,15 +107,21 @@ def print_table(rows: list) -> None:
               f"{r['tone_hz']:8.0f} {r['crackle_per_s']:10.1f}")
 
 
-def plot(path: Path, at: float) -> Path:
+def plot(path: Path, at: float, max_hz: int = 4000, win: int = 2048) -> Path:
+    """Spectrogram and waveform PNG.
+
+    max_hz and win exist because a mechanical transient is not an engine note: a throttle
+    hitting its stop is over in tens of milliseconds and its energy sits at 14-19 kHz, so
+    the 4 kHz ceiling and 46 ms window that suit an exhaust note show only the low thud.
+    """
     x = _read(path)
     fig, ax = plt.subplots(2, 1, figsize=(11, 8), gridspec_kw={"height_ratios": [1.3, 1]})
-    f, t, S = spectrogram(x, RATE, nperseg=2048, noverlap=1536)
+    f, t, S = spectrogram(x, RATE, nperseg=win, noverlap=int(win * 0.75))
     ax[0].pcolormesh(t, f, 10 * np.log10(S + 1e-12), shading="auto", vmin=-110, vmax=-30, cmap="magma")
-    ax[0].set_ylim(0, 4000)
+    ax[0].set_ylim(0, max_hz)
     ax[0].set_ylabel("Hz")
     ax[0].set_xlabel("s")
-    ax[0].set_title(f"{path.stem}: spectrogram (0-4 kHz)")
+    ax[0].set_title(f"{path.stem}: spectrogram (0-{max_hz // 1000 if max_hz >= 1000 else max_hz} kHz, win {win})")
     seg = x[int(at * RATE): int((at + 0.25) * RATE)]
     ax[1].plot(np.arange(len(seg)) / RATE * 1000, seg, lw=0.8)
     ax[1].set_xlabel("ms")
@@ -150,6 +156,10 @@ def main() -> None:
     pl = sub.add_parser("plot", help="spectrogram and waveform PNG")
     pl.add_argument("file")
     pl.add_argument("--at", type=float, default=2.0)
+    pl.add_argument("--max-hz", type=int, default=4000,
+                    help="spectrogram ceiling in Hz (default 4000; raise for mechanical transients)")
+    pl.add_argument("--win", type=int, default=2048,
+                    help="FFT window in samples (default 2048 ~ 46 ms; drop to 256 for a snap)")
 
     c = sub.add_parser("compare", help="render named variants and print their measurements")
     c.add_argument("--preset", default="yamaha_yzf_r1m")
@@ -165,7 +175,7 @@ def main() -> None:
     elif args.cmd == "stats":
         print_table([metrics(Path(f)) for f in args.files])
     elif args.cmd == "plot":
-        plot(Path(args.file), args.at)
+        plot(Path(args.file), args.at, args.max_hz, args.win)
     elif args.cmd == "compare":
         rows = []
         for v in args.variants.split(","):

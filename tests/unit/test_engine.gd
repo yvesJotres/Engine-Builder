@@ -87,19 +87,25 @@ func _init() -> void:
 	fly.bore_mm = 57.3
 	fly.flywheel_radius_mm = 57.3 # pinned: the default radius is now 75 mm, see engine_spec.gd
 	fly.flywheel_kg = 2.5
-	check(absf(fly.rotating_inertia() - 0.00593) < 0.0002, "CBR total rotating inertia with 2.5 kg flywheel, got %.5f" % fly.rotating_inertia())
-	var inertia_before := fly.rotating_inertia()
+	check(absf(fly.rotating_inertia() - 0.00679) < 0.0002, "CBR total rotating inertia with 2.5 kg flywheel, got %.5f" % fly.rotating_inertia())
+	# the flywheel's own ½·m·r² does not follow the bore; the crank does, because its counterweights are bore-sized
+	var flywheel_term := 0.5 * fly.flywheel_kg * pow(fly.flywheel_radius_mm * 0.001, 2.0)
+	var crank_before := fly.crank_inertia()
 	fly.bore_mm = 80.0
-	check(absf(fly.rotating_inertia() - inertia_before) < 0.0001, "flywheel inertia no longer follows the bore")
+	check(absf(0.5 * fly.flywheel_kg * pow(fly.flywheel_radius_mm * 0.001, 2.0) - flywheel_term) < 1e-12, "flywheel inertia no longer follows the bore")
+	check(fly.crank_inertia() > crank_before, "a bigger bore carries bigger counterweights, so more crank inertia")
 	fly.bore_mm = 57.3
 	fly.flywheel_kg = 5.0
-	check(absf(fly.rotating_inertia() - 0.01003) < 0.0002, "total rotating inertia with 5 kg flywheel, got %.5f" % fly.rotating_inertia())
+	check(absf(fly.rotating_inertia() - 0.01090) < 0.0002, "total rotating inertia with 5 kg flywheel, got %.5f" % fly.rotating_inertia())
 
 	# connecting rod: piston and small end move with the piston; the rod's big end turns with the crank
 	check(absf(cbr.reciprocating_kg() - 0.21) < 0.001, "reciprocating mass: piston plus rod small end, got %.3f" % cbr.reciprocating_kg())
-	check(absf(cbr.crank_inertia() - 0.00163) < 0.00005, "crankshaft inertia from its geometry, got %.5f" % cbr.crank_inertia())
-	check(absf(cbr.rotating_inertia() - 0.00886) < 0.0002, "rotating inertia with crank, rod, reciprocating mass and balancer, got %.5f" % cbr.rotating_inertia())
-	check(absf(cbr.rod_kg + cbr.crank_mass_kg() - 2.5) < 0.1, "crank plus rod about 2.5 kg (catalogue), got %.2f" % (cbr.rod_kg + cbr.crank_mass_kg()))
+	check(absf(cbr.crank_inertia() - 0.00250) < 0.00005, "crankshaft inertia from its parts, got %.5f" % cbr.crank_inertia())
+	check(absf(cbr.rotating_inertia() - 0.00972) < 0.0002, "rotating inertia with crank, rod, reciprocating mass and balancer, got %.5f" % cbr.rotating_inertia())
+	# the crank is its webs, pins, journals, flange and pulley; the flywheel is counted separately in flywheel_kg
+	check(absf(cbr.rod_kg + cbr.crank_mass_kg() - 2.67) < 0.1, "crank and rod from their parts, got %.2f" % (cbr.rod_kg + cbr.crank_mass_kg()))
+	check(cbr.main_journal_width_m() > 0.011 and cbr.crank_bay_m() < cbr.cylinder_pitch_m(), "the crank bay fits inside one cylinder pitch")
+	check(cbr.counterweight_radius_m() > cbr.crank_throw_m() + EngineSpec.CRANK_PIN_RADIUS, "the counterweight reaches past the crank pin")
 
 	# slant: the engine leans about the crankshaft, so the crank stays put for the chain and clutch
 	var slant_upright := EngineSpec.new()

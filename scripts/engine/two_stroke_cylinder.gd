@@ -73,7 +73,9 @@ var _fired := false
 var fuel_unburnt_kg := 0.0
 var _port_heat := T0
 var backfire_j := 0.0
-var _residual_kg := 0.0
+var _residual_kg := 0.0 # kg of gas in the cylinder when the transfer ports OPEN: what the scavenge has to clear
+var _fresh_in_kg := 0.0 # kg of fresh charge the scavenge has delivered during the open window, for the fuel charge
+var _residual_temp := T0 # K, its temperature: it is hot exhaust the scavenge left behind, not fresh charge
 var _overlap_out := 0.0
 var _burnt := 0.0
 var wall_loss_j := 0.0
@@ -160,6 +162,12 @@ func setup(spec: EngineSpec) -> void:
 
 	oil_in_crankcase_kg = 0.0
 
+
+
+# The ratio the geometry gives: (swept + clearance) / clearance. A two-stroke has no intake valve closing, so there is no
+# effective ratio to report - the ports time the trapping, and the model has no measured state for it.
+func compression_ratio_geometric() -> float:
+	return (swept + clearance) / maxf(clearance, 1e-12)
 
 func start_at(phase_deg: float) -> void:
 	phi = fposmod(phase_deg, 360.0)
@@ -251,7 +259,14 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 	var sd := dphi / steps
 	var sdt := dt / steps
 	var work := 0.0
-	var fuel_consumed := 0.0
+	# The second return value is the air the intake manifold had to supply. It used to be a fuel_consumed local that was
+	# never assigned, so the manifold was told a two-stroke draws nothing, never depressurised, and a closed throttle kept
+	# feeding full air - which is why a running two-stroke accelerated past its redline with the throttle shut.
+	var drawn := 0.0
+	# The flame takes about the same time in milliseconds whatever the speed, so the burn covers more crank
+	# degrees the faster the engine turns. The four-stroke works this out the same way; the two-stroke used to
+	# freeze at a nominal 5000 rpm, so its burn never matched the engine it was burning in.
+	var burn_deg := burn_duration_deg(absf(dphi) / maxf(dt, 1.0e-9) * 60.0 / TAU)
 
 	for i in steps:
 		var p0 := phi
@@ -264,15 +279,38 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		var cc_vol1 := crankcase_vol(p1)
 		var cc_dv := cc_vol1 - cc_vol0
 
-		# Check port events
-		var transfer_open_now := (p0 < transfer_open and p1 >= transfer_open) or (p0 <= transfer_close and p1 > transfer_close)
-		var exhaust_open_now := (p0 < exhaust_open and p1 >= exhaust_open) or (p0 <= exhaust_close and p1 > exhaust_close)
+		# Check port events. The transfer port has two edges and they mean different things: the opening edge is where the
+		# leftover burnt gas is read, the closing edge is where the scavenged charge gets its fuel. A single flag for both
+		# is how the residual came to be re-read after the fresh charge had already arrived, which made the fresh mass
+		# zero and left the engine with no fuel at all.
+		#
+		# The comparisons go through _crossed_deg because phi is unwrapped: comparing the raw angle meant an edge was
+		# only ever seen on the first revolution, so a running two-stroke stopped firing after one turn - it caught on
+		# the starter and then died. The native parity test hid it by wrapping phi on both sides after every step.
+		var transfer_opening := _crossed_deg(p0, p1, transfer_open)
+		var transfer_closing := _crossed_deg(p0, p1, transfer_close)
+		var transfer_open_now := transfer_opening or transfer_closing
+		var exhaust_open_now := _crossed_deg(p0, p1, exhaust_open) or _crossed_deg(p0, p1, exhaust_close)
+
+		# Exhaust port opens: an unlit charge leaves into a port that is still hot from the last firing and catches, on the
+		# same rule as the four-stroke (cylinder.gd:623-632). One unlit charge pops once, and spends the port's heat.
+		if _crossed_deg(p0, p1, exhaust_open):
+			if fuel_unburnt_kg > 0.0:
+				if _port_heat > Cylinder.AUTO_IGNITE_K:
+					backfire_j += fuel_unburnt_kg * fuel_tank.lhv * Cylinder.BACKFIRE_BURN
+				_port_heat = T0
+				fuel_unburnt_kg = 0.0
+			if _fired:
+				# the port is hot from a firing: this is what an unlit charge catches from
+				_port_heat = temp
 
 		# 1. Intake / Reed valve flow into crankcase
 		if intake_area > 0.0:
 			if intake_port_type == "reed":
 				# Reed valve flow
 				var m_in := reed_flow(intake_p, sdt)
+				if m_in > 0.0:
+					drawn += m_in
 				crankcase_mass += m_in
 				crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1
 				enthalpy_in_j += m_in * CP * intake_temp
@@ -281,6 +319,8 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 				var a := intake_port_area(p0)
 				if a > 0.0:
 					var m_in := mass_flow(a, intake_p, intake_temp, crankcase_pressure, crankcase_temp) * sdt
+					if m_in > 0.0:
+						drawn += m_in
 					crankcase_mass += m_in
 					crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1
 					enthalpy_in_j += m_in * CP * intake_temp
@@ -308,10 +348,27 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 			var h_in := CP * crankcase_temp * m_transfer
 			_u += h_in
 			enthalpy_in_j += h_in
+			# what the scavenge has actually delivered this pass - the fuel is sized from this, not from a mass
+			# difference taken across the port window, which nets out to zero when the exhaust removes as much as the
+			# transfer adds
+			_fresh_in_kg += m_transfer
 
-		# 3b. Check if transfer ports just closed - inject fuel
-		if transfer_open_now:
+		# 3b. The two transfer edges. At the opening edge the cylinder holds only what the last cycle left: that is the
+		# residual the new charge has to work against, and the fresh-charge counter starts from zero. At the closing edge
+		# the scavenge has delivered _fresh_in_kg of new charge, and that - not a mass difference - is what the fuel is
+		# sized for.
+		if transfer_opening:
+			_residual_kg = mass
+			_residual_temp = temp
+			_fresh_in_kg = 0.0
+		if transfer_closing:
 			_fuel_charge(fuel_tank, lambda, spark, limiter_cut, intake_p)
+			# A fresh charge starts its own combustion phasing. The markers used to be cleared only when the
+			# cycle bookkeeping reached 300 degrees, so a cycle that closed early kept the previous marks and
+			# the crank angle at 10/50/90 percent burnt drifted anywhere in the revolution.
+			_ca10 = -1.0
+			_ca50 = -1.0
+			_ca90 = -1.0
 
 		# 4. Exhaust port flow (cylinder -> expansion chamber / atmosphere)
 		var exhaust_a := exhaust_port_area(p0)
@@ -329,9 +386,9 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 
 		# 5. Combustion
 		var dq := 0.0
-		if spark and burn_energy_left > 0.0 and _in_burn_window(p0, ign_phi):
+		if spark and burn_energy_left > 0.0 and _in_burn_window(p0, ign_phi, burn_deg):
 			var rel := fmod(p0 - ign_phi + 360.0, 360.0)
-			dq = minf(burn_energy_left, burn_energy * (_wiebe(rel + sd) - _wiebe(rel)))
+			dq = minf(burn_energy_left, burn_energy * (_wiebe(rel + sd, burn_deg) - _wiebe(rel, burn_deg)))
 			burn_energy_left -= dq
 			_u += dq # the released heat goes into the gas: without it the burn never raised the pressure
 			_burnt = 1.0 - burn_energy_left / burn_energy
@@ -358,7 +415,11 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		# Inertia torque
 		var phi_r := deg_to_rad(p0)
 		var accel_term := cos(phi_r) + cos(2.0 * phi_r) / rod_ratio
-		work += -recip_kg * crank_radius * crank_radius * w * w * accel_term * sin(phi_r) * dtheta
+		# The crank throw is half the stroke, as the port geometry functions above work it out locally. The member
+		# crank_radius stayed at its 0.0 start (nothing initialised it), so this term was multiplying by zero and
+		# the two-stroke had no rod inertia in its work integral at all.
+		var crank_r := stroke * 0.5
+		work += -recip_kg * crank_r * crank_r * w * w * accel_term * sin(phi_r) * dtheta
 
 		# Track combustion phasing
 		if _ca10 < 0.0 and _burnt >= 0.1:
@@ -395,12 +456,14 @@ func advance(dphi: float, dt: float, intake_p: float, intake_temp: float, ign_ph
 		_ca50 = -1.0
 		_ca90 = -1.0
 
-	return Vector2(work, fuel_consumed)
+	return Vector2(work, drawn)
 
 
 func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool, intake_p: float) -> void:
 	var trapped := mass
-	var fresh := maxf(trapped - _residual_kg, 0.0)
+	# Fresh air is what the scavenge delivered while the transfer port was open, capped by what is still in the
+	# cylinder. Deriving it as (trapped - residual) gave zero whenever the transfer window netted out.
+	var fresh := clampf(_fresh_in_kg, 0.0, trapped)
 	last_fresh_kg = fresh
 	last_ivc_temp = temp
 	last_residual_fraction = _residual_kg / maxf(trapped, 1e-12)
@@ -409,6 +472,7 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool,
 	last_lambda = 1.0
 
 	if limiter_cut or lambda >= MISFIRE_LAMBDA:
+		_fired = false # nothing fired this cycle, so it must not heat the port for the next one
 		return
 
 	var wanted := fresh / (tank.afr * lambda)
@@ -431,16 +495,29 @@ func _fuel_charge(tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool,
 	_fired = supplied > 0.0
 
 
-static func _in_burn_window(p: float, start: float) -> float:
+# True when edge lies in the forward arc from p0 to p1, with both ends reduced into one revolution. phi is unwrapped, so
+# a plain comparison sees each edge once and then never again.
+static func _crossed_deg(p0: float, p1: float, edge: float) -> bool:
+	var w0 := fposmod(p0, 360.0)
+	var w1 := fposmod(p1, 360.0)
+	if w1 >= w0:
+		return edge >= w0 and edge < w1
+	return edge >= w0 or edge < w1 # the step wrapped past 360
+
+
+# Crank degrees the burn spans at this speed, the same relation the four-stroke uses.
+static func burn_duration_deg(rpm: float) -> float:
+	return BURN_DEG_BASE + BURN_DEG_PER_RPM * maxf(rpm, 0.0)
+
+
+static func _in_burn_window(p: float, start: float, burn_deg: float) -> float:
 	# 1 while the burn is under way: from the spark for the burn angle. (It used to subtract the same expression from itself, so the
 	# burn never started and the engine made no torque.)
-	var burn_deg := BURN_DEG_BASE + BURN_DEG_PER_RPM * 5000.0
 	return 1.0 if fmod(p - start + 360.0, 360.0) < burn_deg else 0.0
 
 
-static func _wiebe(rel: float) -> float:
-	var burn_deg := BURN_DEG_BASE + BURN_DEG_PER_RPM * 5000.0
-	return 1.0 - exp(-WIEBE_A * pow(clampf(rel / burn_deg, 0.0, 1.0), WIEBE_M + 1.0))
+static func _wiebe(rel: float, burn_deg: float) -> float:
+	return 1.0 - exp(-WIEBE_A * pow(clampf(rel / maxf(burn_deg, 1.0e-6), 0.0, 1.0), WIEBE_M + 1.0))
 
 
 # Crank throw radius

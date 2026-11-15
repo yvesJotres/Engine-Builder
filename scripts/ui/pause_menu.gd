@@ -10,7 +10,9 @@ signal accuracy_changed(index: int) # index into PHYSICS_RATES
 const PHYSICS_RATES := [1200, 2400, 3600, 7200, 10800, 14400, 28800] # physics steps per second the player can choose from
 signal blur_toggled(on: bool) # frame blend motion blur, off by default
 signal sound_toggled(on: bool) # the engine sound, on or off
-signal fps_toggled(on: bool) # the frame-rate strip, on by default
+signal fps_toggled(on: bool) # the frame-rate strip, off by default
+signal fps_cap_changed(index: int) # 0 = 60 fps, 1 = unlimited
+const FPS_CAPS := [60, 0] # frames a second: the panel's own rate, or no cap at all
 signal hud_changed(index: int)
 
 var settings_path := "user://settings.cfg"
@@ -20,6 +22,13 @@ var _accuracy: OptionButton
 var _blur_box: CheckBox
 var _fps_box: CheckBox
 var _hud_mode: OptionButton
+var _fps_cap: OptionButton
+var _probe_button: Button
+
+# Diagnostic: the frame cost probe (tools/diagnostics/frame_phases.gd) times one frame of the
+# running app on this device, phase by phase, and writes user://frame_phases.txt. It is the only
+# way to see where a phone's frame time goes without a PC attached to the game.
+signal probe_requested
 
 func _setting(key: String, fallback: Variant) -> Variant:
 	var value: Variant = _settings.get_value("options", key, fallback)
@@ -38,7 +47,7 @@ func _ready() -> void:
 	visible = false
 	layer = 2 # above the touch pads (layer 1), so the menu is not cut across by them
 	# dims the scene and the pads behind the menu. It stops taps, so nothing below it (pads, settings panel, 3D view) can be touched
-	# while paused; the menu's own buttons sit above it and still work. Resume, Esc or Space carry on.
+	# while paused; the menu's own buttons sit above it and still work. Resume or Esc carry on.
 	var dim := ColorRect.new()
 	dim.color = Color(0.0, 0.0, 0.0, 0.5)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -68,7 +77,7 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 36)
 	box.add_child(title)
 	var hint := Label.new()
-	hint.text = "Tap Resume to continue" if OS.has_feature("mobile") else "Esc or Space to carry on"
+	hint.text = "Tap Resume to continue" if OS.has_feature("mobile") else "Esc to carry on"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.66))
 	box.add_child(hint)
@@ -171,6 +180,29 @@ func _ready() -> void:
 		_save_setting("hud_mode", i)
 		hud_changed.emit(i))
 	options_box.add_child(_hud_mode)
+	# The renderer runs with vsync off, so without this the app draws as fast as the CPU allows: on a
+	# 120 Hz panel that is twice the frames of a 60 Hz one for no visible gain, and twice the heat.
+	var fps_label := Label.new()
+	fps_label.text = "Frame rate"
+	options_box.add_child(fps_label)
+	var fps_cap := OptionButton.new()
+	fps_cap.add_item("60 fps (cooler, longer battery)")
+	fps_cap.add_item("Unlimited (hotter, uses more battery)")
+	fps_cap.custom_minimum_size = Vector2(0, 48)
+	# The phone ships capped (its panel is 60 Hz and its heat budget is small); a desktop, which ran
+	# uncapped before this option existed, keeps that unless the player changes it.
+	fps_cap.select(clampi(_setting("fps_cap", 0 if OS.has_feature("mobile") else 1), 0, FPS_CAPS.size() - 1))
+	fps_cap.focus_mode = Control.FOCUS_NONE
+	fps_cap.item_selected.connect(func(i: int) -> void:
+		_save_setting("fps_cap", i)
+		fps_cap_changed.emit(i))
+	options_box.add_child(fps_cap)
+	_fps_cap = fps_cap
+	# Diagnostic, not an option: it writes the numbers, it changes nothing. Under the Dashboard row so a
+	# player who never opens Options never sees it.
+	_probe_button = _button("Frame cost probe (writes a log)", options_box, Color(0.16, 0.17, 0.21))
+	_probe_button.add_theme_font_size_override("font_size", 16)
+	_probe_button.pressed.connect(func() -> void: probe_requested.emit())
 	var credits := _button("Credits", box, Color(0.16, 0.17, 0.21))
 	var credits_text := Label.new()
 	credits_text.name = "CreditsText"
@@ -219,6 +251,7 @@ func apply_settings() -> void:
 	blur_toggled.emit(_blur_box.button_pressed)
 	sound_toggled.emit(_sound_box.button_pressed)
 	fps_toggled.emit(_fps_box.button_pressed)
+	fps_cap_changed.emit(_fps_cap.selected)
 	hud_changed.emit(_hud_mode.selected)
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if _fullscreen_box.button_pressed else DisplayServer.WINDOW_MODE_WINDOWED)
 

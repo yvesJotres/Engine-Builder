@@ -1,6 +1,10 @@
 class_name ControlPanel
 extends CanvasLayer
-const WHEEL_AIDS_AVAILABLE := false # ABS/TC await independent wheel-slip physics
+const ABS_AVAILABLE := true # wheel-slip physics exists: scripts/sim/wheel.gd and scripts/sim/abs_controller.gd
+const TRACTION_AVAILABLE := false # traction control still has no physics behind it
+# The camera views, in the order their buttons appear. One list, so a key or the pad can cycle exactly what the panel
+# offers instead of a second copy drifting out of step.
+const CAMERA_VIEWS := ["Vehicle", "Engine"]
 
 # Left-hand panel: the engine kill switch, the engine preset, then one section at a time (engine, air and fuel, valves, timing,
 # tuning), followed by validation warnings. Changes are reported through signals; main.gd applies them to the simulation.
@@ -15,7 +19,7 @@ signal engine_cover_changed(assembled: bool)
 signal dyno_pressed
 signal render_pressed
 
-const PANEL_WIDTH := 340.0 # wider and larger text for touch; the bottom-left touch pads sit beside its lower edge
+const PANEL_WIDTH := 420.0 # fixed column width: wide enough for the longest rows, and the same on every tab
 const PANEL_FONT := 18 # text size on the panel, up from the default 16
 const PANEL_MARGIN := 16.0 # gap between the panel and the screen edge
 const GAP := 8 # space between sections and rows
@@ -31,8 +35,7 @@ const HEADING := Color(0.55, 0.75, 1.0)
 const LABEL_WIDTH := 132.0
 const ENGINE_LIBRARY := preload("res://scripts/presets/engine_library.gd")
 
-var rod_ratio := 1.6 # not on screen, set by the preset
-var compression_ratio := 11.3 # not on screen, set by the preset
+var compression_ratio := 11.3 # mirrors the "cr" control, so a preset or a saved build carries each bike's own ratio
 var crossplane := false # not on screen, set by the preset
 var fire_deg: Array = [] # not on screen, set by the preset: the engine's ignition wiring, so the firing matches it
 var bank_angle := 90.0
@@ -49,6 +52,7 @@ var _feature_labels := {}
 var _visibility_conditions := {} # key -> condition name, for schema-driven visibility
 var _preset_button: OptionButton
 var _library_ready := false
+var _restore_pending := false # the app asked for the previous session's engine; the library was not ready yet
 var _preset_ids: Array = []
 var _preset_keys: Array = []
 var _kill_button: Button
@@ -57,11 +61,15 @@ var _custom_pin_label: Label
 var _crank_label: Label
 var _bank_label: Label
 var _shared_pins_label: Label
+var _layout_label: Label # the row label beside the layout dropdown
+var _pin_sep_label: Label # the row label beside the crank pin separation
 var _firing_order: LineEdit
 var _firing_message: Label
 var _four_stroke_rows: Array[Control] = [] # the valve and runner rows: a two-stroke has no valves
 var _firing_rows: Array[Control] = [] # the firing-order rows: only a multi-cylinder engine has a firing order
 var _warning: Label
+var _row_labels := {} # key -> the Label in front of its control, for the search box
+var _search: LineEdit
 var builds_path := "user://engine_builds.cfg"
 var _build_name: LineEdit
 var _builds: OptionButton
@@ -106,6 +114,14 @@ func _ready() -> void:
 	heading.add_theme_font_size_override("font_size", PANEL_FONT - 2)
 	heading.add_theme_color_override("font_color", HEADING)
 	box.add_child(heading)
+
+	# the search box: nine tabs and a hundred rows is a lot to hunt through by eye
+	_search = LineEdit.new()
+	_search.placeholder_text = "Search settings…"
+	_search.clear_button_enabled = true
+	_search.custom_minimum_size.y = CONTROL_HEIGHT
+	_search.text_changed.connect(_apply_search)
+	box.add_child(_search)
 
 	# the engine kill switch and the starter, side by side and always in view
 	var rider := HBoxContainer.new()
@@ -165,7 +181,7 @@ func _ready() -> void:
 	var views := HBoxContainer.new()
 	views.add_theme_constant_override("separation", 6)
 	box.add_child(views)
-	for view in ["Vehicle", "Engine"]:
+	for view in CAMERA_VIEWS:
 		var camera_button := Button.new()
 		camera_button.text = view + " view"
 		camera_button.focus_mode = Control.FOCUS_NONE
@@ -290,9 +306,14 @@ func _ready() -> void:
 		"Vehicle": vehicle,
 		"Sound": sound,
 	}
+	# Controls the panel builds by hand below, because they need wiring the schema loop cannot express (bank angle
+	# refreshes the firing order, the twin pin drives the custom pin). The schema still carries their labels and
+	# preset keys for every other file, but making a second control here left a duplicate row on the page - and
+	# that duplicate was the one nobody could hide.
+	const HAND_BUILT := ["bank_angle", "shared_pins", "pin_sep", "twin", "custom_pin"]
 	for key in PanelSchema.all_keys():
 		var def: Dictionary = PanelSchema.get_def(key)
-		if (def.type == "special"):
+		if (def.type == "special") or key in HAND_BUILT:
 			continue
 		var grid: GridContainer = page_by_category[def.category]
 		var control: Control
@@ -313,6 +334,8 @@ func _ready() -> void:
 		if def.has("tooltip"):
 			control.tooltip_text = def.tooltip
 		_controls[key] = control
+		if key == "layout":
+			_layout_label = grid.get_child(control.get_index() - 1) # rows are a label and its control, in that order
 		if PanelSchema.is_visible_conditional(key):
 			_visibility_conditions[key] = PanelSchema.visible_condition(key)
 
@@ -332,11 +355,29 @@ func _ready() -> void:
 		_emit_changed())
 
 	_controls["shared_pins"] = OptionButton.new()
-	_controls["shared_pins"].add_item("Preset / automatic")
-	_controls["shared_pins"].add_item("Shared opposite-bank pairs")
+	for item in PanelSchema.get_def("shared_pins").items:
+		_controls["shared_pins"].add_item(str(item))
 	_controls["shared_pins"].tooltip_text = PanelSchema.get_def("shared_pins").tooltip
 	_shared_pins_label = _row(engine, PanelSchema.get_def("shared_pins").label, _controls["shared_pins"])
 	_controls["shared_pins"].item_selected.connect(func(_index: int) -> void:
+		# On a V-twin the pin layout is the timing, so the preset's own firing wiring must not overrule the row.
+		# A V3 or V4 keeps its wiring: its pair angles are derived from the bank either way.
+		if int(_controls["cyl"].value) == 2:
+			fire_deg = []
+		_refresh_twin()
+		_emit_changed())
+
+	# An unshared pair leaves the angle between its two crank pins free; a shared pin fixes it to the bank angle.
+	_controls["pin_sep"] = SpinBox.new()
+	_controls["pin_sep"].min_value = 0.0
+	_controls["pin_sep"].max_value = 360.0
+	_controls["pin_sep"].step = 1.0
+	_controls["pin_sep"].value = 0.0
+	_controls["pin_sep"].custom_minimum_size.y = CONTROL_HEIGHT
+	_controls["pin_sep"].tooltip_text = PanelSchema.get_def("pin_sep").tooltip
+	_pin_sep_label = _row(engine, PanelSchema.get_def("pin_sep").label, _controls["pin_sep"])
+	_controls["pin_sep"].value_changed.connect(func(_v: float) -> void:
+		fire_deg = [] # the rider is setting the phase now, not the preset
 		_refresh_firing_order()
 		_emit_changed())
 
@@ -458,14 +499,47 @@ func _ready() -> void:
 	_warning = Label.new()
 	_warning.modulate = Color(1.0, 0.7, 0.3)
 	_warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_warning.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_warning.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			jump_to_warning())
 	pages_box.add_child(_warning)
 	var help := Label.new()
-	help.text = "W / ↑ start & throttle  ·  Shift clutch\nQ / E shift  ·  B brake  ·  Esc pause"
+	help.text = "W / ↑ throttle  ·  Shift clutch  ·  J start  ·  Space brake\nQ / E shift  ·  T traction  ·  Y ABS  ·  U quickshifter  ·  L launch\n1 / 2 camera  ·  P panel  ·  H hud  ·  M mute  ·  R reset  ·  Tab slow motion\nPAD: RT throttle  ·  LT clutch  ·  A brake  ·  RB up / LB down  ·  Y start  ·  D-pad aids"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.add_theme_font_size_override("font_size", 14)
 	pages_box.add_child(help)
 
 	_refresh_feature_switches()
+	# A dropdown that sizes itself to its longest item is what made the panel jump between tabs: "One shared per
+	# opposite pair (single-pin)" is 400 px wide, so the Engine page dragged the whole column out to 569. The text is
+	# clipped instead, and a tooltip carries the full wording.
+	for key in _controls:
+		var option = _controls[key]
+		if option is OptionButton:
+			(option as OptionButton).fit_to_longest_item = false
+			(option as OptionButton).clip_text = true
+			(option as OptionButton).custom_minimum_size.x = 0.0
+	_preset_button.fit_to_longest_item = false
+	_preset_button.clip_text = true
+	_preset_button.custom_minimum_size.x = 0.0
+	# every control's label, so the search box can hide a whole row. One sweep covers the schema-driven rows and the
+	# hand-built ones alike, and a control whose parent is not a grid (a page-level button) is simply skipped.
+	for key in _controls:
+		var control = _controls[key]
+		if control != null and control.get_parent() is GridContainer and control.get_index() > 0:
+			_row_labels[key] = control.get_parent().get_child(control.get_index() - 1)
+	# A is the brake on a gamepad and Godot's default ui_accept is also A, so a control that kept the focus would be
+	# pressed again every time the brake was squeezed. Buttons and option buttons therefore never take focus; text
+	# fields keep it, because naming a build needs the keyboard.
+	_no_button_focus(self)
+
+
+func _no_button_focus(node: Node) -> void:
+	if node is BaseButton:
+		(node as BaseButton).focus_mode = Control.FOCUS_NONE
+	for child in node.get_children():
+		_no_button_focus(child)
 
 
 
@@ -473,8 +547,88 @@ func lambda() -> float:
 	return _controls["lambda"].value
 
 
-func set_warning(text: String) -> void:
+const WARNING_MARK := " *"
+
+# The bike's first problem, and the row that fixes it, so the page that owns the row can be marked and jumped to.
+var _warning_key := ""
+
+
+func set_warning(text: String, key: String = "") -> void:
 	_warning.text = text
+	_warning_key = key if key != "" else ""
+	_warning.mouse_filter = Control.MOUSE_FILTER_STOP if _warning_key != "" else Control.MOUSE_FILTER_IGNORE
+	_mark_warning_tab()
+
+
+# Puts a mark on the tab that owns the offending control, and takes it off the rest.
+func _mark_warning_tab() -> void:
+	var owner_index := _category_of_key(_warning_key)
+	for i in _tabs.size():
+		var base: String = CATEGORIES[i]
+		_tabs[i].text = base + (WARNING_MARK if i == owner_index else "")
+
+
+func _category_of_key(key: String) -> int:
+	if key == "":
+		return -1
+	var def := PanelSchema.get_def(key)
+	if def.is_empty():
+		return -1
+	return CATEGORIES.find(String(def.get("category", "")))
+
+
+# Called when the warning line is clicked: show the page that holds the row.
+func jump_to_warning() -> void:
+	var index := _category_of_key(_warning_key)
+	if index >= 0:
+		_select_category(index)
+
+
+# Hides every row whose label does not contain the text, and jumps to the first page that has a hit.
+func _apply_search(raw: String) -> void:
+	var needle := raw.strip_edges().to_lower()
+	var searching := needle != ""
+	for key in _row_labels:
+		var label: Label = _row_labels[key]
+		var hit := needle == "" or String(label.text).to_lower().contains(needle)
+		label.visible = hit
+		var control = _controls.get(key)
+		if control != null:
+			control.visible = hit
+	# Rows the panel builds by hand rather than from _controls - the firing-order line, its Apply button and its hint.
+	# Without this a search for "ABS" left "Firing order" on screen looking like a match.
+	for row in _firing_rows:
+		if searching:
+			row.visible = false
+	# Page furniture: the page title and its Reset button are not searchable rows.
+	for i in _pages_root.get_child_count():
+		var page: Control = _pages_root.get_child(i)
+		for child in page.get_children():
+			if not (child is GridContainer):
+				child.visible = not searching
+	if not searching:
+		# back to each page's own rules: a single cylinder hides Layout, a non-turbo hides Boost, and so on. Any other
+		# _refresh_* function that hides rows must be called here too, or clearing the search will leave rows showing.
+		_refresh_twin()
+		_refresh_feature_switches()
+		return
+	for i in CATEGORIES.size():
+		if _category_has_hit(i, needle):
+			if i != _category:
+				_select_category(i)
+			return
+
+
+func _category_has_hit(index: int, needle: String) -> bool:
+	# asked of each control's own definition rather than of CATEGORY_KEYS, so a control the category lists have missed
+	# can still be found: ABS was missing from the Rider aids list and "abs" matched no page at all
+	for key in _row_labels:
+		if not String(_row_labels[key].text).to_lower().contains(needle):
+			continue
+		var def := PanelSchema.get_def(key)
+		if String(def.get("category", "")) == String(CATEGORIES[index]):
+			return true
+	return false
 
 
 func _refresh_twin() -> void:
@@ -486,10 +640,24 @@ func _refresh_twin() -> void:
 	for node in _four_stroke_rows:
 		node.visible = four_stroke
 	var inline := layout.get_item_text(layout.selected) == "inline"
-	_bank_label.visible = not inline
-	_controls["bank_angle"].visible = not inline
-	_shared_pins_label.visible = layout.get_item_text(layout.selected) == "V" and count >= 2
+	# A single cylinder has no bank, no crank-pin arrangement and no firing order: the layout, the bank angle, the
+	# crank pins and the firing order all describe how several cylinders share one crank. For one cylinder they
+	# mean nothing, so the whole group is hidden instead of shown at a value that only applies to multi-cylinder
+	# engines. (They were left on screen at CBR150R's "inline 90° 360°" and read as settings that did something.)
+	var single := count == 1
+	if _layout_label != null:
+		_layout_label.visible = not single
+	layout.visible = not single
+	_bank_label.visible = not single and not inline
+	_controls["bank_angle"].visible = _bank_label.visible
+	_shared_pins_label.visible = not single and layout.get_item_text(layout.selected) == "V" and count >= 2
 	_controls["shared_pins"].visible = _shared_pins_label.visible
+	# A dual-pin pair leaves the angle between its two journals free; one shared pin already fixes the interval to the
+	# bank angle, so there is nothing to set.
+	var v_layout := layout.get_item_text(layout.selected) == "V"
+	var sep_applies: bool = count == 2 and v_layout and _controls["shared_pins"].selected == 0
+	_pin_sep_label.visible = sep_applies
+	_controls["pin_sep"].visible = sep_applies
 	var twin_applies := count == 2 and inline
 	_twin_label.visible = twin_applies
 	_controls["twin"].visible = twin_applies
@@ -525,6 +693,7 @@ func _current_fire_angles() -> Array:
 	spec.layout = _controls["layout"].get_item_text(_controls["layout"].selected)
 	spec.bank_angle = _controls["bank_angle"].value
 	spec.shared_v_crankpins = _controls["shared_pins"].selected == 1
+	spec.crank_pin_sep_deg = _controls["pin_sep"].value
 	spec.v3r_style = bool(_vehicle_settings.get("v3r_style", false))
 	return Array(FiringOrders.for_spec(spec))
 
@@ -594,8 +763,9 @@ func toggle_kill() -> void:
 
 
 func _populate_preset_dropdown(library: Dictionary) -> void:
-	# The dropdown order matches Presets.names() (filename order): tests and _on_preset_selected address presets by that index.
-	var keys := library.keys()
+	# The dropdown is grouped by make, then by model and year, so an engine sits next to its siblings instead of
+	# following the order of the ids (which put Mercedes-AMG's two cars either side of the list).
+	var keys := _sorted_presets(library)
 	if keys == _preset_keys:
 		return
 	_preset_keys = keys
@@ -611,17 +781,50 @@ func _populate_preset_dropdown(library: Dictionary) -> void:
 		_preset_ids.append(id)
 		_preset_button.add_item(display_name)
 	_preset_button.disabled = _preset_button.get_item_count() == 0
-	# Select CBR150R as the visible default; the controls stay at the spec defaults until a preset is chosen.
+	# Show the engine from the previous session, then CBR150R; the controls stay at the spec defaults
+	# until a preset is chosen (or restored).
 	if _preset_button.get_item_count() > 0:
-		var pick := _preset_ids.find("honda_cbr150r")
+		var pick := _preset_ids.find(PanelPresets.last_engine())
+		if pick < 0:
+			pick = _preset_ids.find("honda_cbr150r")
 		if pick < 0:
 			pick = 0
 		_preset_button.select(pick)
 
 
+# Make, then display name. The make is the display name's first word, which every bundled preset leads with,
+# so "Mercedes-AMG" and "Kawasaki" stay whole; a preset with no word in front of its name sorts by name alone.
+static func _sorted_presets(library: Dictionary) -> Array:
+	var keys := library.keys()
+	keys.sort_custom(func(a, b) -> bool:
+		var a_name := str(library[a].get("display_name", a))
+		var b_name := str(library[b].get("display_name", b))
+		var a_make := a_name.get_slice(" ", 0).to_lower()
+		var b_make := b_name.get_slice(" ", 0).to_lower()
+		if a_make != b_make:
+			return a_make < b_make
+		return a_name.to_lower() < b_name.to_lower())
+	return keys
+
+
 func _on_library_ready(library: Dictionary) -> void:
 	_library_ready = true
 	_populate_preset_dropdown(library)
+	_try_restore_last_engine()
+
+
+# The app calls this on start so the engine from the previous session comes back. It waits for the
+# library, since the preset is applied by id.
+func restore_last_engine() -> void:
+	_restore_pending = true
+	_try_restore_last_engine()
+
+
+func _try_restore_last_engine() -> void:
+	if not _restore_pending or not _library_ready:
+		return
+	_restore_pending = false
+	PanelPresets.restore_last_engine(self)
 
 
 func _on_kill_toggled(killed: bool) -> void:
@@ -652,10 +855,11 @@ func _refresh_feature_switches() -> void:
 	# every aid is on every bike: the factory fit only sets its default, which the preset applies.
 	# ABS and traction control stay locked until their wheel-slip physics is built.
 	for key in ["abs_enabled", "traction_control_enabled"]:
-		_controls[key].visible = WHEEL_AIDS_AVAILABLE # hidden, not greyed out, until the physics exists
-		_feature_labels[key].visible = WHEEL_AIDS_AVAILABLE
-		_controls[key].disabled = not WHEEL_AIDS_AVAILABLE
-		if not WHEEL_AIDS_AVAILABLE:
+		var available: bool = ABS_AVAILABLE if key == "abs_enabled" else TRACTION_AVAILABLE
+		_controls[key].visible = available # hidden, not greyed out, until the physics exists
+		_feature_labels[key].visible = available
+		_controls[key].disabled = not available
+		if not available:
 			_controls[key].select(0)
 
 	# Quickshifter detailed controls visibility
@@ -923,6 +1127,28 @@ func _load_build() -> void:
 
 func apply_to(spec: EngineSpec) -> void:
 	PanelSpec.apply(self, spec)
+
+
+# The camera views this panel offers, in the order it builds their buttons. Exposed so a key or the pad can cycle them
+# without a second list drifting out of step with the buttons.
+func camera_views() -> Array:
+	return CAMERA_VIEWS
+
+
+# Flips one of the panel's on/off switches from a key or the pad and returns what to announce, or "" when this bike has
+# no such control. The switch is the same object the page shows, so the panel and the keyboard can never disagree. It
+# deliberately does not emit the panel's changed signal: that path rebuilds the 3D engine, which is far too much work for
+# a switch, so the caller applies the values instead.
+func toggle_aid(key: String) -> String:
+	var control = _controls.get(key, null)
+	if control == null or not (control is ToggleSwitch):
+		return ""
+	var def = PanelSchema.get_def(key)
+	var label: String = String(def.get("label", key)) if def != null else key
+	if control.disabled:
+		return "%s: NOT FITTED TO THIS ENGINE" % label.to_upper()
+	control.select(0 if control.selected == 1 else 1)
+	return "%s: %s" % [label.to_upper(), "ON" if control.selected == 1 else "OFF"]
 
 
 func _on_preset_selected(index: int) -> void:

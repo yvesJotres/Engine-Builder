@@ -11,6 +11,10 @@ build/
 server/signing/
 server/patches/
 config/server.local.cfg
+server/config/
+# Debug output: the patch server used to print its secret here
+server/server_output.txt
+server_output.txt
 
 # Logs and scratch files
 *.log
@@ -45,3 +49,13 @@ conv_bench.obj*
 cross_check*.png*
 assets/Voice*.mpeg
 assets/engines/*.blend1
+
+# Render/diagnostic artifacts: generated WAVs, spectrograms and backfire captures (~2.5 MB)
+/audio_demos/
+/backfire_decel.png*
+/backfire_limiter.png*
+/backfire_pops.wav*
+
+# Stray downloads (not project artifacts)
+assets/National_Security_Study_Memorandum_200.pdf
+sound/*.mp4

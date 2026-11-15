@@ -40,7 +40,7 @@
     "slipper_ramp": 0.5
   },
   "valvetrain": {
-    "header_primary_mm": 48.0,
+    "header_primary_mm": 44.0,
     "runner_length_m": 0.125,
     "intake_valve_mm": 32.0,
     "exhaust_valve_mm": 28.0,
@@ -83,6 +83,7 @@
     "launch_speed_kmh": 40.0,
     "has_abs": false,
     "abs_enabled": false,
+    "brake_torque_nm": 1200.0,
     "has_traction_control": true,
     "traction_control_enabled": true,
     "slipper_clutch": true,

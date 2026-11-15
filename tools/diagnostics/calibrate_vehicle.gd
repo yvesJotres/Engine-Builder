@@ -19,6 +19,21 @@ const TUNABLE := [
 	{"section": "valvetrain", "key": "exhaust_duration_deg", "lo": 225.0, "hi": 265.0},
 ]
 
+# The default bounds are sized for a 250. A bike outside them needs its own ranges, or the search
+# would clamp a real value to the wrong end (a 200 kg R1M pulled down to 180 kg changes the bike).
+const TUNABLE_BY_PRESET := {
+	"yamaha_yzf_r1m": [
+		{"section": "drivetrain", "key": "drag_area_m2", "lo": 0.28, "hi": 0.45},
+		{"section": "geometry", "key": "vehicle_kg", "lo": 195.0, "hi": 210.0},
+		{"section": "geometry", "key": "flywheel_kg", "lo": 3.0, "hi": 8.0},
+		{"section": "drivetrain", "key": "clutch_capacity_nm", "lo": 100.0, "hi": 260.0},
+		{"section": "valvetrain", "key": "intake_centre_deg", "lo": 455.0, "hi": 490.0},
+		{"section": "valvetrain", "key": "intake_duration_deg", "lo": 255.0, "hi": 300.0},
+		{"section": "valvetrain", "key": "exhaust_centre_deg", "lo": 235.0, "hi": 265.0},
+		{"section": "valvetrain", "key": "exhaust_duration_deg", "lo": 245.0, "hi": 285.0},
+	],
+}
+
 
 var tol: Dictionary = OnlineDyno.CALIBRATION_TOL
 
@@ -36,7 +51,8 @@ func _init() -> void:
 		print("No preset or crank reference for %s" % preset_id)
 		quit(2)
 		return
-	for p in TUNABLE:
+	var tunable: Array = TUNABLE_BY_PRESET.get(preset_id, TUNABLE)
+	for p in tunable:
 		if not p.key in spec:
 			print("Spec has no property %s" % p.key)
 			quit(2)
@@ -57,7 +73,7 @@ func _init() -> void:
 	var step := 0.1
 	while runs < max_runs and not best.criteria_ok and step >= 0.02:
 		var improved := false
-		for p in TUNABLE:
+		for p in tunable:
 			if runs >= max_runs or best.criteria_ok:
 				break
 			var current: float = float(spec.get(p.key))
@@ -93,7 +109,7 @@ func _init() -> void:
 		var backup_file := FileAccess.open(backup, FileAccess.WRITE)
 		backup_file.store_string(preset_text)
 		backup_file.close()
-		for p in TUNABLE:
+		for p in tunable:
 			data[p.section][p.key] = snappedf(float(spec.get(p.key)), 0.001)
 		var out := FileAccess.open(preset_path, FileAccess.WRITE)
 		out.store_string(JSON.stringify(data, "\t"))

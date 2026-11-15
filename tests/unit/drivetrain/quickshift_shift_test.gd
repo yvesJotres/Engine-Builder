@@ -20,7 +20,11 @@ func _init() -> void:
 func _upshift(main: Node, quickshifter: bool) -> int:
 	main.spec.gear_ratios = [6.362, 4.918, 3.934, 3.152, 2.530, 2.136] # the CBR250RR's gearbox, as the game sets it
 	main._sim.gear.gear_ratios = main.spec.gear_ratios
+	# The app opens on whatever engine was last used; a dual-clutch car ignores the lever, so pin a bike gearbox.
+	main.spec.vehicle_type = "motorcycle"
+	main.spec.transmission_type = "manual"
 	main.spec.quickshifter = quickshifter
+	main.spec.has_quickshifter = true
 	main.spec.quickshifter_min_rpm = 3000.0
 	main._sim.gear.gear = 1
 	main._sim.rpm = 7000.0

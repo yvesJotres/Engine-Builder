@@ -28,6 +28,9 @@ constexpr double STEP_DEG = 5.0; // finer step for 2-stroke (360 deg cycle)
 constexpr double WALL_HEAT = 1200.0; // higher heat transfer (more frequent combustion)
 constexpr double WALL_REF_W = 314.0;
 constexpr double WALL_TEMP = 450.0;
+// Port-wall auto-ignition, the same rule the four-stroke uses (scripts/engine/cylinder.gd: AUTO_IGNITE_K, BACKFIRE_BURN).
+constexpr double AUTO_IGNITE_K = 900.0;
+constexpr double BACKFIRE_BURN = 0.5;
 
 inline double deg_to_rad(double d) { return d * (PI_ / 180.0); }
 inline double clampf(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -128,15 +131,27 @@ inline double reed_flow(const Cfg &c, double crankcase_pressure, double intake_p
 	return CD_PORT * c.intake_area * std::sqrt(2.0 * delta_p / rho) * rho * dt;
 }
 
-// 1 while the burn is under way: from the spark for the burn angle.
-inline bool in_burn_window(double p, double start) {
-	double burn_deg = BURN_DEG_BASE + BURN_DEG_PER_RPM * 5000.0;
+// True when edge lies in the forward arc from p0 to p1, with both ends reduced into one revolution. phi is unwrapped, so
+// a plain comparison sees each edge once and then never again - a running two-stroke stopped firing after one turn.
+inline bool crossed_deg(double p0, double p1, double edge) {
+	const double w0 = fposmod(p0, 360.0);
+	const double w1 = fposmod(p1, 360.0);
+	if (w1 >= w0) {
+		return edge >= w0 && edge < w1;
+	}
+	return edge >= w0 || edge < w1; // the step wrapped past 360
+}
+
+// 1 while the burn is under way: from the spark for the burn angle. The burn angle follows the engine speed, as it does
+// in the GDScript (burn_duration_deg), instead of being frozen at a nominal 5000 rpm.
+inline double burn_duration_deg(double rpm) { return BURN_DEG_BASE + BURN_DEG_PER_RPM * maxf(rpm, 0.0); }
+
+inline bool in_burn_window(double p, double start, double burn_deg) {
 	return std::fmod(p - start + 360.0, 360.0) < burn_deg;
 }
 
-inline double wiebe(double rel) {
-	double burn_deg = BURN_DEG_BASE + BURN_DEG_PER_RPM * 5000.0;
-	return 1.0 - std::exp(-WIEBE_A * std::pow(clampf(rel / burn_deg, 0.0, 1.0), WIEBE_M + 1.0));
+inline double wiebe(double rel, double burn_deg) {
+	return 1.0 - std::exp(-WIEBE_A * std::pow(clampf(rel / maxf(burn_deg, 1e-6), 0.0, 1.0), WIEBE_M + 1.0));
 }
 
 } // namespace
@@ -195,6 +210,10 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	double &fuel_unburnt_kg = s[S_FUEL_UNBURNT_KG];
 	double &residual_kg = s[S_RESIDUAL_KG];
 	double &burnt = s[S_BURNT];
+	double &port_heat = s[S_PORT_HEAT];
+	double &fresh_in_kg = s[S_FRESH_IN_KG];
+	double &backfire_j = s[S_BACKFIRE_J];
+	double &fired = s[S_FIRED];
 	double &wall_loss_j = s[S_WALL_LOSS_J];
 	double &u = s[S_U];
 	double &enthalpy_in_j = s[S_ENTHALPY_IN_J];
@@ -218,8 +237,12 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	const int steps = maxi(1, maxi(ceili(std::fabs(dphi) / STEP_DEG), ceili(dt / 1e-4)));
 	const double sd = dphi / steps;
 	const double sdt = dt / steps;
+	// The flame takes about the same time in milliseconds whatever the speed, so the burn covers more crank degrees the
+	// faster the engine turns. Mirrors TwoStrokeCylinder.advance: burn_duration_deg(abs(dphi) / dt * 60 / TAU).
+	const double rpm_now = dt > 0.0 ? std::fabs(dphi) / dt * 60.0 / (2.0 * PI_) : 0.0;
+	const double burn_deg = burn_duration_deg(rpm_now);
 	double work = 0.0;
-	const double fuel_consumed = 0.0;
+	double drawn = 0.0; // air the intake manifold supplies: what the GDScript returns as Vector2.y
 
 	for (int i = 0; i < steps; i++) {
 		double p0 = phi;
@@ -233,13 +256,33 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 		double cc_dv = cc_vol1 - cc_vol0;
 
 		// Check port events
-		bool transfer_open_now = (p0 < c.transfer_open && p1 >= c.transfer_open) || (p0 <= c.transfer_close && p1 > c.transfer_close);
+		const bool transfer_opening = crossed_deg(p0, p1, c.transfer_open);
+		const bool transfer_closing = crossed_deg(p0, p1, c.transfer_close);
+
+		// Exhaust port opens: an unlit charge leaves into a port that is still hot from the last firing and catches, on the
+		// same rule as the four-stroke. One unlit charge pops once, and spends the port's heat.
+		if (crossed_deg(p0, p1, c.exhaust_open)) {
+			if (fuel_unburnt_kg > 0.0) {
+				if (port_heat > AUTO_IGNITE_K) {
+					backfire_j += fuel_unburnt_kg * c.tank_lhv * BACKFIRE_BURN;
+				}
+				port_heat = T0;
+				fuel_unburnt_kg = 0.0;
+			}
+			if (fired > 0.0) {
+				// the port is hot from a firing: this is what an unlit charge catches from
+				port_heat = temp;
+			}
+		}
 
 		// 1. Intake / Reed valve flow into crankcase
 		if (c.intake_area > 0.0) {
 			if (c.intake_type == 1) {
 				// Reed valve flow
 				double m_in = reed_flow(c, crankcase_pressure, intake_p, sdt);
+				if (m_in > 0.0) {
+					drawn += m_in;
+				}
 				crankcase_mass += m_in;
 				crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1;
 				enthalpy_in_j += m_in * CP * intake_temp;
@@ -248,6 +291,9 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 				double a = intake_port_area(c, p0);
 				if (a > 0.0) {
 					double m_in = mass_flow(a, intake_p, intake_temp, crankcase_pressure, crankcase_temp) * sdt;
+					if (m_in > 0.0) {
+						drawn += m_in;
+					}
 					crankcase_mass += m_in;
 					crankcase_pressure = crankcase_mass * R * crankcase_temp / cc_vol1;
 					enthalpy_in_j += m_in * CP * intake_temp;
@@ -277,21 +323,36 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 			double h_in = CP * crankcase_temp * m_transfer;
 			u += h_in;
 			enthalpy_in_j += h_in;
+			fresh_in_kg += m_transfer; // what the scavenge delivers, which is what the fuel is sized for
 		}
 
-		// 3b. Check if transfer ports just closed - inject fuel
-		if (transfer_open_now) {
+		// 3b. The two transfer edges mean different things. At the opening edge the cylinder holds only what the last
+		// cycle left: that is the residual, and the fresh-charge counter starts from zero. At the closing edge the
+		// scavenge has delivered fresh_in_kg, and that - not a mass difference, which nets to zero when the exhaust
+		// removes as much as the transfer adds - is what the fuel is sized for.
+		if (transfer_opening) {
+			residual_kg = mass;
+			fresh_in_kg = 0.0;
+		}
+		if (transfer_closing) {
 			// _fuel_charge
 			double trapped = mass;
-			double fresh = maxf(trapped - residual_kg, 0.0);
+			double fresh = clampf(fresh_in_kg, 0.0, trapped);
 			s[S_LAST_FRESH_KG] = fresh;
 			s[S_LAST_IVC_TEMP] = temp;
 			s[S_LAST_RESIDUAL_FRACTION] = residual_kg / maxf(trapped, 1e-12);
 			burn_energy = 0.0;
 			burn_energy_left = 0.0;
 			last_lambda = 1.0;
+			// A fresh charge starts its own combustion phasing. The markers used to be cleared only when the cycle
+			// bookkeeping reached 300 degrees, so a cycle that closed early kept the previous marks.
+			ca10 = -1.0;
+			ca50 = -1.0;
+			ca90 = -1.0;
 
-			if (!(limiter_cut || lambda >= MISFIRE_LAMBDA)) {
+			if (limiter_cut || lambda >= MISFIRE_LAMBDA) {
+				fired = 0.0; // nothing fired this cycle, so it must not heat the port for the next one
+			} else {
 				double wanted = fresh / (c.tank_afr * lambda);
 				double supplied = minf(wanted, tank_mass);
 				tank_mass -= supplied;
@@ -309,7 +370,7 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 					burn_energy = burnable * c.tank_lhv * COMBUSTION_EFFICIENCY;
 					burn_energy_left = burn_energy;
 					burnt = 0.0;
-					s[S_FIRED] = supplied > 0.0 ? 1.0 : 0.0;
+					fired = supplied > 0.0 ? 1.0 : 0.0;
 				}
 			}
 		}
@@ -329,9 +390,9 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 
 		// 5. Combustion
 		double dq = 0.0;
-		if (spark && burn_energy_left > 0.0 && in_burn_window(p0, ign_phi)) {
+		if (spark && burn_energy_left > 0.0 && in_burn_window(p0, ign_phi, burn_deg)) {
 			double rel = std::fmod(p0 - ign_phi + 360.0, 360.0);
-			dq = minf(burn_energy_left, burn_energy * (wiebe(rel + sd) - wiebe(rel)));
+			dq = minf(burn_energy_left, burn_energy * (wiebe(rel + sd, burn_deg) - wiebe(rel, burn_deg)));
 			burn_energy_left -= dq;
 			u += dq; // the released heat goes into the gas: without it the burn never raised the pressure
 			burnt = 1.0 - burn_energy_left / burn_energy;
@@ -356,10 +417,12 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 		// Cycle work integral
 		double dtheta = sd * PI_ / 180.0;
 		work += (pressure - P0) * dv;
-		// Inertia torque (c.crank_radius is the GDScript member, 0 unless _get_crank_radius ran)
+		// Inertia torque (the crank throw is half the stroke; the member crank_radius stayed at 0.0, so this term used
+		// to multiply by zero and the two-stroke had no rod inertia in its work integral at all)
+		const double crank_r = c.stroke * 0.5;
 		double phi_r = deg_to_rad(p0);
 		double accel_term = std::cos(phi_r) + std::cos(2.0 * phi_r) / c.rod_ratio;
-		work += -c.recip_kg * c.crank_radius * c.crank_radius * w * w * accel_term * std::sin(phi_r) * dtheta;
+		work += -c.recip_kg * crank_r * crank_r * w * w * accel_term * std::sin(phi_r) * dtheta;
 
 		// Track combustion phasing
 		if (ca10 < 0.0 && burnt >= 0.1) {
@@ -403,6 +466,6 @@ PackedFloat64Array TwoStrokeKernel::advance(PackedFloat64Array state, const Pack
 	}
 
 	s[S_OUT_WORK] = work;
-	s[S_OUT_FUEL] = fuel_consumed;
+	s[S_OUT_FUEL] = drawn;
 	return state;
 }

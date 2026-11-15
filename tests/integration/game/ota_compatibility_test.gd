@@ -53,10 +53,13 @@ func _init() -> void:
 	await process_frame
 	main.set_process(false)
 	main._panel._on_library_ready(presets.PRESETS)
-	var index: int = presets.names().find("bugatti_centodieci")
+	var index: int = main._panel._preset_ids.find("bugatti_centodieci") # the dropdown is grouped by make, not by preset id order
 	check(index >= 0, "Centodieci preset is available")
 	if index >= 0:
 		main._panel._on_preset_selected(index)
+		# Geometry rebuilds are debounced (main.REBUILD_DELAY): the car would still be the previous vehicle on this
+		# frame. flush_rebuild() is the documented way for a test to ask for the new body now.
+		main.flush_rebuild()
 		check(main.spec.vehicle_type == "car" and main._car._wheels.size() == 4, "car preset loads with four wheels")
 		main._sim.step(1.0 / 60.0, main.spec, 0.0, true, true, false, false, 1.0)
 		check(main._sim.cylinders.size() == 16, "W16 simulation loads")
