@@ -32,13 +32,14 @@ public:
 		S_SIZE
 	};
 
-	// Config array layout (doubles), fixed for the life of a cylinder.
+	// Config array layout (doubles); wall temperature may change between calls.
 	enum ConfigIndex {
 		C_BORE = 0, C_PISTON_AREA, C_STROKE, C_SWEPT, C_CLEARANCE, C_RECIP_KG, C_ROD_RATIO, C_TRANSFER_OPEN, C_TRANSFER_CLOSE,
 		C_EXHAUST_OPEN, C_EXHAUST_CLOSE, C_INTAKE_OPEN, C_INTAKE_CLOSE, C_TRANSFER_AREA, C_EXHAUST_AREA, C_INTAKE_AREA,
 		C_CRANKCASE_VOLUME, C_OIL_RATIO,
 		C_INTAKE_TYPE, // 1 = reed, 2 = rotary or piston port, 0 = anything else (no intake flow)
 		C_CRANK_RADIUS, // the member crank_radius of the GDScript (0 until _get_crank_radius is called, which advance never does)
+		C_WALL_TEMP, // optional K; missing in older callers
 		C_SIZE
 	};
 

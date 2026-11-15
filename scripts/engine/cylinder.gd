@@ -80,6 +80,7 @@ var exhaust_valve_d := EXHAUST_VALVE_D
 var runner_length := RUNNER_LENGTH
 var runner_area := RUNNER_AREA
 var wall_heat_scale := 1.0
+var wall_temp_k := WALL_TEMP # K; supplied by the thermal model when available
 var flow_step_deg := STEP_DEG
 
 # Cam profile parameters (set by set_cams from EngineSpec)
@@ -400,7 +401,7 @@ func _build_native_config() -> void:
 	_cfg = PackedFloat64Array([bore, piston_area, stroke, swept, clearance, recip_kg, rod_ratio, intake_open, intake_close,
 		exhaust_open, exhaust_close, intake_lift, exhaust_lift, intake_valve_d, exhaust_valve_d, runner_length, wall_heat_scale,
 		valve_cd, float(_intake_profile), float(_exhaust_profile), _intake_open_ramp, _intake_close_ramp, _exhaust_open_ramp,
-		_exhaust_close_ramp, _intake_duration_050, _exhaust_duration_050, runner_area])
+		_exhaust_close_ramp, _intake_duration_050, _exhaust_duration_050, runner_area, wall_temp_k])
 	_icurve = _flatten_curve(_intake_lift_curve)
 	_ecurve = _flatten_curve(_exhaust_lift_curve)
 	_cfg_dirty = false
@@ -418,6 +419,7 @@ func _advance_native(dphi: float, dt: float, pm: float, tm: float, ign_phi: floa
 		tank: FuelTank, lambda: float, spark: bool, limiter_cut: bool, p_ex: float, t_ex: float) -> Vector2:
 	if _cfg_dirty:
 		_build_native_config()
+	_cfg[27] = wall_temp_k
 	if _st.size() != 142:
 		_st.resize(142)
 	if not _native_bins: # first native call, or back from the GDScript path: the bins move into the state array
@@ -534,7 +536,7 @@ func advance(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, firin
 		p_ex: float = P0, t_ex: float = T0) -> Vector2:
 	# Older app libraries ignore the appended runner area. Use the matching script
 	# solver for non-legacy runners until that platform's native library is rebuilt.
-	if native_available and use_native and (runner_area == RUNNER_AREA or _native_config_size >= 27):
+	if native_available and use_native and (runner_area == RUNNER_AREA or _native_config_size >= 27) and (wall_temp_k == WALL_TEMP or _native_config_size >= 28):
 		return _advance_native(dphi, dt, pm, tm, ign_phi, firing, tank, lambda, spark, limiter_cut, p_ex, t_ex)
 	if _native_bins: # back from the native path: take the bins out of the state array
 		for i in EXHAUST_FLOW_BINS:
@@ -669,7 +671,7 @@ func _advance_gd(dphi: float, dt: float, pm: float, tm: float, ign_phi: float, f
 		var wall_area := 2.0 * piston_area + PI * bore * maxf(liner, 0.0)
 		var gas_exchange := _in_window(p0, intake_open, intake_close - intake_open) or _in_window(p0, exhaust_open, exhaust_close - exhaust_open)
 		var h_wall := woschni_h(w, pressure, temp, next_volume, _burnt > 0.0, gas_exchange)
-		var q_loss := h_wall * wall_area * (temp - WALL_TEMP) * sdt * wall_heat_scale
+		var q_loss := h_wall * wall_area * (temp - wall_temp_k) * sdt * wall_heat_scale
 		wall_loss_j += q_loss # running total, for the combustion checks
 
 		# First law for the gas in the cylinder. The specific heats are functions of temperature and of how much of the

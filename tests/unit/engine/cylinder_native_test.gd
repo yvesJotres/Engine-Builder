@@ -34,6 +34,8 @@ func _init() -> void:
 	for preset in PRESETS:
 		_compare(preset)
 		_compare_one_step(preset)
+	if Cylinder._native_config_size < 28:
+		print("NOTE: variable wall temperature used script fallback; rebuild native library to test native parity")
 	print("cylinder_native_test: %s" % ("PASSED" if failures == 0 else "FAILED (%d problems)" % failures))
 	quit(0 if failures == 0 else 1)
 
@@ -82,22 +84,24 @@ func _compare_one_step(preset: String) -> void:
 	for key in p.keys():
 		spec.set(key, p[key])
 	var bad := 0
-	for phase in ONE_STEP_PHASES:
-		var gd := _one_step(spec, phase, false)
-		var nat := _one_step(spec, phase, true)
-		for f in FIELDS:
-			if not _close_tol(gd[f], nat[f], ONE_STEP_TOL):
-				bad += 1
-				print("FAIL %s one-step phase %s %s: gdscript %s native %s" % [preset, str(phase), f, str(gd[f]), str(nat[f])])
-				break
+	for wall_temp in [320.0, 420.0, 500.0]:
+		for phase in ONE_STEP_PHASES:
+			var gd := _one_step(spec, phase, false, wall_temp)
+			var nat := _one_step(spec, phase, true, wall_temp)
+			for f in FIELDS:
+				if not _close_tol(gd[f], nat[f], ONE_STEP_TOL):
+					bad += 1
+					print("FAIL %s one-step phase %s wall %s %s: gdscript %s native %s" % [preset, str(phase), str(wall_temp), f, str(gd[f]), str(nat[f])])
+					break
 	if bad > 0:
 		failures += bad
 		print("%s one-step: %d phase(s) differ" % [preset, bad])
 
 
-func _one_step(spec: EngineSpec, phase: float, native: bool) -> Dictionary:
+func _one_step(spec: EngineSpec, phase: float, native: bool, wall_temp: float = Cylinder.WALL_TEMP) -> Dictionary:
 	Cylinder.use_native = native
 	var c := Cylinder.new()
+	c.wall_temp_k = wall_temp
 	c.setup(spec.bore_mm, spec.stroke_mm, spec.compression_ratio, spec.reciprocating_kg(), spec.rod_over_crank_radius())
 	c.set_cams(spec)
 	c.start_at(phase)

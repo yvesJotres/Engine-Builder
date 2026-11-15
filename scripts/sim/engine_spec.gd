@@ -237,6 +237,11 @@ enum CamLobeProfile { HALF_SINE, CAM_CARD, CUSTOM }
 @export var coolant_temp_c := 90.0
 @export var oil_operating_c := 100.0
 @export var coolant_operating_c := 90.0
+# Thermal balance is used only when both capacities and wall-to-coolant conductance are supplied.
+@export var wall_heat_capacity_j_k := 0.0
+@export var coolant_heat_capacity_j_k := 0.0
+@export var wall_coolant_conductance_w_k := 0.0
+@export var radiator_conductance_w_k := 0.0
 # Dyno shift. 0 means the test's own default (97% of redline, an 8 s plateau wait, the clutch opened fully).
 @export var dyno_shift_fraction := 0.0
 @export var dyno_shift_style := "clutch" # clutch: open the lever. flat: a short slip, throttle kept cracked
@@ -469,9 +474,15 @@ static func _problem(text: String, key: String) -> Dictionary:
 	return {"text": text, "key": key}
 
 
+func thermal_balance_enabled() -> bool:
+	return is_finite(wall_heat_capacity_j_k) and wall_heat_capacity_j_k > 0.0 and is_finite(coolant_heat_capacity_j_k) and coolant_heat_capacity_j_k > 0.0 and is_finite(wall_coolant_conductance_w_k) and wall_coolant_conductance_w_k > 0.0 and is_finite(radiator_conductance_w_k) and radiator_conductance_w_k >= 0.0 and is_finite(ambient_temp_k) and ambient_temp_k > 0.0 and is_finite(coolant_temp_c) and coolant_temp_c > -273.15
+
+
 func _first_problem() -> Dictionary:
 	if runner_bore_mm < 0.0 or runner_bore_mm > 100.0 or not is_finite(runner_bore_mm):
 		return _problem("Runner bore must be 0 (legacy) or up to 100 mm", "")
+	if (wall_heat_capacity_j_k != 0.0 or coolant_heat_capacity_j_k != 0.0 or wall_coolant_conductance_w_k != 0.0 or radiator_conductance_w_k != 0.0) and not thermal_balance_enabled():
+		return _problem("Thermal balance needs valid capacities, conductances and temperatures", "")
 	if layout == "W" and cylinders % 4 != 0:
 		return _problem("W layout needs a multiple of four cylinders", "cyl")
 	if layout == "V" and cylinders < 2:

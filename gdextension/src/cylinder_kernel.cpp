@@ -180,7 +180,7 @@ inline int posmod(int a, int b) {
 struct Cfg {
 	double bore, piston_area, stroke, swept, clearance, recip_kg, rod_ratio;
 	double intake_open, intake_close, exhaust_open, exhaust_close, intake_lift, exhaust_lift;
-	double intake_valve_d, exhaust_valve_d, runner_length, wall_heat_scale, valve_cd, runner_area;
+	double intake_valve_d, exhaust_valve_d, runner_length, wall_heat_scale, valve_cd, runner_area, wall_temp;
 	int intake_profile, exhaust_profile;
 	double intake_open_ramp, intake_close_ramp, exhaust_open_ramp, exhaust_close_ramp, intake_dur050, exhaust_dur050;
 	const double *icurve;
@@ -607,6 +607,7 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 	c.runner_length = k[C_RUNNER_LENGTH];
 	c.runner_area = cfg.size() > C_RUNNER_AREA ? k[C_RUNNER_AREA] : RUNNER_AREA;
 	c.wall_heat_scale = k[C_WALL_HEAT_SCALE];
+	c.wall_temp = cfg.size() > C_WALL_TEMP ? k[C_WALL_TEMP] : WALL_TEMP;
 	c.valve_cd = k[C_VALVE_CD];
 	c.intake_profile = (int)k[C_INTAKE_PROFILE];
 	c.exhaust_profile = (int)k[C_EXHAUST_PROFILE];
@@ -735,7 +736,7 @@ PackedFloat64Array CylinderKernel::advance(PackedFloat64Array state, const Packe
 		double wall_area = 2.0 * c.piston_area + PI_ * c.bore * maxf(liner, 0.0);
 		const bool gas_exchange = in_window(p0, c.intake_open, c.intake_close - c.intake_open) || in_window(p0, c.exhaust_open, c.exhaust_close - c.exhaust_open);
 		const double h_wall = woschni_h(c, y, w, next_volume, y.burnt > 0.0, gas_exchange);
-		double q_loss = h_wall * wall_area * (y.temp - WALL_TEMP) * sdt * c.wall_heat_scale;
+		double q_loss = h_wall * wall_area * (y.temp - c.wall_temp) * sdt * c.wall_heat_scale;
 		y.wall_loss_j += q_loss;
 
 		double h_in = gp_h(y.burnt, m_in >= 0.0 ? tm : y.temp) * m_in;

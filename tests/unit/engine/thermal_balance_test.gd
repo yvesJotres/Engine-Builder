@@ -1,0 +1,40 @@
+extends SceneTree
+
+const ThermalBalance = preload("res://scripts/sim/thermal_balance.gd")
+
+
+func _init() -> void:
+	var thermal = ThermalBalance.new(1000.0, 2000.0, 400.0, 300.0)
+	var initial_energy: float = thermal.wall_k * 1000.0 + thermal.coolant_k * 2000.0
+	thermal.advance(10.0, 900.0, 100.0, 0.0, 280.0)
+	assert(thermal.wall_k < 400.9 and thermal.coolant_k > 300.0)
+	assert(absf(thermal.wall_k * 1000.0 + thermal.coolant_k * 2000.0 - initial_energy - 900.0) < 0.000001)
+	thermal.advance(100000.0, 0.0, 100.0, 0.0, 280.0)
+	assert(absf(thermal.wall_k - thermal.coolant_k) < 0.000001)
+	thermal.advance(100000.0, 0.0, 0.0, 100.0, 280.0)
+	assert(absf(thermal.coolant_k - 280.0) < 0.000001)
+	assert(absf(thermal.wall_k * 1000.0 + thermal.coolant_k * 2000.0 + thermal.rejected_j - initial_energy - 900.0) < 0.000001)
+	var reverse = ThermalBalance.new(1000.0, 1000.0, 280.0, 320.0)
+	reverse.advance(100000.0, -1000.0, 100.0, 0.0, 300.0)
+	assert(absf((reverse.wall_k + reverse.coolant_k) * 0.5 - 299.5) < 0.000001)
+	assert(reverse.wall_k < reverse.coolant_k)
+	var one_step = ThermalBalance.new(1000.0, 2000.0, 400.0, 320.0)
+	var many_steps = ThermalBalance.new(1000.0, 2000.0, 400.0, 320.0)
+	one_step.advance(120.0, 60000.0, 100.0, 50.0, 280.0)
+	for i in 1200:
+		many_steps.advance(0.1, 50.0, 100.0, 50.0, 280.0)
+	assert(absf(one_step.wall_k - many_steps.wall_k) < 0.0000001)
+	assert(absf(one_step.coolant_k - many_steps.coolant_k) < 0.0000001)
+	assert(absf(one_step.rejected_j - many_steps.rejected_j) < 0.001)
+	var cooling = ThermalBalance.new(1000.0, 2000.0, 400.0, 320.0)
+	cooling.advance(100000.0, 0.0, 100.0, 50.0, 280.0)
+	assert(absf(cooling.wall_k - 280.0) < 0.000001 and absf(cooling.coolant_k - 280.0) < 0.000001)
+	var no_exchange = ThermalBalance.new(1000.0, 2000.0, 400.0, 320.0)
+	no_exchange.advance(5.0, 2000.0, 0.0, 0.0, 280.0)
+	assert(is_equal_approx(no_exchange.wall_k, 402.0) and is_equal_approx(no_exchange.coolant_k, 320.0))
+	no_exchange.advance(10.0, 1000.0, 0.0, 200.0, 280.0)
+	assert(is_equal_approx(no_exchange.wall_k, 403.0))
+	assert(absf(no_exchange.coolant_k - (280.0 + 40.0 * exp(-1.0))) < 0.000001)
+	assert(absf(no_exchange.rejected_j - (320.0 - no_exchange.coolant_k) * 2000.0) < 0.000001)
+	print("thermal_balance_test: PASS")
+	quit()
