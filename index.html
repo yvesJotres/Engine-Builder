@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine Builder: a physics-based engine simulator</title>
+<meta name="description" content="Engine Builder is a physics-based engine simulator for building, tuning, dyno testing and listening to motorcycle engines.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Engine Builder">
+<meta property="og:title" content="Engine Builder: a physics-based engine simulator">
+<meta property="og:description" content="Build a motorcycle engine from its parts, run it on a dyno, change one thing and hear the difference.">
+<meta property="og:url" content="https://yvesJotres.github.io/Engine-Builder/">
+<meta property="og:image" content="https://yvesJotres.github.io/Engine-Builder/assets/hero.png">
+<meta property="og:image:width" content="1920">
+<meta property="og:image:height" content="1080">
+<meta property="og:image:alt" content="A fully assembled motorcycle engine with exhaust, gearbox and drivetrain, rendered inside Engine Builder.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Engine Builder: a physics-based engine simulator">
+<meta name="twitter:description" content="Build a motorcycle engine from its parts, run it on a dyno, change one thing and hear the difference.">
+<meta name="twitter:image" content="https://yvesJotres.github.io/Engine-Builder/assets/hero.png">
+<meta name="theme-color" content="#0f1218">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<style>
+  :root {
+    --bg: #0f1218;
+    --surface: #171b24;
+    --line: #262c3a;
+    --ink: #e9ecf2;
+    --muted: #a7b0c0;
+    --accent: #e0703a;
+    --max: 1040px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: inherit; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+  section { padding: 72px 0; border-top: 1px solid var(--line); }
+
+  /* hero */
+  .hero { padding: 96px 0 72px; }
+  .hero-grid { display: grid; grid-template-columns: 1.02fr 1fr; gap: 56px; align-items: center; }
+  .hero-art { margin: 0; }
+  .hero-art img { display: block; width: 100%; height: auto; border: 1px solid var(--line);
+                  border-radius: 10px; background: var(--surface); }
+  .hero-art figcaption { margin-top: 12px; color: var(--muted); font-size: 14px; }
+  .kicker { font: 500 14px/1 ui-monospace, Consolas, monospace; color: var(--muted); letter-spacing: .04em; margin: 0 0 20px; }
+  h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); line-height: 1.08; font-weight: 700; letter-spacing: -.01em; margin: 0 0 20px; max-width: 16ch; }
+  .lede { font-size: 1.2rem; color: var(--muted); max-width: 40em; margin: 0 0 32px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 6px; font-weight: 600; text-decoration: none; border: 1px solid var(--accent); }
+  .btn.primary { background: var(--accent); color: #111; }
+  .btn.ghost { color: var(--ink); border-color: var(--line); }
+
+  h2 { font-size: 1.6rem; font-weight: 650; letter-spacing: -.005em; margin: 0 0 12px; }
+  .intro { color: var(--muted); max-width: 42em; margin: 0 0 40px; }
+
+  /* what it does: asymmetric, not a uniform grid */
+  .facts { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }
+  .facts .wide { grid-row: span 2; }
+  .fact { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 26px; }
+  .fact h3 { font-size: 1.05rem; margin: 0 0 8px; }
+  .fact p { margin: 0; color: var(--muted); }
+
+  /* download */
+  .platforms { display: grid; gap: 16px; }
+  .platform { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
+              background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 24px; }
+  .platform h3 { margin: 0 0 6px; font-size: 1.1rem; }
+  .platform p { margin: 0; color: var(--muted); }
+  .platform ul { margin: 12px 0 0; padding-left: 20px; color: var(--muted); }
+  .status { font: 600 13px/1 ui-monospace, Consolas, monospace; color: var(--muted); border: 1px solid var(--line);
+            border-radius: 4px; padding: 7px 10px; white-space: nowrap; }
+  .status.soon { color: var(--accent); border-color: var(--accent); }
+  .steps { margin: 40px 0 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 14px; }
+  .steps li { counter-increment: s; padding-left: 44px; position: relative; color: var(--muted); }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%;
+                      border: 1px solid var(--line); color: var(--ink); text-align: center; line-height: 26px; font-size: 14px; }
+  .steps strong { color: var(--ink); font-weight: 600; }
+
+  /* method */
+  .method p { color: var(--muted); max-width: 44em; margin: 0 0 16px; }
+  .method p:last-child { margin-bottom: 0; }
+
+  footer { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  footer a { color: inherit; }
+
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+  }
+  @media (max-width: 720px) {
+    section { padding: 56px 0; }
+    .hero { padding: 64px 0 48px; }
+    .facts { grid-template-columns: 1fr; }
+    .facts .wide { grid-row: auto; }
+    .platform { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="kicker">ENGINE BUILDER &middot; v0.1.5</p>
+      <h1>A physics-based engine simulator</h1>
+      <p class="lede">Build a motorcycle engine from its parts, run it on a dyno, change one thing and hear the difference. The power, the pressure waves and the sound all come from the same simulation.</p>
+      <div class="actions">
+        <a class="btn primary" href="#features">What it does</a>
+        <a class="btn ghost" href="#download">Download status</a>
+      </div>
+    </div>
+    <figure class="hero-art">
+      <img src="assets/hero.png" alt="A fully assembled motorcycle engine with exhaust, gearbox and drivetrain, rendered inside Engine Builder." width="1920" height="1080">
+      <figcaption>Engine assembly in Engine Builder: exhaust, gearbox, clutch and drivetrain, built from the same specs the simulation runs on.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="intro">Each cylinder is simulated as a thermodynamic cycle, every step. Nothing is replayed from a recording unless you choose a measured sound profile.</p>
+    <div class="facts">
+      <div class="fact wide">
+        <h3>Dyno runs against a reference</h3>
+        <p>Measure torque and power across the rev range, and compare the curve with a reference dyno sheet. Each result shows how far it sits from the reference, so a claim of accuracy can be checked.</p>
+      </div>
+      <div class="fact">
+        <h3>The sound follows the hardware</h3>
+        <p>Pipe length, diameter, catalyst and muffler change the pressure waves that become the note.</p>
+      </div>
+      <div class="fact">
+        <h3>Clearances are checked</h3>
+        <p>Valve gear, cams and pistons are drawn as they move, and the drawing is tested for parts that collide.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>Download</h2>
+    <p class="intro">The game is in development and is not yet released. Here is what is planned and where each platform stands.</p>
+    <div class="platforms">
+      <div class="platform">
+        <div>
+          <h3>Android</h3>
+          <p>Debug builds run on 64-bit ARM phones. Test builds are installed by sideloading an APK file.</p>
+          <ul>
+            <li>Install: open the APK on the phone and allow installs from this source.</li>
+            <li>Updates arrive as in-app patches once a public release exists.</li>
+          </ul>
+        </div>
+        <span class="status soon">IN TESTING</span>
+      </div>
+      <div class="platform">
+        <div>
+          <h3>Windows</h3>
+          <p>Desktop build with an installer. Development builds run from the project folder.</p>
+          <ul>
+            <li>After release, updates arrive as in-app patches &mdash; no reinstall between versions.</li>
+            <li>The update patcher is built and passes its tests; it goes live with the first release.</li>
+          </ul>
+        </div>
+        <span class="status">NOT RELEASED</span>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li><strong>Public release.</strong> Publishing waits until the licence, bike-naming and media checks are complete.</li>
+      <li><strong>Where to get it.</strong> The public release will be posted on this page with a direct download link.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="method">
+  <div class="wrap">
+    <h2>How the physics works</h2>
+    <p>The cylinder follows a combustion cycle with burn timing and heat loss. The exhaust and intake are solved as one-dimensional unsteady gas flow, so pressure waves travel down the pipes at the speed of sound in the hot gas.</p>
+    <p>Where a value is a measured figure, it is labelled as measured. Where it is an estimate, the simulator says so.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>&copy; Engine Builder. Third-party components and licences are listed in <a href="https://github.com/yvesJotres/Engine-Builder/blob/main/THIRD_PARTY.md">THIRD_PARTY.md</a> in the project repository.</p>
+  </div>
+</footer>
+
+</body>
+</html>
